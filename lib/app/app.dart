@@ -7,8 +7,10 @@ class UsalingoApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ProviderScope(
-      child: MaterialApp(title: 'Usalingo', home: const FlashcardPage()),
+    return MaterialApp(
+      title: 'Usalingo',
+      // theme: ThemeData(...), // 今後MaterialTheme拡張時に利用
+      home: const FlashcardPage(),
     );
   }
 }

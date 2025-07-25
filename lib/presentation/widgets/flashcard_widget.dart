@@ -5,6 +5,8 @@ import '../../domain/entities/word.dart';
 import '../../data/datasources/local_word_datasource.dart';
 import '../widgets/lottie_feedback_widget.dart';
 import 'dart:math';
+import '../../presentation/theme/app_theme_provider.dart';
+import '../../presentation/theme/app_theme.dart';
 
 final wordListProvider = Provider<List<Word>>(
   (ref) => LocalWordDatasource().getWords(),
@@ -177,20 +179,16 @@ class _FlashcardWidgetState extends ConsumerState<FlashcardWidget>
     bool isFront,
     bool isAnswerVisible,
   ) {
+    final theme = ref.watch(appThemeProvider);
     return Container(
       width: size,
       height: size * 1.35,
       margin: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 16,
-            offset: const Offset(0, 8),
-          ),
-        ],
+        color: theme.surface,
+        borderRadius: theme.cornerRadius,
+        boxShadow: theme.shadows,
+        border: Border.fromBorderSide(theme.border),
       ),
       child: Stack(
         children: [
@@ -212,7 +210,7 @@ class _FlashcardWidgetState extends ConsumerState<FlashcardWidget>
                       '10',
                       style: TextStyle(
                         fontSize: 22,
-                        color: Colors.grey[800],
+                        color: theme.primaryText,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
@@ -222,7 +220,7 @@ class _FlashcardWidgetState extends ConsumerState<FlashcardWidget>
                         '10',
                         style: TextStyle(
                           fontSize: 22,
-                          color: Colors.grey[800],
+                          color: theme.primaryText,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
@@ -233,12 +231,12 @@ class _FlashcardWidgetState extends ConsumerState<FlashcardWidget>
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Icon(Icons.favorite, color: Colors.red[400], size: 28),
+                    Icon(Icons.favorite, color: theme.accent, size: 28),
                     Transform.rotate(
                       angle: pi,
                       child: Icon(
                         Icons.favorite,
-                        color: Colors.red[400],
+                        color: theme.accent,
                         size: 28,
                       ),
                     ),
@@ -246,7 +244,7 @@ class _FlashcardWidgetState extends ConsumerState<FlashcardWidget>
                 ),
                 const Spacer(),
                 // ハート型シンボル配置（中央）
-                Center(child: _buildHeartGrid()),
+                Center(child: _buildHeartGrid(theme)),
                 const Spacer(),
                 // 単語・意味・例文
                 Center(
@@ -268,9 +266,9 @@ class _FlashcardWidgetState extends ConsumerState<FlashcardWidget>
                         ),
                       ),
                       if (isFront && !isAnswerVisible)
-                        const Text(
+                        Text(
                           'タップで解答表示',
-                          style: TextStyle(color: Colors.grey),
+                          style: TextStyle(color: theme.secondaryText),
                         ),
                       const SizedBox(height: 12),
                       Text(
@@ -290,7 +288,7 @@ class _FlashcardWidgetState extends ConsumerState<FlashcardWidget>
               child: Material(
                 color: Colors.transparent,
                 child: InkWell(
-                  borderRadius: BorderRadius.circular(24),
+                  borderRadius: theme.cornerRadius,
                   onTap: () {
                     ref.read(isAnswerVisibleProvider.notifier).state = true;
                   },
@@ -302,7 +300,7 @@ class _FlashcardWidgetState extends ConsumerState<FlashcardWidget>
     );
   }
 
-  Widget _buildHeartGrid() {
+  Widget _buildHeartGrid(AppTheme theme) {
     // 添付画像のようなハート配置（10個）
     // 3-2-2-3のダイヤ型配置
     final positions = [
@@ -326,7 +324,7 @@ class _FlashcardWidgetState extends ConsumerState<FlashcardWidget>
             Positioned(
               left: 60 + pos.dx - 14,
               top: pos.dy,
-              child: Icon(Icons.favorite, color: Colors.red[400], size: 28),
+              child: Icon(Icons.favorite, color: theme.accent, size: 28),
             ),
         ],
       ),
