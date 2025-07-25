@@ -2,15 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import '../../domain/entities/word.dart';
-import '../../data/datasources/local_word_datasource.dart';
+import '../../data/repositories/word_repository_sqlite.dart';
 import '../widgets/lottie_feedback_widget.dart';
 import 'dart:math';
 import '../../presentation/theme/app_theme_provider.dart';
 import '../../presentation/theme/app_theme.dart';
 
-final wordListProvider = Provider<List<Word>>(
-  (ref) => LocalWordDatasource().getWords(),
-);
+final wordListProvider = FutureProvider<List<Word>>((ref) async {
+  final repo = WordRepositorySQLite();
+  return await repo.fetchAllWords();
+});
 final currentIndexProvider = StateProvider<int>((ref) => 0);
 final isAnswerVisibleProvider = StateProvider<bool>((ref) => false);
 final lottieFeedbackProvider = StateProvider<String?>((ref) => null);
@@ -108,67 +109,73 @@ class _FlashcardWidgetState extends ConsumerState<FlashcardWidget>
 
   @override
   Widget build(BuildContext context) {
-    final wordList = ref.watch(wordListProvider);
+    final wordListAsync = ref.watch(wordListProvider);
     final currentIndex = ref.watch(currentIndexProvider);
     final isAnswerVisible = ref.watch(isAnswerVisibleProvider);
     final lottieFeedback = ref.watch(lottieFeedbackProvider);
-    if (currentIndex >= wordList.length) {
-      return const Text('学習完了！');
-    }
-    final word = wordList[currentIndex];
-    final nextWord = currentIndex + 1 < wordList.length
-        ? wordList[currentIndex + 1]
-        : null;
-    final cardSize = MediaQuery.of(context).size.width * 0.8;
-    return Stack(
-      alignment: Alignment.center,
-      children: [
-        // 次のカード（重なり感）
-        if (nextWord != null && lottieFeedback == null)
-          Transform.scale(
-            scale: 0.95,
-            child: _buildCard(context, nextWord, cardSize, false, false),
-          ),
-        // 現在のカード
-        if (lottieFeedback == null)
-          Transform.translate(
-            offset: cardOffset,
-            child: Transform.rotate(
-              angle: cardAngle,
-              child: GestureDetector(
-                onPanStart: (_) {
-                  setState(() => isDragging = true);
-                },
-                onPanUpdate: (details) {
-                  setState(() {
-                    cardOffset += details.delta;
-                    cardAngle = cardOffset.dx / (cardSize * 2.5);
-                  });
-                },
-                onPanEnd: (details) {
-                  setState(() => isDragging = false);
-                  final threshold = cardSize * 0.35;
-                  if (cardOffset.dx > threshold) {
-                    animateCardOffScreen(true);
-                  } else if (cardOffset.dx < -threshold) {
-                    animateCardOffScreen(false);
-                  } else {
-                    animateCardBack();
-                  }
-                },
-                child: _buildCard(
-                  context,
-                  word,
-                  cardSize,
-                  true,
-                  isAnswerVisible,
+    return wordListAsync.when(
+      data: (wordList) {
+        if (currentIndex >= wordList.length) {
+          return const Text('学習完了！');
+        }
+        final word = wordList[currentIndex];
+        final nextWord = currentIndex + 1 < wordList.length
+            ? wordList[currentIndex + 1]
+            : null;
+        final cardSize = MediaQuery.of(context).size.width * 0.8;
+        return Stack(
+          alignment: Alignment.center,
+          children: [
+            // 次のカード（重なり感）
+            if (nextWord != null && lottieFeedback == null)
+              Transform.scale(
+                scale: 0.95,
+                child: _buildCard(context, nextWord, cardSize, false, false),
+              ),
+            // 現在のカード
+            if (lottieFeedback == null)
+              Transform.translate(
+                offset: cardOffset,
+                child: Transform.rotate(
+                  angle: cardAngle,
+                  child: GestureDetector(
+                    onPanStart: (_) {
+                      setState(() => isDragging = true);
+                    },
+                    onPanUpdate: (details) {
+                      setState(() {
+                        cardOffset += details.delta;
+                        cardAngle = cardOffset.dx / (cardSize * 2.5);
+                      });
+                    },
+                    onPanEnd: (details) {
+                      setState(() => isDragging = false);
+                      final threshold = cardSize * 0.35;
+                      if (cardOffset.dx > threshold) {
+                        animateCardOffScreen(true);
+                      } else if (cardOffset.dx < -threshold) {
+                        animateCardOffScreen(false);
+                      } else {
+                        animateCardBack();
+                      }
+                    },
+                    child: _buildCard(
+                      context,
+                      word,
+                      cardSize,
+                      true,
+                      isAnswerVisible,
+                    ),
+                  ),
                 ),
               ),
-            ),
-          ),
-        if (lottieFeedback != null)
-          LottieFeedbackWidget(assetPath: lottieFeedback),
-      ],
+            if (lottieFeedback != null)
+              LottieFeedbackWidget(assetPath: lottieFeedback!),
+          ],
+        );
+      },
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (err, stack) => Center(child: Text('エラー: $err')),
     );
   }
 
@@ -272,7 +279,7 @@ class _FlashcardWidgetState extends ConsumerState<FlashcardWidget>
                         ),
                       const SizedBox(height: 12),
                       Text(
-                        word.sentence,
+                        word.sentence ?? '',
                         style: Theme.of(context).textTheme.bodyMedium,
                         textAlign: TextAlign.center,
                       ),
