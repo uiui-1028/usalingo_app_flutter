@@ -1,5 +1,6 @@
 /// Supabase APIキー・URLの管理用ファイル
 /// 本番ではこのファイルを.gitignoreに追加し、実際の値で上書きしてください。
+library;
 
 const String supabaseUrl =
     'https://udvmzaodsrgwecfybkry.supabase.co'; // ←ここを自分のURLに変更

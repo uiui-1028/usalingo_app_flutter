@@ -3,16 +3,16 @@ import '../app_theme.dart';
 
 class MockupTheme implements AppTheme {
   @override
-  Color get background => Colors.grey[200]!;
+  Color get background => Colors.black;
 
   @override
-  Color get surface => Colors.white;
+  Color get surface => const Color(0xFF1A1A1A);
 
   @override
-  Color get primaryText => Colors.black87;
+  Color get primaryText => Colors.white;
 
   @override
-  Color get secondaryText => Colors.black54;
+  Color get secondaryText => const Color(0xFFB0B0B0);
 
   @override
   Color get accent => Colors.blue;
@@ -22,13 +22,13 @@ class MockupTheme implements AppTheme {
 
   @override
   List<BoxShadow> get shadows => [
-    BoxShadow(
-      color: Colors.grey[400]!,
+    const BoxShadow(
+      color: Color(0xFF333333),
       blurRadius: 4,
-      offset: const Offset(2, 2),
+      offset: Offset(2, 2),
     ),
   ];
 
   @override
-  BorderSide get border => BorderSide(color: Colors.grey[400]!, width: 1.5);
+  BorderSide get border => const BorderSide(color: Color(0xFF333333), width: 1.5);
 }

@@ -2,19 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import '../../domain/entities/word.dart';
-import '../../data/repositories/word_repository_sqlite.dart';
+import '../../data/repositories/word_repository_selector.dart';
 import '../widgets/lottie_feedback_widget.dart';
 import 'dart:math';
 import '../../presentation/theme/app_theme_provider.dart';
 import '../../presentation/theme/app_theme.dart';
 
 final wordListProvider = FutureProvider<List<Word>>((ref) async {
-  final repo = WordRepositorySQLite();
+  final repo = ref.watch(wordRepositoryProvider);
   return await repo.fetchAllWords();
 });
 final currentIndexProvider = StateProvider<int>((ref) => 0);
 final isAnswerVisibleProvider = StateProvider<bool>((ref) => false);
-final lottieFeedbackProvider = StateProvider<String?>((ref) => null);
 
 class FlashcardWidget extends ConsumerStatefulWidget {
   const FlashcardWidget({super.key});
@@ -91,12 +90,8 @@ class _FlashcardWidgetState extends ConsumerState<FlashcardWidget>
       end: isRight ? pi / 8 : -pi / 8,
     ).animate(_animationController);
     _animationController.forward(from: 0).then((_) {
-      ref.read(lottieFeedbackProvider.notifier).state = isRight
-          ? 'assets/lottie/Feather (2).json'
-          : 'assets/lottie/Feather (3).json';
       HapticFeedback.mediumImpact();
-      Future.delayed(const Duration(milliseconds: 500), () {
-        ref.read(lottieFeedbackProvider.notifier).state = null;
+      Future.delayed(const Duration(milliseconds: 100), () {
         ref.read(currentIndexProvider.notifier).state++;
         ref.read(isAnswerVisibleProvider.notifier).state = false;
         setState(() {
@@ -112,11 +107,24 @@ class _FlashcardWidgetState extends ConsumerState<FlashcardWidget>
     final wordListAsync = ref.watch(wordListProvider);
     final currentIndex = ref.watch(currentIndexProvider);
     final isAnswerVisible = ref.watch(isAnswerVisibleProvider);
-    final lottieFeedback = ref.watch(lottieFeedbackProvider);
     return wordListAsync.when(
       data: (wordList) {
         if (currentIndex >= wordList.length) {
-          return const Text('学習完了！');
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Text(
+                  '学習完了！',
+                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 20),
+                LottieFeedbackWidget(
+                  assetPath: 'assets/lottie/Feather (2).json',
+                ),
+              ],
+            ),
+          );
         }
         final word = wordList[currentIndex];
         final nextWord = currentIndex + 1 < wordList.length
@@ -124,53 +132,63 @@ class _FlashcardWidgetState extends ConsumerState<FlashcardWidget>
             : null;
         final cardSize = MediaQuery.of(context).size.width * 0.8;
         return Stack(
-          alignment: Alignment.center,
           children: [
-            // 次のカード（重なり感）
-            if (nextWord != null && lottieFeedback == null)
-              Transform.scale(
-                scale: 0.95,
-                child: _buildCard(context, nextWord, cardSize, false, false),
-              ),
-            // 現在のカード
-            if (lottieFeedback == null)
-              Transform.translate(
-                offset: cardOffset,
-                child: Transform.rotate(
-                  angle: cardAngle,
-                  child: GestureDetector(
-                    onPanStart: (_) {
-                      setState(() => isDragging = true);
-                    },
-                    onPanUpdate: (details) {
-                      setState(() {
-                        cardOffset += details.delta;
-                        cardAngle = cardOffset.dx / (cardSize * 2.5);
-                      });
-                    },
-                    onPanEnd: (details) {
-                      setState(() => isDragging = false);
-                      final threshold = cardSize * 0.35;
-                      if (cardOffset.dx > threshold) {
-                        animateCardOffScreen(true);
-                      } else if (cardOffset.dx < -threshold) {
-                        animateCardOffScreen(false);
-                      } else {
-                        animateCardBack();
-                      }
-                    },
-                    child: _buildCard(
-                      context,
-                      word,
-                      cardSize,
-                      true,
-                      isAnswerVisible,
+            // 画面中央に配置
+            Center(
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  // 次のカード（重なり感）
+                  if (nextWord != null)
+                    Transform.translate(
+                      offset: const Offset(0, 8),
+                      child: _buildCard(
+                        context,
+                        nextWord,
+                        cardSize,
+                        false,
+                        false,
+                      ),
+                    ),
+                  // 現在のカード
+                  Transform.translate(
+                    offset: cardOffset,
+                    child: Transform.rotate(
+                      angle: cardAngle,
+                      child: GestureDetector(
+                        onPanStart: (_) {
+                          setState(() => isDragging = true);
+                        },
+                        onPanUpdate: (details) {
+                          setState(() {
+                            cardOffset += details.delta;
+                            cardAngle = cardOffset.dx / (cardSize * 2.5);
+                          });
+                        },
+                        onPanEnd: (details) {
+                          setState(() => isDragging = false);
+                          final threshold = cardSize * 0.35;
+                          if (cardOffset.dx > threshold) {
+                            animateCardOffScreen(true);
+                          } else if (cardOffset.dx < -threshold) {
+                            animateCardOffScreen(false);
+                          } else {
+                            animateCardBack();
+                          }
+                        },
+                        child: _buildCard(
+                          context,
+                          word,
+                          cardSize,
+                          true,
+                          isAnswerVisible,
+                        ),
+                      ),
                     ),
                   ),
-                ),
+                ],
               ),
-            if (lottieFeedback != null)
-              LottieFeedbackWidget(assetPath: lottieFeedback!),
+            ),
           ],
         );
       },
@@ -251,7 +269,19 @@ class _FlashcardWidgetState extends ConsumerState<FlashcardWidget>
                 ),
                 const Spacer(),
                 // ハート型シンボル配置（中央）
-                Center(child: _buildHeartGrid(theme)),
+                if (word.imageUrl != null && word.imageUrl!.isNotEmpty)
+                  Center(
+                    child: Image.network(
+                      word.imageUrl!,
+                      width: 120,
+                      height: 120,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) =>
+                          _buildHeartGrid(theme),
+                    ),
+                  )
+                else
+                  Center(child: _buildHeartGrid(theme)),
                 const Spacer(),
                 // 単語・意味・例文
                 Center(
@@ -279,10 +309,22 @@ class _FlashcardWidgetState extends ConsumerState<FlashcardWidget>
                         ),
                       const SizedBox(height: 12),
                       Text(
-                        word.sentence ?? '',
+                        word.sentence ?? '例文なし',
                         style: Theme.of(context).textTheme.bodyMedium,
                         textAlign: TextAlign.center,
                       ),
+                      if (word.tags != null && word.tags!.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8.0),
+                          child: Text(
+                            'タグ: ${word.tags}',
+                            style: TextStyle(
+                              color: theme.secondaryText,
+                              fontSize: 12,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
                     ],
                   ),
                 ),

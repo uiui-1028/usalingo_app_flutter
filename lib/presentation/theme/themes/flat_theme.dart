@@ -3,16 +3,16 @@ import '../app_theme.dart';
 
 class FlatTheme implements AppTheme {
   @override
-  Color get background => const Color(0xFFF7F7F7);
+  Color get background => Colors.black;
 
   @override
-  Color get surface => Colors.white;
+  Color get surface => const Color(0xFF1A1A1A);
 
   @override
-  Color get primaryText => const Color(0xFF222222);
+  Color get primaryText => Colors.white;
 
   @override
-  Color get secondaryText => const Color(0xFF888888);
+  Color get secondaryText => const Color(0xFFB0B0B0);
 
   @override
   Color get accent => const Color(0xFF2196F3);

@@ -1,5 +1,6 @@
 /// SQLite schema for the English wordbook app.
 /// Supabase(PostgreSQL)でも同じ構造でテーブルを作成できます。
+library;
 
 const String createWordsTable = '''
 CREATE TABLE words (

@@ -1,47 +1,133 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../domain/entities/word.dart';
-import '../../data/repositories/word_repository_sqlite.dart';
+import '../../data/repositories/word_repository_selector.dart';
 
 final wordListProvider = FutureProvider<List<Word>>((ref) async {
-  final repo = WordRepositorySQLite();
+  final repo = ref.watch(wordRepositoryProvider);
   return await repo.fetchAllWords();
 });
 
-class WordListPage extends ConsumerWidget {
+class WordListPage extends ConsumerStatefulWidget {
   const WordListPage({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<WordListPage> createState() => _WordListPageState();
+}
+
+class _WordListPageState extends ConsumerState<WordListPage> {
+  @override
+  Widget build(BuildContext context) {
     final wordListAsync = ref.watch(wordListProvider);
     return Scaffold(
       appBar: AppBar(title: const Text('単語リスト')),
       body: wordListAsync.when(
-        data: (words) => ListView.builder(
+        data: (words) => ReorderableListView.builder(
           itemCount: words.length,
+          onReorder: (oldIndex, newIndex) {
+            // TODO: 順序変更の永続化（DB更新）
+            setState(() {
+              if (oldIndex < newIndex) {
+                newIndex -= 1;
+              }
+              final item = words.removeAt(oldIndex);
+              words.insert(newIndex, item);
+            });
+          },
           itemBuilder: (context, i) {
             final word = words[i];
-            return Dismissible(
+            return Card(
               key: ValueKey(word.id),
-              background: Container(
-                color: Colors.red,
-                alignment: Alignment.centerRight,
-                child: const Padding(
-                  padding: EdgeInsets.only(right: 16),
-                  child: Icon(Icons.delete, color: Colors.white),
+              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              elevation: 4,
+              child: Dismissible(
+                key: ValueKey(word.id),
+                background: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.red,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  alignment: Alignment.centerRight,
+                  child: const Padding(
+                    padding: EdgeInsets.only(right: 16),
+                    child: Icon(Icons.delete, color: Colors.white),
+                  ),
                 ),
-              ),
-              direction: DismissDirection.endToStart,
-              onDismissed: (_) async {
-                await WordRepositorySQLite().deleteWord(word.id!);
-                ref.invalidate(wordListProvider);
-              },
-              child: ListTile(
-                title: Text(word.text),
-                subtitle: Text(word.meaning),
-                trailing: IconButton(
-                  icon: const Icon(Icons.edit),
-                  onPressed: () => _showWordDialog(context, ref, word: word),
+                direction: DismissDirection.endToStart,
+                onDismissed: (_) async {
+                  final repo = ref.read(wordRepositoryProvider);
+                  await repo.deleteWord(word.id!);
+                  ref.invalidate(wordListProvider);
+                },
+                child: ListTile(
+                  contentPadding: const EdgeInsets.all(16),
+                  leading: CircleAvatar(
+                    backgroundColor: Theme.of(context).primaryColor,
+                    child: Text(
+                      word.text[0].toUpperCase(),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  title: Text(
+                    word.text,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 18,
+                    ),
+                  ),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: 4),
+                      Text(word.meaning, style: const TextStyle(fontSize: 16)),
+                      if (word.sentence != null &&
+                          word.sentence!.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          word.sentence!,
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey[600],
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
+                      ],
+                      if (word.tags != null && word.tags!.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 4,
+                          children: word.tags!
+                              .split(',')
+                              .map(
+                                (tag) => Chip(
+                                  label: Text(tag.trim()),
+                                  backgroundColor: Colors.blue[50],
+                                  labelStyle: TextStyle(
+                                    color: Colors.blue[700],
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              )
+                              .toList(),
+                        ),
+                      ],
+                    ],
+                  ),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.edit),
+                        onPressed: () =>
+                            _showWordDialog(context, ref, word: word),
+                      ),
+                      const Icon(Icons.drag_handle),
+                    ],
+                  ),
+                  isThreeLine: true,
                 ),
               ),
             );
@@ -63,6 +149,9 @@ class WordListPage extends ConsumerWidget {
     final sentenceController = TextEditingController(
       text: word?.sentence ?? '',
     );
+    final imageUrlController = TextEditingController(
+      text: word?.imageUrl ?? '',
+    );
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -82,6 +171,10 @@ class WordListPage extends ConsumerWidget {
               controller: sentenceController,
               decoration: const InputDecoration(labelText: '例文'),
             ),
+            TextField(
+              controller: imageUrlController,
+              decoration: const InputDecoration(labelText: '画像URL'),
+            ),
           ],
         ),
         actions: [
@@ -91,13 +184,14 @@ class WordListPage extends ConsumerWidget {
           ),
           ElevatedButton(
             onPressed: () async {
-              final repo = WordRepositorySQLite();
+              final repo = ref.read(wordRepositoryProvider);
               if (word == null) {
                 await repo.insertWord(
                   Word(
                     text: textController.text,
                     meaning: meaningController.text,
                     sentence: sentenceController.text,
+                    imageUrl: imageUrlController.text,
                   ),
                 );
               } else {
@@ -106,6 +200,7 @@ class WordListPage extends ConsumerWidget {
                     text: textController.text,
                     meaning: meaningController.text,
                     sentence: sentenceController.text,
+                    imageUrl: imageUrlController.text,
                   ),
                 );
               }

@@ -3,16 +3,16 @@ import '../app_theme.dart';
 
 class MaterialTheme implements AppTheme {
   @override
-  Color get background => const Color(0xFFF5F5F5);
+  Color get background => Colors.black;
 
   @override
-  Color get surface => Colors.white;
+  Color get surface => const Color(0xFF1A1A1A);
 
   @override
-  Color get primaryText => const Color(0xFF212121);
+  Color get primaryText => Colors.white;
 
   @override
-  Color get secondaryText => const Color(0xFF757575);
+  Color get secondaryText => const Color(0xFFB0B0B0);
 
   @override
   Color get accent => const Color(0xFF6200EE);
