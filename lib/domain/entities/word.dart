@@ -6,6 +6,9 @@ class Word {
   final String? imageUrl;
   final String? tags;
   final DateTime? createdAt;
+  final bool isLearned; // 学習済みかどうか
+  final int reviewCount; // 復習回数
+  final DateTime? lastReviewedAt; // 最後に復習した日時
 
   const Word({
     this.id,
@@ -15,6 +18,9 @@ class Word {
     this.imageUrl,
     this.tags,
     this.createdAt,
+    this.isLearned = false,
+    this.reviewCount = 0,
+    this.lastReviewedAt,
   });
 
   Word copyWith({
@@ -25,6 +31,9 @@ class Word {
     String? imageUrl,
     String? tags,
     DateTime? createdAt,
+    bool? isLearned,
+    int? reviewCount,
+    DateTime? lastReviewedAt,
   }) {
     return Word(
       id: id ?? this.id,
@@ -34,6 +43,9 @@ class Word {
       imageUrl: imageUrl ?? this.imageUrl,
       tags: tags ?? this.tags,
       createdAt: createdAt ?? this.createdAt,
+      isLearned: isLearned ?? this.isLearned,
+      reviewCount: reviewCount ?? this.reviewCount,
+      lastReviewedAt: lastReviewedAt ?? this.lastReviewedAt,
     );
   }
 }

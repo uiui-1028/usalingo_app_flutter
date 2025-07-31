@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'word_list_page.dart';
 import '../widgets/flashcard_widget.dart';
-import 'supabase_test_page.dart';
 import '../../presentation/theme/app_theme_provider.dart';
 import '../../data/repositories/word_repository_selector.dart';
 
@@ -15,13 +14,111 @@ class RootPage extends ConsumerStatefulWidget {
 class _RootPageState extends ConsumerState<RootPage> {
   int _selectedIndex = 0;
 
-  static const _pages = [WordListPage(), FlashcardWidget(), SupabaseTestPage()];
+  static const _pages = [WordListPage(), FlashcardWidget()];
 
   static const _tabItems = [
-    {'icon': Icons.list, 'label': '単語リスト', 'color': Colors.purple},
     {'icon': Icons.style, 'label': 'フラッシュカード', 'color': Colors.orange},
-    {'icon': Icons.cloud, 'label': 'Supabase', 'color': Colors.teal},
+    {'icon': Icons.color_lens, 'label': 'デザイン', 'color': Colors.purple},
   ];
+
+  Future<void> _resetLearningProgress() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('学習状況のリセット'),
+        content: const Text('すべてのカードの学習状況をリセットしますか？\nこの操作は取り消せません。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('キャンセル'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('リセット'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      try {
+        final repository = ref.read(wordRepositoryProvider);
+        await repository.resetLearningProgress();
+
+        // プロバイダーを無効化してデータを再読み込み
+        ref.invalidate(wordListProvider);
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('学習状況をリセットしました'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('リセットに失敗しました: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  void _showThemeDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('デザイン変更'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.flatware),
+              title: const Text('Flat'),
+              onTap: () {
+                ref.read(appThemeTypeProvider.notifier).state =
+                    AppThemeType.flat;
+                Navigator.of(context).pop();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.design_services),
+              title: const Text('Material'),
+              onTap: () {
+                ref.read(appThemeTypeProvider.notifier).state =
+                    AppThemeType.material;
+                Navigator.of(context).pop();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.blur_on),
+              title: const Text('Neumorphism'),
+              onTap: () {
+                ref.read(appThemeTypeProvider.notifier).state =
+                    AppThemeType.neumorphism;
+                Navigator.of(context).pop();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.phone_android),
+              title: const Text('Mockup'),
+              onTap: () {
+                ref.read(appThemeTypeProvider.notifier).state =
+                    AppThemeType.mockup;
+                Navigator.of(context).pop();
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -29,18 +126,19 @@ class _RootPageState extends ConsumerState<RootPage> {
       appBar: AppBar(
         title: const Text('Usalingo'),
         actions: [
-          PopupMenuButton<int>(
-            icon: const Icon(Icons.color_lens),
-            onSelected: (index) {
-              ref.read(appThemeTypeProvider.notifier).state =
-                  AppThemeType.values[index];
+          // 単語リストボタン
+          IconButton(
+            icon: const Icon(Icons.list),
+            tooltip: '単語リスト',
+            onPressed: () {
+              setState(() => _selectedIndex = 0);
             },
-            itemBuilder: (context) => [
-              const PopupMenuItem(value: 0, child: Text('Flat')),
-              const PopupMenuItem(value: 1, child: Text('Material')),
-              const PopupMenuItem(value: 2, child: Text('Neumorph')),
-              const PopupMenuItem(value: 3, child: Text('Mockup')),
-            ],
+          ),
+          // リセットボタン
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: '学習状況をリセット',
+            onPressed: _resetLearningProgress,
           ),
           PopupMenuButton<DbType>(
             icon: const Icon(Icons.storage),
@@ -65,7 +163,52 @@ class _RootPageState extends ConsumerState<RootPage> {
             padding: EdgeInsets.only(
               bottom: 80 + MediaQuery.of(context).padding.bottom,
             ),
-            child: _pages[_selectedIndex],
+            child: _selectedIndex == 0
+                ? _pages[0]
+                : _selectedIndex == 1
+                ? _pages[1]
+                : Container(
+                    padding: const EdgeInsets.all(20),
+                    child: Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(
+                            Icons.color_lens,
+                            size: 64,
+                            color: Colors.purple,
+                          ),
+                          const SizedBox(height: 16),
+                          const Text(
+                            'デザイン設定',
+                            style: TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          const Text(
+                            '現在のデザインを変更できます',
+                            style: TextStyle(fontSize: 16, color: Colors.grey),
+                          ),
+                          const SizedBox(height: 32),
+                          ElevatedButton.icon(
+                            onPressed: _showThemeDialog,
+                            icon: const Icon(Icons.color_lens),
+                            label: const Text('デザインを変更'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.purple,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 24,
+                                vertical: 12,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
           ),
           // 独立したタブバー（画面下部に固定）
           Positioned(

@@ -24,6 +24,11 @@ class WordRepositorySupabase implements WordRepository {
             createdAt: m['created_at'] != null
                 ? DateTime.tryParse(m['created_at'])
                 : null,
+            isLearned: m['is_learned'] as bool? ?? false,
+            reviewCount: m['review_count'] as int? ?? 0,
+            lastReviewedAt: m['last_reviewed_at'] != null
+                ? DateTime.tryParse(m['last_reviewed_at'])
+                : null,
           ),
         )
         .toList();
@@ -51,5 +56,14 @@ class WordRepositorySupabase implements WordRepository {
   Future<int> deleteWord(int id) async {
     // TODO: 実装
     return 0;
+  }
+
+  @override
+  Future<void> resetLearningProgress() async {
+    await _client.from('words').update({
+      'is_learned': false,
+      'review_count': 0,
+      'last_reviewed_at': null,
+    });
   }
 }

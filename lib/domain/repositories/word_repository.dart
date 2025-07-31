@@ -6,4 +6,5 @@ abstract class WordRepository {
   Future<int> insertWord(Word word);
   Future<int> updateWord(Word word);
   Future<int> deleteWord(int id);
+  Future<void> resetLearningProgress(); // 学習状況をリセット
 }

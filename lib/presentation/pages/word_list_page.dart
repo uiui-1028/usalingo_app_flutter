@@ -2,11 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../domain/entities/word.dart';
 import '../../data/repositories/word_repository_selector.dart';
-
-final wordListProvider = FutureProvider<List<Word>>((ref) async {
-  final repo = ref.watch(wordRepositoryProvider);
-  return await repo.fetchAllWords();
-});
+import '../widgets/flashcard_widget.dart';
 
 class WordListPage extends ConsumerStatefulWidget {
   const WordListPage({super.key});
@@ -59,75 +55,90 @@ class _WordListPageState extends ConsumerState<WordListPage> {
                   await repo.deleteWord(word.id!);
                   ref.invalidate(wordListProvider);
                 },
-                child: ListTile(
-                  contentPadding: const EdgeInsets.all(16),
-                  leading: CircleAvatar(
-                    backgroundColor: Theme.of(context).primaryColor,
-                    child: Text(
-                      word.text[0].toUpperCase(),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  title: Text(
-                    word.text,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 18,
-                    ),
-                  ),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
                     children: [
-                      const SizedBox(height: 4),
-                      Text(word.meaning, style: const TextStyle(fontSize: 16)),
-                      if (word.sentence != null &&
-                          word.sentence!.isNotEmpty) ...[
-                        const SizedBox(height: 8),
-                        Text(
-                          word.sentence!,
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.grey[600],
-                            fontStyle: FontStyle.italic,
+                      // ドラッグハンドル（左端）
+                      Container(
+                        margin: const EdgeInsets.only(right: 12),
+                        child: const Icon(
+                          Icons.drag_handle,
+                          color: Colors.grey,
+                          size: 20,
+                        ),
+                      ),
+                      // アバター
+                      CircleAvatar(
+                        backgroundColor: Theme.of(context).primaryColor,
+                        child: Text(
+                          word.text[0].toUpperCase(),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
                           ),
                         ),
-                      ],
-                      if (word.tags != null && word.tags!.isNotEmpty) ...[
-                        const SizedBox(height: 8),
-                        Wrap(
-                          spacing: 4,
-                          children: word.tags!
-                              .split(',')
-                              .map(
-                                (tag) => Chip(
-                                  label: Text(tag.trim()),
-                                  backgroundColor: Colors.blue[50],
-                                  labelStyle: TextStyle(
-                                    color: Colors.blue[700],
-                                    fontSize: 12,
-                                  ),
+                      ),
+                      const SizedBox(width: 16),
+                      // メインコンテンツ
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              word.text,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 18,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              word.meaning,
+                              style: const TextStyle(fontSize: 16),
+                            ),
+                            if (word.sentence != null &&
+                                word.sentence!.isNotEmpty) ...[
+                              const SizedBox(height: 8),
+                              Text(
+                                word.sentence!,
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.grey[600],
+                                  fontStyle: FontStyle.italic,
                                 ),
-                              )
-                              .toList(),
+                              ),
+                            ],
+                            if (word.tags != null && word.tags!.isNotEmpty) ...[
+                              const SizedBox(height: 8),
+                              Wrap(
+                                spacing: 4,
+                                children: word.tags!
+                                    .split(',')
+                                    .map(
+                                      (tag) => Chip(
+                                        label: Text(tag.trim()),
+                                        backgroundColor: Colors.blue[50],
+                                        labelStyle: TextStyle(
+                                          color: Colors.blue[700],
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                    )
+                                    .toList(),
+                              ),
+                            ],
+                          ],
                         ),
-                      ],
-                    ],
-                  ),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
+                      ),
+                      // 編集ボタン（右端）
                       IconButton(
                         icon: const Icon(Icons.edit),
                         onPressed: () =>
                             _showWordDialog(context, ref, word: word),
                       ),
-                      const Icon(Icons.drag_handle),
                     ],
                   ),
-                  isThreeLine: true,
                 ),
               ),
             );

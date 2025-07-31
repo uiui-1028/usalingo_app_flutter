@@ -10,7 +10,10 @@ CREATE TABLE words (
   sentence TEXT,                       -- 例文（任意）
   image_url TEXT,                      -- イラスト画像のURLまたはパス（任意）
   tags TEXT,                           -- カンマ区切りタグ（任意）
-  created_at TEXT DEFAULT CURRENT_TIMESTAMP -- 登録日時
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP, -- 登録日時
+  is_learned INTEGER DEFAULT 0,        -- 学習済みかどうか（0=未学習, 1=学習済み）
+  review_count INTEGER DEFAULT 0,      -- 復習回数
+  last_reviewed_at TEXT               -- 最後に復習した日時
 );
 ''';
 
@@ -22,3 +25,6 @@ CREATE TABLE words (
 /// - image_url: string, 任意, イラスト画像のURLやファイルパス
 /// - tags: string, 任意, カンマ区切りのタグ
 /// - created_at: string, 自動, 登録日時
+/// - is_learned: int, 自動, 学習済みフラグ（0=未学習, 1=学習済み）
+/// - review_count: int, 自動, 復習回数
+/// - last_reviewed_at: string, 任意, 最後に復習した日時
