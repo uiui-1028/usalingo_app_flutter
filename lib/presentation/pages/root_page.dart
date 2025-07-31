@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'word_list_page.dart';
 import '../widgets/flashcard_widget.dart';
+import 'test_3d_card_screen.dart';
 import '../../presentation/theme/app_theme_provider.dart';
 import '../../data/repositories/word_repository_selector.dart';
 
@@ -14,11 +15,12 @@ class RootPage extends ConsumerStatefulWidget {
 class _RootPageState extends ConsumerState<RootPage> {
   int _selectedIndex = 0;
 
-  static const _pages = [WordListPage(), FlashcardWidget()];
+  static const _pages = [WordListPage(), FlashcardWidget(), Test3DCardScreen()];
 
   static const _tabItems = [
+    {'icon': Icons.list, 'label': '単語リスト', 'color': Colors.green},
     {'icon': Icons.style, 'label': 'フラッシュカード', 'color': Colors.orange},
-    {'icon': Icons.color_lens, 'label': 'デザイン', 'color': Colors.purple},
+    {'icon': Icons.threed_rotation, 'label': '3Dカード', 'color': Colors.blue},
   ];
 
   Future<void> _resetLearningProgress() async {
@@ -126,14 +128,6 @@ class _RootPageState extends ConsumerState<RootPage> {
       appBar: AppBar(
         title: const Text('Usalingo'),
         actions: [
-          // 単語リストボタン
-          IconButton(
-            icon: const Icon(Icons.list),
-            tooltip: '単語リスト',
-            onPressed: () {
-              setState(() => _selectedIndex = 0);
-            },
-          ),
           // リセットボタン
           IconButton(
             icon: const Icon(Icons.refresh),
@@ -163,52 +157,7 @@ class _RootPageState extends ConsumerState<RootPage> {
             padding: EdgeInsets.only(
               bottom: 80 + MediaQuery.of(context).padding.bottom,
             ),
-            child: _selectedIndex == 0
-                ? _pages[0]
-                : _selectedIndex == 1
-                ? _pages[1]
-                : Container(
-                    padding: const EdgeInsets.all(20),
-                    child: Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(
-                            Icons.color_lens,
-                            size: 64,
-                            color: Colors.purple,
-                          ),
-                          const SizedBox(height: 16),
-                          const Text(
-                            'デザイン設定',
-                            style: TextStyle(
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          const Text(
-                            '現在のデザインを変更できます',
-                            style: TextStyle(fontSize: 16, color: Colors.grey),
-                          ),
-                          const SizedBox(height: 32),
-                          ElevatedButton.icon(
-                            onPressed: _showThemeDialog,
-                            icon: const Icon(Icons.color_lens),
-                            label: const Text('デザインを変更'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.purple,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 24,
-                                vertical: 12,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
+            child: _pages[_selectedIndex],
           ),
           // 独立したタブバー（画面下部に固定）
           Positioned(
