@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'word_list_page.dart';
 import '../widgets/flashcard_widget.dart';
 import 'test_3d_card_screen.dart';
+import 'learning_progress_test_page.dart';
 import '../../presentation/theme/app_theme_provider.dart';
 import '../../data/repositories/word_repository_selector.dart';
 
@@ -15,12 +16,18 @@ class RootPage extends ConsumerStatefulWidget {
 class _RootPageState extends ConsumerState<RootPage> {
   int _selectedIndex = 0;
 
-  static const _pages = [WordListPage(), FlashcardWidget(), Test3DCardScreen()];
+  static const _pages = [
+    WordListPage(),
+    FlashcardWidget(),
+    Test3DCardScreen(),
+    LearningProgressTestPage(),
+  ];
 
   static const _tabItems = [
     {'icon': Icons.list, 'label': '単語リスト', 'color': Colors.green},
     {'icon': Icons.style, 'label': 'フラッシュカード', 'color': Colors.orange},
     {'icon': Icons.threed_rotation, 'label': '3Dカード', 'color': Colors.blue},
+    {'icon': Icons.school, 'label': '学習進捗', 'color': Colors.purple},
   ];
 
   Future<void> _resetLearningProgress() async {
