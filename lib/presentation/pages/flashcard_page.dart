@@ -10,7 +10,7 @@ class FlashcardPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = ref.watch(appThemeProvider);
     return Scaffold(
-      backgroundColor: theme.background,
+      backgroundColor: theme.backgroundColor,
       body: SafeArea(child: Center(child: FlashcardWidget())),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _themeTypeToIndex(ref.watch(appThemeTypeProvider)),
@@ -36,7 +36,9 @@ class FlashcardPage extends ConsumerWidget {
         return 1;
       case AppThemeType.neumorphism:
         return 2;
+      case AppThemeType.wireframe:
       case AppThemeType.mockup:
+      case AppThemeType.pixelArt:
       default:
         return 1; // デフォルトはMaterial
     }

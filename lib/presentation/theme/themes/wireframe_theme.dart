@@ -1,15 +1,17 @@
 import 'package:flutter/material.dart';
 import '../app_theme.dart';
 
-/// Flat design theme with minimal shadows and clean appearance.
-class FlatUsalingoTheme extends AppTheme {
+/// Wireframe theme for development foundation.
+/// All color properties are set to black and white,
+/// shadows are empty list, and border radius is 0.0.
+class WireframeUsalingoTheme extends AppTheme {
   @override
   ThemeData get themeData => ThemeData(
     useMaterial3: true,
     colorScheme: const ColorScheme.light(
       background: Colors.white,
       surface: Colors.white,
-      primary: Color(0xFF2196F3),
+      primary: Colors.black,
       onPrimary: Colors.white,
       onBackground: Colors.black,
       onSurface: Colors.black,
@@ -19,32 +21,22 @@ class FlatUsalingoTheme extends AppTheme {
       bodyMedium: TextStyle(color: Colors.black),
       titleLarge: TextStyle(color: Colors.black),
     ),
-    elevatedButtonTheme: ElevatedButtonThemeData(
-      style: ElevatedButton.styleFrom(
-        backgroundColor: const Color(0xFF2196F3),
-        foregroundColor: Colors.white,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12.0),
-        ),
-        elevation: 0,
-      ),
-    ),
   );
 
   @override
   Color get backgroundColor => Colors.white;
 
   @override
-  Color get primaryColor => const Color(0xFF2196F3);
+  Color get primaryColor => Colors.black;
 
   @override
-  Color get accentColor => const Color(0xFF2196F3);
+  Color get accentColor => Colors.black;
 
   @override
   Color get textColor => Colors.black;
 
   @override
-  Color get secondaryTextColor => const Color(0xFF666666);
+  Color get secondaryTextColor => Colors.black;
 
   @override
   Color get surfaceColor => Colors.white;
@@ -53,7 +45,7 @@ class FlatUsalingoTheme extends AppTheme {
   Color get cardColor => Colors.white;
 
   @override
-  double get borderRadius => 12.0;
+  double get borderRadius => 0.0;
 
   @override
   double get borderWidth => 1.0;
@@ -66,7 +58,7 @@ class FlatUsalingoTheme extends AppTheme {
 
   @override
   BorderSide get borderSide =>
-      const BorderSide(color: Color(0xFFE0E0E0), width: 1.0);
+      const BorderSide(color: Colors.black, width: 1.0);
 
   @override
   TextStyle get primaryTextStyle =>
@@ -74,7 +66,7 @@ class FlatUsalingoTheme extends AppTheme {
 
   @override
   TextStyle get secondaryTextStyle =>
-      const TextStyle(color: Color(0xFF666666), fontSize: 14.0);
+      const TextStyle(color: Colors.black, fontSize: 14.0);
 
   @override
   TextStyle get headingTextStyle => const TextStyle(

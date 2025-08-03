@@ -210,10 +210,10 @@ class _FlashcardWidgetState extends ConsumerState<FlashcardWidget>
       height: size * 1.35,
       margin: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: theme.surface,
-        borderRadius: theme.cornerRadius,
-        boxShadow: theme.shadows,
-        border: Border.fromBorderSide(theme.border),
+        color: theme.cardColor,
+        borderRadius: BorderRadius.circular(theme.borderRadius),
+        boxShadow: theme.cardShadows,
+        border: Border.fromBorderSide(theme.borderSide),
       ),
       child: Stack(
         children: [
@@ -235,7 +235,7 @@ class _FlashcardWidgetState extends ConsumerState<FlashcardWidget>
                       '10',
                       style: TextStyle(
                         fontSize: 22,
-                        color: theme.primaryText,
+                        color: theme.textColor,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
@@ -245,7 +245,7 @@ class _FlashcardWidgetState extends ConsumerState<FlashcardWidget>
                         '10',
                         style: TextStyle(
                           fontSize: 22,
-                          color: theme.primaryText,
+                          color: theme.textColor,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
@@ -256,12 +256,12 @@ class _FlashcardWidgetState extends ConsumerState<FlashcardWidget>
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Icon(Icons.favorite, color: theme.accent, size: 28),
+                    Icon(Icons.favorite, color: theme.accentColor, size: 28),
                     Transform.rotate(
                       angle: pi,
                       child: Icon(
                         Icons.favorite,
-                        color: theme.accent,
+                        color: theme.accentColor,
                         size: 28,
                       ),
                     ),
@@ -289,7 +289,7 @@ class _FlashcardWidgetState extends ConsumerState<FlashcardWidget>
                     children: [
                       Text(
                         word.text,
-                        style: Theme.of(context).textTheme.headlineSmall,
+                        style: theme.headingTextStyle,
                         textAlign: TextAlign.center,
                       ),
                       const SizedBox(height: 12),
@@ -298,19 +298,16 @@ class _FlashcardWidgetState extends ConsumerState<FlashcardWidget>
                         duration: const Duration(milliseconds: 300),
                         child: Text(
                           word.meaning,
-                          style: Theme.of(context).textTheme.titleLarge,
+                          style: theme.primaryTextStyle,
                           textAlign: TextAlign.center,
                         ),
                       ),
                       if (isFront && !isAnswerVisible)
-                        Text(
-                          'タップで解答表示',
-                          style: TextStyle(color: theme.secondaryText),
-                        ),
+                        Text('タップで解答表示', style: theme.secondaryTextStyle),
                       const SizedBox(height: 12),
                       Text(
                         word.sentence ?? '例文なし',
-                        style: Theme.of(context).textTheme.bodyMedium,
+                        style: theme.primaryTextStyle,
                         textAlign: TextAlign.center,
                       ),
                       if (word.tags != null && word.tags!.isNotEmpty)
@@ -318,8 +315,7 @@ class _FlashcardWidgetState extends ConsumerState<FlashcardWidget>
                           padding: const EdgeInsets.only(top: 8.0),
                           child: Text(
                             'タグ: ${word.tags}',
-                            style: TextStyle(
-                              color: theme.secondaryText,
+                            style: theme.secondaryTextStyle.copyWith(
                               fontSize: 12,
                             ),
                             textAlign: TextAlign.center,
@@ -337,7 +333,7 @@ class _FlashcardWidgetState extends ConsumerState<FlashcardWidget>
               child: Material(
                 color: Colors.transparent,
                 child: InkWell(
-                  borderRadius: theme.cornerRadius,
+                  borderRadius: BorderRadius.circular(theme.borderRadius),
                   onTap: () {
                     ref.read(isAnswerVisibleProvider.notifier).state = true;
                   },
@@ -373,7 +369,7 @@ class _FlashcardWidgetState extends ConsumerState<FlashcardWidget>
             Positioned(
               left: 60 + pos.dx - 14,
               top: pos.dy,
-              child: Icon(Icons.favorite, color: theme.accent, size: 28),
+              child: Icon(Icons.favorite, color: theme.accentColor, size: 28),
             ),
         ],
       ),
@@ -385,7 +381,7 @@ class GridPatternPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = Colors.grey.withOpacity(0.12)
+      ..color = Colors.grey.withValues(alpha: 0.12)
       ..strokeWidth = 1;
     const step = 18.0;
     for (double x = 0; x < size.width; x += step) {

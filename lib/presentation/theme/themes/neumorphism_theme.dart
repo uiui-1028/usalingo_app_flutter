@@ -1,27 +1,59 @@
 import 'package:flutter/material.dart';
 import '../app_theme.dart';
 
-class NeumorphismTheme implements AppTheme {
+/// Neumorphic theme that implements the neumorphism design style.
+/// Features soft shadows and off-white background color.
+class NeumorphicUsalingoTheme extends AppTheme {
   @override
-  Color get background => Colors.black;
+  ThemeData get themeData => ThemeData(
+    useMaterial3: true,
+    colorScheme: const ColorScheme.light(
+      background: Color(0xFFE0E5EC),
+      surface: Color(0xFFE0E5EC),
+      primary: Color(0xFF4A7AFF),
+      onPrimary: Colors.white,
+      onBackground: Color(0xFF2D3748),
+      onSurface: Color(0xFF2D3748),
+    ),
+    textTheme: const TextTheme(
+      bodyLarge: TextStyle(color: Color(0xFF2D3748)),
+      bodyMedium: TextStyle(color: Color(0xFF2D3748)),
+      titleLarge: TextStyle(color: Color(0xFF2D3748)),
+    ),
+  );
 
   @override
-  Color get surface => const Color(0xFF1A1A1A);
+  Color get backgroundColor => const Color(0xFFE0E5EC);
 
   @override
-  Color get primaryText => Colors.white;
+  Color get primaryColor => const Color(0xFF4A7AFF);
 
   @override
-  Color get secondaryText => const Color(0xFFB0B0B0);
+  Color get accentColor => const Color(0xFF4A7AFF);
 
   @override
-  Color get accent => const Color(0xFF4A7AFF);
+  Color get textColor => const Color(0xFF2D3748);
 
   @override
-  BorderRadius get cornerRadius => BorderRadius.circular(20.0);
+  Color get secondaryTextColor => const Color(0xFF718096);
 
   @override
-  List<BoxShadow> get shadows => [
+  Color get surfaceColor => const Color(0xFFE0E5EC);
+
+  @override
+  Color get cardColor => const Color(0xFFE0E5EC);
+
+  @override
+  double get borderRadius => 20.0;
+
+  @override
+  double get borderWidth => 0.0;
+
+  @override
+  BorderStyle get borderStyle => BorderStyle.none;
+
+  @override
+  List<BoxShadow> get cardShadows => [
     const BoxShadow(
       color: Color.fromRGBO(40, 40, 40, 0.8),
       offset: Offset(-4, -4),
@@ -35,6 +67,21 @@ class NeumorphismTheme implements AppTheme {
   ];
 
   @override
-  BorderSide get border =>
+  BorderSide get borderSide =>
       const BorderSide(color: Colors.transparent, width: 0.0);
+
+  @override
+  TextStyle get primaryTextStyle =>
+      const TextStyle(color: Color(0xFF2D3748), fontSize: 16.0);
+
+  @override
+  TextStyle get secondaryTextStyle =>
+      const TextStyle(color: Color(0xFF718096), fontSize: 14.0);
+
+  @override
+  TextStyle get headingTextStyle => const TextStyle(
+    color: Color(0xFF2D3748),
+    fontSize: 24.0,
+    fontWeight: FontWeight.bold,
+  );
 }

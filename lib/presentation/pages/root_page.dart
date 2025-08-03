@@ -174,11 +174,11 @@ class _RootPageState extends ConsumerState<RootPage> {
             child: Container(
               margin: const EdgeInsets.symmetric(horizontal: 16),
               decoration: BoxDecoration(
-                color: ref.watch(appThemeProvider).surface,
+                color: ref.watch(appThemeProvider).cardColor,
                 borderRadius: BorderRadius.circular(25),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.15),
+                    color: Colors.black.withValues(alpha: 0.15),
                     blurRadius: 15,
                     offset: const Offset(0, 5),
                   ),
@@ -206,7 +206,7 @@ class _RootPageState extends ConsumerState<RootPage> {
                         ),
                         decoration: BoxDecoration(
                           color: isActive
-                              ? color.withOpacity(0.2)
+                              ? color.withValues(alpha: 0.2)
                               : Colors.transparent,
                           borderRadius: BorderRadius.circular(20),
                         ),
@@ -217,7 +217,9 @@ class _RootPageState extends ConsumerState<RootPage> {
                               item['icon'] as IconData,
                               color: isActive
                                   ? color
-                                  : ref.watch(appThemeProvider).secondaryText,
+                                  : ref
+                                        .watch(appThemeProvider)
+                                        .secondaryTextColor,
                               size: 24,
                             ),
                             if (isActive) ...[

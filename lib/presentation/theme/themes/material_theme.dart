@@ -1,27 +1,65 @@
 import 'package:flutter/material.dart';
 import '../app_theme.dart';
 
-class MaterialTheme implements AppTheme {
+/// Material Design theme that follows Google's Material Design guidelines.
+class MaterialUsalingoTheme extends AppTheme {
   @override
-  Color get background => Colors.black;
+  ThemeData get themeData => ThemeData(
+    useMaterial3: true,
+    colorScheme: const ColorScheme.light(
+      background: Colors.white,
+      surface: Colors.white,
+      primary: Color(0xFF6200EE),
+      onPrimary: Colors.white,
+      onBackground: Colors.black,
+      onSurface: Colors.black,
+    ),
+    textTheme: const TextTheme(
+      bodyLarge: TextStyle(color: Colors.black),
+      bodyMedium: TextStyle(color: Colors.black),
+      titleLarge: TextStyle(color: Colors.black),
+    ),
+    elevatedButtonTheme: ElevatedButtonThemeData(
+      style: ElevatedButton.styleFrom(
+        backgroundColor: const Color(0xFF6200EE),
+        foregroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4.0)),
+      ),
+    ),
+  );
 
   @override
-  Color get surface => const Color(0xFF1A1A1A);
+  Color get backgroundColor => Colors.white;
 
   @override
-  Color get primaryText => Colors.white;
+  Color get primaryColor => const Color(0xFF6200EE);
 
   @override
-  Color get secondaryText => const Color(0xFFB0B0B0);
+  Color get accentColor => const Color(0xFF6200EE);
 
   @override
-  Color get accent => const Color(0xFF6200EE);
+  Color get textColor => Colors.black;
 
   @override
-  BorderRadius get cornerRadius => BorderRadius.circular(4.0);
+  Color get secondaryTextColor => const Color(0xFF666666);
 
   @override
-  List<BoxShadow> get shadows => [
+  Color get surfaceColor => Colors.white;
+
+  @override
+  Color get cardColor => Colors.white;
+
+  @override
+  double get borderRadius => 4.0;
+
+  @override
+  double get borderWidth => 1.0;
+
+  @override
+  BorderStyle get borderStyle => BorderStyle.solid;
+
+  @override
+  List<BoxShadow> get cardShadows => [
     const BoxShadow(
       color: Color.fromRGBO(0, 0, 0, 0.2),
       offset: Offset(0, 3),
@@ -30,6 +68,21 @@ class MaterialTheme implements AppTheme {
   ];
 
   @override
-  BorderSide get border =>
+  BorderSide get borderSide =>
       const BorderSide(color: Color(0xFFE0E0E0), width: 1.0);
+
+  @override
+  TextStyle get primaryTextStyle =>
+      const TextStyle(color: Colors.black, fontSize: 16.0);
+
+  @override
+  TextStyle get secondaryTextStyle =>
+      const TextStyle(color: Color(0xFF666666), fontSize: 14.0);
+
+  @override
+  TextStyle get headingTextStyle => const TextStyle(
+    color: Colors.black,
+    fontSize: 24.0,
+    fontWeight: FontWeight.bold,
+  );
 }

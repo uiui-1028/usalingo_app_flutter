@@ -178,7 +178,7 @@ class _Test3DCardScreenState extends ConsumerState<Test3DCardScreen>
               children: [
                 FloatingActionButton(
                   onPressed: _showSettingsPanel,
-                  backgroundColor: theme.accent,
+                  backgroundColor: theme.accentColor,
                   child: const Icon(Icons.settings, color: Colors.white),
                 ),
                 const SizedBox(height: 16),
@@ -206,13 +206,13 @@ class _Test3DCardScreenState extends ConsumerState<Test3DCardScreen>
         boxShadow: [
           // カードの厚みを表現する影
           BoxShadow(
-            color: Colors.black.withOpacity(0.3),
+            color: Colors.black.withValues(alpha: 0.3),
             blurRadius: 20,
             offset: const Offset(0, 10),
           ),
           // カードの縁の影（厚み表現）
           BoxShadow(
-            color: Colors.black.withOpacity(0.2),
+            color: Colors.black.withValues(alpha: 0.2),
             blurRadius: 5,
             offset: const Offset(2, 2),
           ),
@@ -415,7 +415,7 @@ class _Test3DCardScreenState extends ConsumerState<Test3DCardScreen>
     return Container(
       height: MediaQuery.of(context).size.height * 0.6,
       decoration: BoxDecoration(
-        color: theme.surface,
+        color: theme.surfaceColor,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
       ),
       child: Column(
@@ -439,7 +439,7 @@ class _Test3DCardScreenState extends ConsumerState<Test3DCardScreen>
             style: TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.bold,
-              color: theme.primaryText,
+              color: theme.textColor,
             ),
           ),
 
@@ -455,7 +455,7 @@ class _Test3DCardScreenState extends ConsumerState<Test3DCardScreen>
                   subtitle: const Text('カード上部のイラストを表示'),
                   value: settings.showIllustration,
                   onChanged: (value) => notifier.toggleIllustration(),
-                  activeColor: theme.accent,
+                  activeColor: theme.accentColor,
                 ),
 
                 SwitchListTile(
@@ -463,7 +463,7 @@ class _Test3DCardScreenState extends ConsumerState<Test3DCardScreen>
                   subtitle: const Text('ピチューなどの単語名を表示'),
                   value: settings.showTerm,
                   onChanged: (value) => notifier.toggleTerm(),
-                  activeColor: theme.accent,
+                  activeColor: theme.accentColor,
                 ),
 
                 SwitchListTile(
@@ -471,7 +471,7 @@ class _Test3DCardScreenState extends ConsumerState<Test3DCardScreen>
                   subtitle: const Text('発音記号や読み方を表示'),
                   value: settings.showPronunciation,
                   onChanged: (value) => notifier.togglePronunciation(),
-                  activeColor: theme.accent,
+                  activeColor: theme.accentColor,
                 ),
 
                 SwitchListTile(
@@ -479,7 +479,7 @@ class _Test3DCardScreenState extends ConsumerState<Test3DCardScreen>
                   subtitle: const Text('単語の定義や説明を表示'),
                   value: settings.showDefinition,
                   onChanged: (value) => notifier.toggleDefinition(),
-                  activeColor: theme.accent,
+                  activeColor: theme.accentColor,
                 ),
 
                 SwitchListTile(
@@ -487,7 +487,7 @@ class _Test3DCardScreenState extends ConsumerState<Test3DCardScreen>
                   subtitle: const Text('使用例や例文を表示'),
                   value: settings.showExampleSentence,
                   onChanged: (value) => notifier.toggleExampleSentence(),
-                  activeColor: theme.accent,
+                  activeColor: theme.accentColor,
                 ),
               ],
             ),
