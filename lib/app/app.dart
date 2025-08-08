@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../presentation/pages/root_page.dart';
+import '../presentation/pages/splash_page.dart';
 import '../presentation/theme/app_theme_provider.dart';
 
 class UsalingoApp extends ConsumerWidget {
@@ -13,7 +13,7 @@ class UsalingoApp extends ConsumerWidget {
     return MaterialApp(
       title: 'Usalingo',
       theme: themeData,
-      home: const RootPage(),
+      home: const SplashPage(),
     );
   }
 }
