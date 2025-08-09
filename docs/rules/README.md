@@ -10,6 +10,7 @@
 - **cursor-rules.md** - Cursor AI Editor用のルール
 - **claude-rules.md** - Claude用のルール
 - **common-rules.md** - 共通ルール（重複部分）
+- **supabase-docs-rules.md** - Supabase ドキュメントの配置/命名/更新ルール
 
 ## 使用方法
 

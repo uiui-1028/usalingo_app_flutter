@@ -40,7 +40,7 @@ class LearningProgressDataSource {
     await db.insert(_tableName, {
       'word_id': progress.wordId,
       'srs_level': progress.srsLevel,
-      'next_review_date': progress.nextReviewDate.toIso8601String(),
+      'next_review_date': progress.nextReviewDate?.toIso8601String(),
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 

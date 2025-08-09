@@ -13,13 +13,16 @@ docs/
 │   ├── README.md               # ルールブック概要
 │   ├── common-rules.md         # 共通ルール
 │   ├── cursor-rules.md         # Cursor AI Editor用
-│   └── claude-rules.md         # Claude用
-├── architecture/                # アーキテクチャ設計
-│   └── overview.md             # アーキテクチャ概要
+│   ├── claude-rules.md         # Claude用
+│   └── supabase-docs-rules.md  # Supabaseドキュメント運用ルール
 ├── development/                 # 開発ガイド
 │   └── setup.md                # セットアップガイド
-├── features/                    # 機能仕様書
-│   └── flashcard-system.md     # フラッシュカードシステム
+├── supabase/                    # Supabase関連ドキュメント
+│   ├── README.md               # Supabase docsの索引
+│   ├── setup_guide.md          # セットアップガイド
+│   ├── storage_setup.md        # ストレージ設定手順
+│   └── mcp/                    # MCP生成ドキュメントの保管場所
+│       └── README.md
 └── troubleshooting/             # トラブルシューティング
     └── common-issues.md        # よくある問題
 ```
@@ -42,6 +45,11 @@ docs/
 - **内容**: セットアップ手順、開発フロー、トラブルシューティング
 
 ### ⚡ Features（機能）
+### 🧰 Supabase（バックエンド as a Service）
+- **目的**: Supabase（DB/Storage/Auth）のセットアップ、ポリシー、運用
+- **対象**: バックエンド担当、アプリ開発者、運用
+- **内容**: スキーマ/ポリシー/ストレージ設定、MCP生成記録、ベストプラクティス
+
 - **目的**: 各機能の詳細仕様と実装方針
 - **対象**: 開発者、プロダクトマネージャー
 - **内容**: 機能要件、データ構造、UI/UX設計

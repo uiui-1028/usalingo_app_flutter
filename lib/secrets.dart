@@ -5,4 +5,4 @@ library;
 const String supabaseUrl =
     'https://udvmzaodsrgwecfybkry.supabase.co'; // ←ここを自分のURLに変更
 const String supabaseAnonKey =
-    'sb_publishable_S5hq5kVSDqUAfXI8iAFuLw_P6dkfMNH'; // ←ここを自分のAPIキーに変更
+    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVkdm16YW9kc3Jnd2VjZnlia3J5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA0MjA4NDcsImV4cCI6MjA2NTk5Njg0N30.G0beFeVcpQxzZFqskwDMecR0lTv5unRRk0yYgsQvOLQ';

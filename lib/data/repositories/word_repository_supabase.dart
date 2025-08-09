@@ -1,10 +1,10 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../domain/entities/word.dart';
 import '../../domain/repositories/word_repository.dart';
-import '../../secrets.dart';
+import '../../app/app.dart';
 
 class WordRepositorySupabase implements WordRepository {
-  final SupabaseClient _client = SupabaseClient(supabaseUrl, supabaseAnonKey);
+  final SupabaseClient _client = SupabaseInitializer.client;
 
   @override
   Future<List<Word>> fetchAllWords() async {
@@ -16,19 +16,17 @@ class WordRepositorySupabase implements WordRepository {
         .map(
           (m) => Word(
             id: m['id'] as int?,
-            text: m['text'] as String,
-            meaning: m['meaning'] as String,
-            sentence: m['sentence'] as String?,
-            imageUrl: m['image_url'] as String?,
-            tags: m['tags'] as String? ?? m['tug'] as String?, // ←両方対応
+            text: m['word_text'] as String,
+            meaning: m['definition'] as String? ?? '',
+            sentence: null, // example_contentsテーブルから取得
+            imageUrl: null, // example_contentsテーブルから取得
+            tags: m['part_of_speech'] as String?,
             createdAt: m['created_at'] != null
                 ? DateTime.tryParse(m['created_at'])
                 : null,
-            isLearned: m['is_learned'] as bool? ?? false,
-            reviewCount: m['review_count'] as int? ?? 0,
-            lastReviewedAt: m['last_reviewed_at'] != null
-                ? DateTime.tryParse(m['last_reviewed_at'])
-                : null,
+            isLearned: false, // user_learning_progressテーブルから取得
+            reviewCount: 0, // user_learning_progressテーブルから取得
+            lastReviewedAt: null, // user_learning_progressテーブルから取得
           ),
         )
         .toList();
