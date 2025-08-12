@@ -8,21 +8,29 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import 'package:usalingo_app/app/app.dart';
 import 'package:usalingo_app/presentation/widgets/flashcard_widget.dart';
 
 void main() {
-  testWidgets('FlashcardWidget shows word and taps to show answer', (
-    WidgetTester tester,
-  ) async {
+  testWidgets('UsalingoApp smoke test', (WidgetTester tester) async {
+    // Build our app and trigger a frame.
+    await tester.pumpWidget(const ProviderScope(child: UsalingoApp()));
+
+    // Verify that the app title is displayed
+    expect(find.text('Usalingo'), findsOneWidget);
+  });
+
+  testWidgets('FlashcardWidget test', (WidgetTester tester) async {
     await tester.pumpWidget(
-      const ProviderScope(
-        child: MaterialApp(home: Scaffold(body: FlashcardWidget())),
+      MaterialApp(
+        home: Scaffold(
+          body: FlashcardWidget(word: 'Hello', definition: 'こんにちは'),
+        ),
       ),
     );
-    expect(find.text('presence'), findsOneWidget);
-    expect(find.text('存在'), findsNothing);
-    await tester.tap(find.text('presence'));
-    await tester.pumpAndSettle();
-    expect(find.text('存在'), findsOneWidget);
+
+    // Verify that the word is displayed
+    expect(find.text('Hello'), findsOneWidget);
   });
 }

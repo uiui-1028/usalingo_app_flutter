@@ -1,3 +1,4 @@
+// 単語エンティティ（ドメイン層）
 class Word {
   final int? id;
   final String text;
@@ -6,11 +7,11 @@ class Word {
   final String? imageUrl;
   final String? tags;
   final DateTime? createdAt;
-  final bool isLearned; // 学習済みかどうか
-  final int reviewCount; // 復習回数
-  final DateTime? lastReviewedAt; // 最後に復習した日時
+  final bool isLearned;
+  final int reviewCount;
+  final DateTime? lastReviewedAt;
 
-  const Word({
+  Word({
     this.id,
     required this.text,
     required this.meaning,
@@ -23,6 +24,7 @@ class Word {
     this.lastReviewedAt,
   });
 
+  // copyWithメソッドを追加
   Word copyWith({
     int? id,
     String? text,
@@ -47,5 +49,68 @@ class Word {
       reviewCount: reviewCount ?? this.reviewCount,
       lastReviewedAt: lastReviewedAt ?? this.lastReviewedAt,
     );
+  }
+
+  // 単語の学習状態を更新
+  Word markAsLearned() {
+    return Word(
+      id: id,
+      text: text,
+      meaning: meaning,
+      sentence: sentence,
+      imageUrl: imageUrl,
+      tags: tags,
+      createdAt: createdAt,
+      isLearned: true,
+      reviewCount: reviewCount + 1,
+      lastReviewedAt: DateTime.now(),
+    );
+  }
+
+  // 単語の学習状態をリセット
+  Word resetLearning() {
+    return Word(
+      id: id,
+      text: text,
+      meaning: meaning,
+      sentence: sentence,
+      imageUrl: imageUrl,
+      tags: tags,
+      createdAt: createdAt,
+      isLearned: false,
+      reviewCount: 0,
+      lastReviewedAt: null,
+    );
+  }
+
+  // 単語の復習回数を更新
+  Word updateReviewCount(int newCount) {
+    return Word(
+      id: id,
+      text: text,
+      meaning: meaning,
+      sentence: sentence,
+      imageUrl: imageUrl,
+      tags: tags,
+      createdAt: createdAt,
+      isLearned: isLearned,
+      reviewCount: newCount,
+      lastReviewedAt: DateTime.now(),
+    );
+  }
+
+  // 等価性の比較
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is Word && other.id == id;
+  }
+
+  @override
+  int get hashCode => id.hashCode;
+
+  @override
+  String toString() {
+    return 'Word(id: $id, text: $text, meaning: $meaning)';
   }
 }

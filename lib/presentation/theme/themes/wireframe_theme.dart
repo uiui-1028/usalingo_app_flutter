@@ -1,77 +1,170 @@
 import 'package:flutter/material.dart';
 import '../app_theme.dart';
 
-/// Wireframe theme for development foundation.
-/// All color properties are set to black and white,
-/// shadows are empty list, and border radius is 0.0.
-class WireframeUsalingoTheme extends AppTheme {
+// ワイヤーフレームテーマの実装
+class WireframeTheme implements AppTheme {
   @override
-  ThemeData get themeData => ThemeData(
-    useMaterial3: true,
-    colorScheme: const ColorScheme.light(
-      background: Colors.white,
-      surface: Colors.white,
-      primary: Colors.black,
-      onPrimary: Colors.white,
-      onBackground: Colors.black,
-      onSurface: Colors.black,
-    ),
-    textTheme: const TextTheme(
-      bodyLarge: TextStyle(color: Colors.black),
-      bodyMedium: TextStyle(color: Colors.black),
-      titleLarge: TextStyle(color: Colors.black),
-    ),
-  );
+  Color get backgroundColor => const Color(0xFFFFFFFF);
 
   @override
-  Color get backgroundColor => Colors.white;
+  Color get surfaceColor => const Color(0xFFF5F5F5);
 
   @override
-  Color get primaryColor => Colors.black;
+  Color get primaryColor => const Color(0xFF333333);
 
   @override
-  Color get accentColor => Colors.black;
+  Color get accentColor => const Color(0xFF000000);
 
   @override
-  Color get textColor => Colors.black;
+  Color get textColor => const Color(0xFF333333);
 
   @override
-  Color get secondaryTextColor => Colors.black;
+  Color get textSecondaryColor => const Color(0xFF888888);
 
   @override
-  Color get surfaceColor => Colors.white;
+  Color get borderColor => const Color(0xFF000000);
 
   @override
-  Color get cardColor => Colors.white;
+  Color get iconColor => const Color(0xFF000000);
+
+  @override
+  Color get overlayColor => const Color(0x66000000);
+
+  @override
+  double get cornerRadius => 0.0;
+
+  @override
+  double get borderWidth => 2.0;
+
+  @override
+  BorderStyle get borderStyle => BorderStyle.solid;
+
+  @override
+  String get fontFamily => 'Roboto Mono';
+
+  @override
+  double get fontSizeSmall => 12.0;
+
+  @override
+  double get fontSizeMedium => 16.0;
+
+  @override
+  double get fontSizeLarge => 24.0;
+
+  @override
+  FontWeight get fontWeightNormal => FontWeight.w400;
+
+  @override
+  FontWeight get fontWeightBold => FontWeight.w700;
+
+  @override
+  BoxShadow? get boxShadow => null;
+
+  @override
+  double get blurRadius => 0.0;
+
+  @override
+  double get marginSmall => 8.0;
+
+  @override
+  double get marginMedium => 16.0;
+
+  @override
+  double get marginLarge => 24.0;
+
+  @override
+  double get paddingSmall => 8.0;
+
+  @override
+  double get paddingMedium => 16.0;
+
+  @override
+  double get paddingLarge => 24.0;
 
   @override
   double get borderRadius => 0.0;
 
   @override
-  double get borderWidth => 1.0;
-
-  @override
-  BorderStyle get borderStyle => BorderStyle.solid;
+  Color get cardColor => surfaceColor;
 
   @override
   List<BoxShadow> get cardShadows => [];
 
   @override
   BorderSide get borderSide =>
-      const BorderSide(color: Colors.black, width: 1.0);
+      BorderSide(color: borderColor, width: borderWidth);
 
   @override
-  TextStyle get primaryTextStyle =>
-      const TextStyle(color: Colors.black, fontSize: 16.0);
+  TextStyle get headingTextStyle => TextStyle(
+    fontSize: fontSizeLarge,
+    fontWeight: fontWeightBold,
+    color: textColor,
+    fontFamily: fontFamily,
+  );
 
   @override
-  TextStyle get secondaryTextStyle =>
-      const TextStyle(color: Colors.black, fontSize: 14.0);
+  TextStyle get secondaryTextStyle => TextStyle(
+    fontSize: fontSizeMedium,
+    fontWeight: fontWeightNormal,
+    color: textSecondaryColor,
+    fontFamily: fontFamily,
+  );
 
   @override
-  TextStyle get headingTextStyle => const TextStyle(
-    color: Colors.black,
-    fontSize: 24.0,
-    fontWeight: FontWeight.bold,
+  ThemeData get themeData => ThemeData(
+    useMaterial3: false,
+    colorScheme: ColorScheme.light(
+      background: backgroundColor,
+      surface: surfaceColor,
+      primary: primaryColor,
+      secondary: accentColor,
+      onBackground: textColor,
+      onSurface: textColor,
+      onPrimary: Colors.white,
+      onSecondary: Colors.white,
+    ),
+    textTheme: TextTheme(
+      bodySmall: TextStyle(
+        fontSize: fontSizeSmall,
+        fontWeight: fontWeightNormal,
+        color: textColor,
+        fontFamily: fontFamily,
+      ),
+      bodyMedium: TextStyle(
+        fontSize: fontSizeMedium,
+        fontWeight: fontWeightNormal,
+        color: textColor,
+        fontFamily: fontFamily,
+      ),
+      bodyLarge: TextStyle(
+        fontSize: fontSizeLarge,
+        fontWeight: fontWeightBold,
+        color: textColor,
+        fontFamily: fontFamily,
+      ),
+    ),
+    cardTheme: CardThemeData(
+      color: surfaceColor,
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(cornerRadius),
+        side: BorderSide(color: borderColor, width: borderWidth),
+      ),
+    ),
+    elevatedButtonTheme: ElevatedButtonThemeData(
+      style: ElevatedButton.styleFrom(
+        backgroundColor: Colors.transparent,
+        foregroundColor: textColor,
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(cornerRadius),
+          side: BorderSide(color: borderColor, width: borderWidth),
+        ),
+        padding: EdgeInsets.symmetric(
+          horizontal: paddingMedium,
+          vertical: paddingSmall,
+        ),
+      ),
+    ),
   );
 }

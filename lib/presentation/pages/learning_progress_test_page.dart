@@ -30,7 +30,7 @@ class _LearningProgressTestPageState
 
     try {
       final getDueTodayCards = ref.read(getDueTodayCardsProvider);
-      final cards = await getDueTodayCards();
+      final cards = await getDueTodayCards.execute();
       setState(() {
         dueTodayCards = cards;
         isLoading = false;

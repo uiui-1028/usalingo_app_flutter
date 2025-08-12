@@ -10,7 +10,7 @@ class ThemeSelectorPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final currentTheme = ref.watch(appThemeProvider);
+    final currentTheme = ref.watch(currentThemeProvider);
     final currentThemeType = ref.watch(appThemeTypeProvider);
 
     return Scaffold(
@@ -30,11 +30,10 @@ class ThemeSelectorPage extends ConsumerWidget {
               padding: const EdgeInsets.all(16.0),
               decoration: BoxDecoration(
                 color: currentTheme.cardColor,
-                borderRadius: BorderRadius.circular(currentTheme.borderRadius),
-                boxShadow: currentTheme.cardShadows,
+                borderRadius: BorderRadius.circular(currentTheme.cornerRadius),
                 border: Border.all(
-                  color: currentTheme.borderSide.color,
-                  width: currentTheme.borderSide.width,
+                  color: currentTheme.borderColor,
+                  width: currentTheme.borderWidth,
                 ),
               ),
               child: Column(
@@ -96,13 +95,12 @@ class ThemeSelectorPage extends ConsumerWidget {
               color: isSelected
                   ? currentTheme.accentColor.withValues(alpha: 0.1)
                   : currentTheme.cardColor,
-              borderRadius: BorderRadius.circular(currentTheme.borderRadius),
-              boxShadow: currentTheme.cardShadows,
+              borderRadius: BorderRadius.circular(currentTheme.cornerRadius),
               border: Border.all(
                 color: isSelected
                     ? currentTheme.accentColor
-                    : currentTheme.borderSide.color,
-                width: isSelected ? 2.0 : currentTheme.borderSide.width,
+                    : currentTheme.borderColor,
+                width: isSelected ? 2.0 : currentTheme.borderWidth,
               ),
             ),
             child: Row(
@@ -156,6 +154,8 @@ class ThemeSelectorPage extends ConsumerWidget {
         return 'ニューモーフィズム';
       case AppThemeType.pixelArt:
         return 'ピクセルアート';
+      case AppThemeType.glassmorphism:
+        return 'ガラスモーフィズム';
     }
   }
 
@@ -173,6 +173,8 @@ class ThemeSelectorPage extends ConsumerWidget {
         return 'ソフトな影効果のニューモーフィズム';
       case AppThemeType.pixelArt:
         return 'レトロゲーム風のピクセルアート';
+      case AppThemeType.glassmorphism:
+        return '透明感のあるガラス風デザイン';
     }
   }
 }

@@ -1,56 +1,37 @@
 import 'package:flutter/material.dart';
 import '../app_theme.dart';
 
-/// Material Design theme that follows Google's Material Design guidelines.
-class MaterialUsalingoTheme extends AppTheme {
+// マテリアルテーマの実装
+class MaterialTheme implements AppTheme {
   @override
-  ThemeData get themeData => ThemeData(
-    useMaterial3: true,
-    colorScheme: const ColorScheme.light(
-      background: Colors.white,
-      surface: Colors.white,
-      primary: Color(0xFF6200EE),
-      onPrimary: Colors.white,
-      onBackground: Colors.black,
-      onSurface: Colors.black,
-    ),
-    textTheme: const TextTheme(
-      bodyLarge: TextStyle(color: Colors.black),
-      bodyMedium: TextStyle(color: Colors.black),
-      titleLarge: TextStyle(color: Colors.black),
-    ),
-    elevatedButtonTheme: ElevatedButtonThemeData(
-      style: ElevatedButton.styleFrom(
-        backgroundColor: const Color(0xFF6200EE),
-        foregroundColor: Colors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4.0)),
-      ),
-    ),
-  );
+  Color get backgroundColor => const Color(0xFFFFFFFF);
 
   @override
-  Color get backgroundColor => Colors.white;
+  Color get surfaceColor => const Color(0xFFFFFFFF);
 
   @override
-  Color get primaryColor => const Color(0xFF6200EE);
+  Color get primaryColor => const Color(0xFF2196F3);
 
   @override
-  Color get accentColor => const Color(0xFF6200EE);
+  Color get accentColor => const Color(0xFFFF5D97);
 
   @override
-  Color get textColor => Colors.black;
+  Color get textColor => const Color(0xFF212121);
 
   @override
-  Color get secondaryTextColor => const Color(0xFF666666);
+  Color get textSecondaryColor => const Color(0xFF757575);
 
   @override
-  Color get surfaceColor => Colors.white;
+  Color get borderColor => const Color(0xFFE0E0E0);
 
   @override
-  Color get cardColor => Colors.white;
+  Color get iconColor => const Color(0xFF757575);
 
   @override
-  double get borderRadius => 4.0;
+  Color get overlayColor => const Color(0x52000000);
+
+  @override
+  double get cornerRadius => 8.0;
 
   @override
   double get borderWidth => 1.0;
@@ -59,30 +40,137 @@ class MaterialUsalingoTheme extends AppTheme {
   BorderStyle get borderStyle => BorderStyle.solid;
 
   @override
+  String get fontFamily => 'Roboto';
+
+  @override
+  double get fontSizeSmall => 12.0;
+
+  @override
+  double get fontSizeMedium => 16.0;
+
+  @override
+  double get fontSizeLarge => 24.0;
+
+  @override
+  FontWeight get fontWeightNormal => FontWeight.w400;
+
+  @override
+  FontWeight get fontWeightBold => FontWeight.w500;
+
+  @override
+  BoxShadow? get boxShadow => BoxShadow(
+    color: const Color(0x1F000000),
+    offset: const Offset(0, 2),
+    blurRadius: 4,
+    spreadRadius: 0,
+  );
+
+  @override
+  double get blurRadius => 4.0;
+
+  @override
+  double get marginSmall => 8.0;
+
+  @override
+  double get marginMedium => 16.0;
+
+  @override
+  double get marginLarge => 24.0;
+
+  @override
+  double get paddingSmall => 8.0;
+
+  @override
+  double get paddingMedium => 16.0;
+
+  @override
+  double get paddingLarge => 24.0;
+
+  @override
+  double get borderRadius => 8.0;
+
+  @override
+  Color get cardColor => surfaceColor;
+
+  @override
   List<BoxShadow> get cardShadows => [
-    const BoxShadow(
-      color: Color.fromRGBO(0, 0, 0, 0.2),
-      offset: Offset(0, 3),
-      blurRadius: 6,
+    BoxShadow(
+      color: const Color(0x1F000000),
+      offset: const Offset(0, 2),
+      blurRadius: 4,
+      spreadRadius: 0,
     ),
   ];
 
   @override
-  BorderSide get borderSide =>
-      const BorderSide(color: Color(0xFFE0E0E0), width: 1.0);
+  BorderSide get borderSide => BorderSide(color: borderColor, width: borderWidth);
 
   @override
-  TextStyle get primaryTextStyle =>
-      const TextStyle(color: Colors.black, fontSize: 16.0);
+  TextStyle get headingTextStyle => TextStyle(
+    fontSize: fontSizeLarge,
+    fontWeight: fontWeightBold,
+    color: textColor,
+    fontFamily: fontFamily,
+  );
 
   @override
-  TextStyle get secondaryTextStyle =>
-      const TextStyle(color: Color(0xFF666666), fontSize: 14.0);
+  TextStyle get secondaryTextStyle => TextStyle(
+    fontSize: fontSizeMedium,
+    fontWeight: fontWeightNormal,
+    color: textSecondaryColor,
+    fontFamily: fontFamily,
+  );
 
   @override
-  TextStyle get headingTextStyle => const TextStyle(
-    color: Colors.black,
-    fontSize: 24.0,
-    fontWeight: FontWeight.bold,
+  ThemeData get themeData => ThemeData(
+    useMaterial3: true,
+    colorScheme: ColorScheme.light(
+      background: backgroundColor,
+      surface: surfaceColor,
+      primary: primaryColor,
+      secondary: accentColor,
+      onBackground: textColor,
+      onSurface: textColor,
+      onPrimary: Colors.white,
+      onSecondary: Colors.white,
+    ),
+    textTheme: TextTheme(
+      bodySmall: TextStyle(
+        fontSize: fontSizeSmall,
+        fontWeight: fontWeightNormal,
+        color: textColor,
+      ),
+      bodyMedium: TextStyle(
+        fontSize: fontSizeMedium,
+        fontWeight: fontWeightNormal,
+        color: textColor,
+      ),
+      bodyLarge: TextStyle(
+        fontSize: fontSizeLarge,
+        fontWeight: fontWeightBold,
+        color: textColor,
+      ),
+    ),
+    cardTheme: CardThemeData(
+      color: surfaceColor,
+      elevation: 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(cornerRadius),
+      ),
+    ),
+    elevatedButtonTheme: ElevatedButtonThemeData(
+      style: ElevatedButton.styleFrom(
+        backgroundColor: primaryColor,
+        foregroundColor: Colors.white,
+        elevation: 2,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(cornerRadius),
+        ),
+        padding: EdgeInsets.symmetric(
+          horizontal: paddingMedium,
+          vertical: paddingSmall,
+        ),
+      ),
+    ),
   );
 }

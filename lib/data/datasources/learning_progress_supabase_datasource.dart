@@ -1,12 +1,14 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../domain/entities/learning_progress.dart';
 import '../../app/app.dart';
+import 'learning_progress_datasource.dart';
 
 /// Supabase用の学習進捗データソース
-class LearningProgressSupabaseDataSource {
+class LearningProgressSupabaseDataSource implements LearningProgressDataSource {
   final SupabaseClient _client = SupabaseInitializer.client;
 
   /// 特定の単語の学習進捗を取得
+  @override
   Future<LearningProgress?> getLearningProgress(int wordId) async {
     try {
       final user = _client.auth.currentUser;
@@ -23,18 +25,24 @@ class LearningProgressSupabaseDataSource {
 
       return LearningProgress(
         wordId: response['word_id'] as int,
-        status: response['status'] as String? ?? 'new',
-        lastReviewedAt: response['last_reviewed_at'] != null
-            ? DateTime.tryParse(response['last_reviewed_at'])
-            : null,
-        nextReviewDate: response['next_review_date'] != null
-            ? DateTime.tryParse(response['next_review_date'])
-            : null,
         srsLevel: response['srs_level'] as int? ?? 1,
+        nextReviewDate: response['next_review_date'] != null
+            ? DateTime.tryParse(response['next_review_date'])!
+            : DateTime.now().add(const Duration(days: 1)),
         easinessFactor:
             (response['easiness_factor'] as num?)?.toDouble() ?? 2.5,
         repetitions: response['repetitions'] as int? ?? 0,
         intervalDays: response['interval_days'] as int? ?? 0,
+        createdAt: response['created_at'] != null
+            ? DateTime.tryParse(response['created_at'])!
+            : DateTime.now(),
+        updatedAt: response['updated_at'] != null
+            ? DateTime.tryParse(response['updated_at'])!
+            : DateTime.now(),
+        status: response['status'] as String? ?? 'new',
+        lastReviewedAt: response['last_reviewed_at'] != null
+            ? DateTime.tryParse(response['last_reviewed_at'])
+            : null,
       );
     } catch (e) {
       // データが見つからない場合はnullを返す
@@ -43,6 +51,7 @@ class LearningProgressSupabaseDataSource {
   }
 
   /// 今日復習すべき学習進捗を取得
+  @override
   Future<List<LearningProgress>> getDueTodayProgress() async {
     try {
       final user = _client.auth.currentUser;
@@ -60,18 +69,24 @@ class LearningProgressSupabaseDataSource {
           .map(
             (data) => LearningProgress(
               wordId: data['word_id'] as int,
-              status: data['status'] as String? ?? 'new',
-              lastReviewedAt: data['last_reviewed_at'] != null
-                  ? DateTime.tryParse(data['last_reviewed_at'])
-                  : null,
-              nextReviewDate: data['next_review_date'] != null
-                  ? DateTime.tryParse(data['next_review_date'])
-                  : null,
               srsLevel: data['srs_level'] as int? ?? 1,
+              nextReviewDate: data['next_review_date'] != null
+                  ? DateTime.tryParse(data['next_review_date'])!
+                  : DateTime.now().add(const Duration(days: 1)),
               easinessFactor:
                   (data['easiness_factor'] as num?)?.toDouble() ?? 2.5,
               repetitions: data['repetitions'] as int? ?? 0,
               intervalDays: data['interval_days'] as int? ?? 0,
+              createdAt: data['created_at'] != null
+                  ? DateTime.tryParse(data['created_at'])!
+                  : DateTime.now(),
+              updatedAt: data['updated_at'] != null
+                  ? DateTime.tryParse(data['updated_at'])!
+                  : DateTime.now(),
+              status: data['status'] as String? ?? 'new',
+              lastReviewedAt: data['last_reviewed_at'] != null
+                  ? DateTime.tryParse(data['last_reviewed_at'])
+                  : null,
             ),
           )
           .toList();
@@ -81,6 +96,7 @@ class LearningProgressSupabaseDataSource {
   }
 
   /// 全ての学習進捗を取得
+  @override
   Future<List<LearningProgress>> getAllLearningProgress() async {
     try {
       final user = _client.auth.currentUser;
@@ -96,18 +112,24 @@ class LearningProgressSupabaseDataSource {
           .map(
             (data) => LearningProgress(
               wordId: data['word_id'] as int,
-              status: data['status'] as String? ?? 'new',
-              lastReviewedAt: data['last_reviewed_at'] != null
-                  ? DateTime.tryParse(data['last_reviewed_at'])
-                  : null,
-              nextReviewDate: data['next_review_date'] != null
-                  ? DateTime.tryParse(data['next_review_date'])
-                  : null,
               srsLevel: data['srs_level'] as int? ?? 1,
+              nextReviewDate: data['next_review_date'] != null
+                  ? DateTime.tryParse(data['next_review_date'])!
+                  : DateTime.now().add(const Duration(days: 1)),
               easinessFactor:
                   (data['easiness_factor'] as num?)?.toDouble() ?? 2.5,
               repetitions: data['repetitions'] as int? ?? 0,
               intervalDays: data['interval_days'] as int? ?? 0,
+              createdAt: data['created_at'] != null
+                  ? DateTime.tryParse(data['created_at'])!
+                  : DateTime.now(),
+              updatedAt: data['updated_at'] != null
+                  ? DateTime.tryParse(data['updated_at'])!
+                  : DateTime.now(),
+              status: data['status'] as String? ?? 'new',
+              lastReviewedAt: data['last_reviewed_at'] != null
+                  ? DateTime.tryParse(data['last_reviewed_at'])
+                  : null,
             ),
           )
           .toList();
@@ -117,6 +139,7 @@ class LearningProgressSupabaseDataSource {
   }
 
   /// 学習進捗を保存
+  @override
   Future<void> saveLearningProgress(LearningProgress progress) async {
     try {
       final user = _client.auth.currentUser;
@@ -127,12 +150,13 @@ class LearningProgressSupabaseDataSource {
         'word_id': progress.wordId,
         'status': progress.status,
         'last_reviewed_at': progress.lastReviewedAt?.toIso8601String(),
-        'next_review_date': progress.nextReviewDate?.toIso8601String(),
+        'next_review_date': progress.nextReviewDate.toIso8601String(),
         'srs_level': progress.srsLevel,
         'easiness_factor': progress.easinessFactor,
         'repetitions': progress.repetitions,
         'interval_days': progress.intervalDays,
-        'updated_at': DateTime.now().toIso8601String(),
+        'created_at': progress.createdAt.toIso8601String(),
+        'updated_at': progress.updatedAt.toIso8601String(),
       });
     } catch (e) {
       // エラーハンドリング
@@ -141,6 +165,7 @@ class LearningProgressSupabaseDataSource {
   }
 
   /// 特定の単語の学習進捗を削除
+  @override
   Future<void> deleteLearningProgress(int wordId) async {
     try {
       final user = _client.auth.currentUser;
@@ -158,6 +183,7 @@ class LearningProgressSupabaseDataSource {
   }
 
   /// 全ての学習進捗を削除
+  @override
   Future<void> deleteAllLearningProgress() async {
     try {
       final user = _client.auth.currentUser;
@@ -167,6 +193,42 @@ class LearningProgressSupabaseDataSource {
           .from('user_learning_progress')
           .delete()
           .eq('user_id', user.id);
+    } catch (e) {
+      // エラーハンドリング
+      rethrow;
+    }
+  }
+
+  /// カードを正解として記録
+  @override
+  Future<void> markCardAsCorrect(int wordId) async {
+    try {
+      final user = _client.auth.currentUser;
+      if (user == null) return;
+
+      final currentProgress = await getLearningProgress(wordId);
+      if (currentProgress == null) return;
+
+      final updatedProgress = currentProgress.markAsCorrect();
+      await saveLearningProgress(updatedProgress);
+    } catch (e) {
+      // エラーハンドリング
+      rethrow;
+    }
+  }
+
+  /// カードを不正解として記録
+  @override
+  Future<void> markCardAsIncorrect(int wordId) async {
+    try {
+      final user = _client.auth.currentUser;
+      if (user == null) return;
+
+      final currentProgress = await getLearningProgress(wordId);
+      if (currentProgress == null) return;
+
+      final updatedProgress = currentProgress.markAsIncorrect();
+      await saveLearningProgress(updatedProgress);
     } catch (e) {
       // エラーハンドリング
       rethrow;

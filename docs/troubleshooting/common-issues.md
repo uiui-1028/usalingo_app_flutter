@@ -77,7 +77,7 @@ class OptimizedWidget extends StatelessWidget {
 ```dart
 // 解決方法: 画像の最適化
 Image.asset(
-  'assets/images/example.png',
+  'assets/usalingo_app_icon/example.png',
   cacheWidth: 300, // キャッシュサイズの制限
 )
 ```

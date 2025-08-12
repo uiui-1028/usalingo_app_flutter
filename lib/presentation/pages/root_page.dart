@@ -5,7 +5,11 @@ import '../widgets/flashcard_widget.dart';
 import 'test_3d_card_screen.dart';
 import 'learning_progress_test_page.dart';
 import '../../presentation/theme/app_theme_provider.dart';
-import '../../data/repositories/word_repository_selector.dart';
+import '../../presentation/theme/app_theme.dart';
+import '../../app/providers.dart';
+import 'learning_home_page.dart';
+import 'design_customize_page.dart';
+import 'profile_page.dart';
 
 class RootPage extends ConsumerStatefulWidget {
   const RootPage({super.key});
@@ -14,20 +18,18 @@ class RootPage extends ConsumerStatefulWidget {
 }
 
 class _RootPageState extends ConsumerState<RootPage> {
-  int _selectedIndex = 0;
+  int _selectedIndex = 1; // 学習タブをデフォルトに設定
 
-  static const _pages = [
-    WordListPage(),
-    FlashcardWidget(),
-    Test3DCardScreen(),
-    LearningProgressTestPage(),
+  static final _pages = [
+    DesignCustomizePage(),
+    LearningHomePage(),
+    ProfilePage(),
   ];
 
   static const _tabItems = [
-    {'icon': Icons.list, 'label': '単語リスト', 'color': Colors.green},
-    {'icon': Icons.style, 'label': 'フラッシュカード', 'color': Colors.orange},
-    {'icon': Icons.threed_rotation, 'label': '3Dカード', 'color': Colors.blue},
-    {'icon': Icons.school, 'label': '学習進捗', 'color': Colors.purple},
+    {'icon': Icons.palette, 'label': 'デザイン', 'color': Colors.blue},
+    {'icon': Icons.school, 'label': '学習', 'color': Colors.orange},
+    {'icon': Icons.person, 'label': 'プロフィール', 'color': Colors.green},
   ];
 
   Future<void> _resetLearningProgress() async {
@@ -79,56 +81,6 @@ class _RootPageState extends ConsumerState<RootPage> {
     }
   }
 
-  void _showThemeDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('デザイン変更'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.flatware),
-              title: const Text('Flat'),
-              onTap: () {
-                ref.read(appThemeTypeProvider.notifier).state =
-                    AppThemeType.flat;
-                Navigator.of(context).pop();
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.design_services),
-              title: const Text('Material'),
-              onTap: () {
-                ref.read(appThemeTypeProvider.notifier).state =
-                    AppThemeType.material;
-                Navigator.of(context).pop();
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.blur_on),
-              title: const Text('Neumorphism'),
-              onTap: () {
-                ref.read(appThemeTypeProvider.notifier).state =
-                    AppThemeType.neumorphism;
-                Navigator.of(context).pop();
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.phone_android),
-              title: const Text('Mockup'),
-              onTap: () {
-                ref.read(appThemeTypeProvider.notifier).state =
-                    AppThemeType.mockup;
-                Navigator.of(context).pop();
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -174,7 +126,7 @@ class _RootPageState extends ConsumerState<RootPage> {
             child: Container(
               margin: const EdgeInsets.symmetric(horizontal: 16),
               decoration: BoxDecoration(
-                color: ref.watch(appThemeProvider).cardColor,
+                color: ref.watch(currentThemeProvider).cardColor,
                 borderRadius: BorderRadius.circular(25),
                 boxShadow: [
                   BoxShadow(
@@ -218,8 +170,8 @@ class _RootPageState extends ConsumerState<RootPage> {
                               color: isActive
                                   ? color
                                   : ref
-                                        .watch(appThemeProvider)
-                                        .secondaryTextColor,
+                                        .watch(currentThemeProvider)
+                                        .textSecondaryColor,
                               size: 24,
                             ),
                             if (isActive) ...[

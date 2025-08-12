@@ -32,6 +32,9 @@ class MockupUsalingoTheme extends AppTheme {
   Color get backgroundColor => Colors.black;
 
   @override
+  Color get surfaceColor => const Color(0xFF1A1A1A);
+
+  @override
   Color get primaryColor => Colors.blue;
 
   @override
@@ -41,13 +44,19 @@ class MockupUsalingoTheme extends AppTheme {
   Color get textColor => Colors.white;
 
   @override
-  Color get secondaryTextColor => const Color(0xFFB0B0B0);
+  Color get textSecondaryColor => const Color(0xFFB0B0B0);
 
   @override
-  Color get surfaceColor => const Color(0xFF1A1A1A);
+  Color get borderColor => const Color(0xFF333333);
 
   @override
-  Color get cardColor => const Color(0xFF1A1A1A);
+  Color get iconColor => Colors.white;
+
+  @override
+  Color get overlayColor => Colors.black54;
+
+  @override
+  double get cornerRadius => 8.0;
 
   @override
   double get borderRadius => 8.0;
@@ -57,6 +66,55 @@ class MockupUsalingoTheme extends AppTheme {
 
   @override
   BorderStyle get borderStyle => BorderStyle.solid;
+
+  @override
+  String get fontFamily => 'Roboto';
+
+  @override
+  double get fontSizeSmall => 12.0;
+
+  @override
+  double get fontSizeMedium => 16.0;
+
+  @override
+  double get fontSizeLarge => 24.0;
+
+  @override
+  FontWeight get fontWeightNormal => FontWeight.normal;
+
+  @override
+  FontWeight get fontWeightBold => FontWeight.bold;
+
+  @override
+  BoxShadow? get boxShadow => const BoxShadow(
+    color: Color(0xFF333333),
+    blurRadius: 4,
+    offset: Offset(2, 2),
+  );
+
+  @override
+  double get blurRadius => 4.0;
+
+  @override
+  double get marginSmall => 8.0;
+
+  @override
+  double get marginMedium => 16.0;
+
+  @override
+  double get marginLarge => 24.0;
+
+  @override
+  double get paddingSmall => 8.0;
+
+  @override
+  double get paddingMedium => 16.0;
+
+  @override
+  double get paddingLarge => 24.0;
+
+  @override
+  Color get cardColor => const Color(0xFF1A1A1A);
 
   @override
   List<BoxShadow> get cardShadows => [
@@ -72,17 +130,13 @@ class MockupUsalingoTheme extends AppTheme {
       const BorderSide(color: Color(0xFF333333), width: 1.5);
 
   @override
-  TextStyle get primaryTextStyle =>
-      const TextStyle(color: Colors.white, fontSize: 16.0);
-
-  @override
-  TextStyle get secondaryTextStyle =>
-      const TextStyle(color: Color(0xFFB0B0B0), fontSize: 14.0);
-
-  @override
   TextStyle get headingTextStyle => const TextStyle(
     color: Colors.white,
     fontSize: 24.0,
     fontWeight: FontWeight.bold,
   );
+
+  @override
+  TextStyle get secondaryTextStyle =>
+      const TextStyle(color: Color(0xFFB0B0B0), fontSize: 14.0);
 }

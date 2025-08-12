@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../app/providers.dart';
 import '../../domain/entities/word.dart';
-import '../../data/repositories/word_repository_selector.dart';
-import '../widgets/flashcard_widget.dart';
 
 class WordListPage extends ConsumerStatefulWidget {
   const WordListPage({super.key});

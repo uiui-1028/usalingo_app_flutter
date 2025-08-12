@@ -1,151 +1,143 @@
-/// 忘却曲線アルゴリズムによる学習進捗を管理するエンティティ
+// 学習進捗エンティティ（ドメイン層）
 class LearningProgress {
-  final int wordId; // どの単語の進捗かを示す一意なID
-  final String status; // 学習ステータス ('new', 'learning', 'mastered')
-  final DateTime? lastReviewedAt; // 最後に復習した日時
-  final DateTime? nextReviewDate; // 次回復習日
-  final int srsLevel; // リートナー方式のレベル（1〜5）
-  final double easinessFactor; // SM-2アルゴリズムの易しさ係数
-  final int repetitions; // 連続正解回数
-  final int intervalDays; // 前回の復習間隔
+  final int wordId;
+  final int srsLevel;
+  final DateTime nextReviewDate;
+  final double easinessFactor;
+  final int repetitions;
+  final int intervalDays;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+  final String status;
+  final DateTime? lastReviewedAt;
 
-  const LearningProgress({
+  LearningProgress({
     required this.wordId,
-    this.status = 'new',
+    required this.srsLevel,
+    required this.nextReviewDate,
+    required this.easinessFactor,
+    required this.repetitions,
+    required this.intervalDays,
+    required this.createdAt,
+    required this.updatedAt,
+    required this.status,
     this.lastReviewedAt,
-    this.nextReviewDate,
-    this.srsLevel = 1,
-    this.easinessFactor = 2.5,
-    this.repetitions = 0,
-    this.intervalDays = 0,
   });
 
-  /// 新しいインスタンスを作成（デフォルト値付き）
-  factory LearningProgress.initial(int wordId) {
+  // copyWithメソッドを追加
+  LearningProgress copyWith({
+    int? wordId,
+    int? srsLevel,
+    DateTime? nextReviewDate,
+    double? easinessFactor,
+    int? repetitions,
+    int? intervalDays,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+    String? status,
+    DateTime? lastReviewedAt,
+  }) {
     return LearningProgress(
-      wordId: wordId,
-      srsLevel: 1,
-      nextReviewDate: DateTime.now().add(const Duration(days: 1)),
+      wordId: wordId ?? this.wordId,
+      srsLevel: srsLevel ?? this.srsLevel,
+      nextReviewDate: nextReviewDate ?? this.nextReviewDate,
+      easinessFactor: easinessFactor ?? this.easinessFactor,
+      repetitions: repetitions ?? this.repetitions,
+      intervalDays: intervalDays ?? this.intervalDays,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      status: status ?? this.status,
+      lastReviewedAt: lastReviewedAt ?? this.lastReviewedAt,
     );
   }
 
-  /// 正解時の進捗更新（SM-2アルゴリズム）
-  LearningProgress markAsCorrect() {
+  // 初期状態の学習進捗を作成
+  factory LearningProgress.initial(int wordId) {
     final now = DateTime.now();
-    final newRepetitions = repetitions + 1;
-    final newIntervalDays = _calculateNextInterval(
-      newRepetitions,
-      easinessFactor,
+    return LearningProgress(
+      wordId: wordId,
+      srsLevel: 1,
+      nextReviewDate: now.add(const Duration(days: 1)),
+      easinessFactor: 2.5,
+      repetitions: 0,
+      intervalDays: 0,
+      createdAt: now,
+      updatedAt: now,
+      status: 'learning',
+      lastReviewedAt: null,
     );
-    final newNextReviewDate = now.add(Duration(days: newIntervalDays));
-    final newStatus = newRepetitions >= 3 ? 'mastered' : 'learning';
+  }
+
+  // 正解時の学習進捗を更新
+  LearningProgress markAsCorrect() {
+    final newSrsLevel = srsLevel + 1;
+    final newRepetitions = repetitions + 1;
+    final newIntervalDays = _calculateNewInterval(newRepetitions);
+    final newNextReviewDate = DateTime.now().add(Duration(days: newIntervalDays));
+    final now = DateTime.now();
 
     return LearningProgress(
       wordId: wordId,
-      status: newStatus,
-      lastReviewedAt: now,
+      srsLevel: newSrsLevel,
       nextReviewDate: newNextReviewDate,
-      srsLevel: srsLevel,
       easinessFactor: easinessFactor,
       repetitions: newRepetitions,
       intervalDays: newIntervalDays,
+      createdAt: createdAt,
+      updatedAt: now,
+      status: newSrsLevel >= 5 ? 'mastered' : 'learning',
+      lastReviewedAt: now,
     );
   }
 
-  /// 不正解時の進捗更新（SM-2アルゴリズム）
+  // 不正解時の学習進捗を更新
   LearningProgress markAsIncorrect() {
     final now = DateTime.now();
-    final newEasinessFactor = (easinessFactor - 0.2).clamp(1.3, 2.5);
-    final newNextReviewDate = now.add(const Duration(days: 1));
-
     return LearningProgress(
       wordId: wordId,
-      status: 'new',
-      lastReviewedAt: now,
-      nextReviewDate: newNextReviewDate,
       srsLevel: 1,
-      easinessFactor: newEasinessFactor,
+      nextReviewDate: now.add(const Duration(days: 1)),
+      easinessFactor: (easinessFactor - 0.2).clamp(1.3, 2.5),
       repetitions: 0,
       intervalDays: 1,
+      createdAt: createdAt,
+      updatedAt: now,
+      status: 'learning',
+      lastReviewedAt: now,
     );
   }
 
-  /// 次回の復習間隔を計算（SM-2アルゴリズム）
-  int _calculateNextInterval(int repetitions, double easinessFactor) {
-    if (repetitions == 1) return 1;
-    if (repetitions == 2) return 6;
+  // 新しい復習間隔を計算
+  int _calculateNewInterval(int newRepetitions) {
+    if (newRepetitions == 1) return 1;
+    if (newRepetitions == 2) return 6;
     return (intervalDays * easinessFactor).round();
   }
 
-  /// レベルに対応する復習間隔を取得
-  int _getIntervalDays(int level) {
-    switch (level) {
-      case 1:
-        return 1;
-      case 2:
-        return 3;
-      case 3:
-        return 7;
-      case 4:
-        return 14;
-      case 5:
-        return 30;
-      default:
-        return 1;
-    }
-  }
-
-  /// 今日復習すべきかどうかを判定
+  // 今日復習すべきかどうかを判定
   bool get isDueToday {
-    if (nextReviewDate == null) return false;
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final reviewDate = DateTime(
-      nextReviewDate!.year,
-      nextReviewDate!.month,
-      nextReviewDate!.day,
+      nextReviewDate.year,
+      nextReviewDate.month,
+      nextReviewDate.day,
     );
     return reviewDate.isBefore(today) || reviewDate.isAtSameMomentAs(today);
   }
 
-  /// マスター済みかどうかを判定（レベル5に達しているか）
-  bool get isMastered => srsLevel >= 5;
+  // マスター状態かどうかを判定
+  bool get isMastered => status == 'mastered';
 
-  /// コピーウィズメソッド
-  LearningProgress copyWith({
-    int? wordId,
-    String? status,
-    DateTime? lastReviewedAt,
-    DateTime? nextReviewDate,
-    int? srsLevel,
-    double? easinessFactor,
-    int? repetitions,
-    int? intervalDays,
-  }) {
-    return LearningProgress(
-      wordId: wordId ?? this.wordId,
-      status: status ?? this.status,
-      lastReviewedAt: lastReviewedAt ?? this.lastReviewedAt,
-      nextReviewDate: nextReviewDate ?? this.nextReviewDate,
-      srsLevel: srsLevel ?? this.srsLevel,
-      easinessFactor: easinessFactor ?? this.easinessFactor,
-      repetitions: repetitions ?? this.repetitions,
-      intervalDays: intervalDays ?? this.intervalDays,
-    );
-  }
-
+  // 等価性の比較
   @override
   bool operator ==(Object other) {
     if (identical(this, other)) return true;
-    return other is LearningProgress &&
-        other.wordId == wordId &&
-        other.srsLevel == srsLevel &&
-        other.nextReviewDate == nextReviewDate;
+    return other is LearningProgress && other.wordId == wordId;
   }
 
   @override
-  int get hashCode =>
-      wordId.hashCode ^ srsLevel.hashCode ^ nextReviewDate.hashCode;
+  int get hashCode => wordId.hashCode;
 
   @override
   String toString() {

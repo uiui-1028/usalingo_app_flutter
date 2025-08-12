@@ -100,7 +100,7 @@ class _SplashPageState extends ConsumerState<SplashPage>
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(20),
                         child: Image.asset(
-                          'assets/app_icon/logo_black.png',
+                          'assets/usalingo_app_icon/logo_black.png',
                           fit: BoxFit.cover,
                         ),
                       ),

@@ -1,7 +1,6 @@
 ### directory tree
 
 ```yaml
-# 【 03-04｜リポジトリ構成 】
 usalingo_app/
 ├── .git/                    # Gitリポジトリの管理ファイル
 ├── .dart_tool/             # Dartツールのキャッシュと設定

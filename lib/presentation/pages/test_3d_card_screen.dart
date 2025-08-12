@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../theme/app_theme_provider.dart';
 import '../theme/app_theme.dart';
-import 'dart:math';
 
 // カードの表示設定を管理するプロバイダー
 final cardDisplaySettingsProvider =
@@ -109,7 +108,7 @@ class _Test3DCardScreenState extends ConsumerState<Test3DCardScreen>
 
   @override
   Widget build(BuildContext context) {
-    final theme = ref.watch(appThemeProvider);
+    final theme = ref.watch(currentThemeProvider);
 
     return Scaffold(
       backgroundColor: Colors.grey[900], // 暗めの背景色
@@ -410,7 +409,7 @@ class _Test3DCardScreenState extends ConsumerState<Test3DCardScreen>
   Widget _buildSettingsPanel() {
     final settings = ref.watch(cardDisplaySettingsProvider);
     final notifier = ref.read(cardDisplaySettingsProvider.notifier);
-    final theme = ref.watch(appThemeProvider);
+    final theme = ref.watch(currentThemeProvider);
 
     return Container(
       height: MediaQuery.of(context).size.height * 0.6,
