@@ -32,82 +32,20 @@ class _RootPageState extends ConsumerState<RootPage> {
     {'icon': Icons.person, 'label': 'プロフィール', 'color': Colors.green},
   ];
 
-  Future<void> _resetLearningProgress() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('学習状況のリセット'),
-        content: const Text('すべてのカードの学習状況をリセットしますか？\nこの操作は取り消せません。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('キャンセル'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
-            child: const Text('リセット'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed == true) {
-      try {
-        final repository = ref.read(wordRepositoryProvider);
-        await repository.resetLearningProgress();
-
-        // プロバイダーを無効化してデータを再読み込み
-        ref.invalidate(wordListProvider);
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('学習状況をリセットしました'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('リセットに失敗しました: $e'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      }
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Usalingo'),
-        actions: [
-          // リセットボタン
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            tooltip: '学習状況をリセット',
-            onPressed: _resetLearningProgress,
+        title: Center(
+          child: Image.asset(
+            'assets/usalingo_app_icon/logo_white_transparent_small.png',
+            height: 40,
+            fit: BoxFit.contain,
           ),
-          PopupMenuButton<DbType>(
-            icon: const Icon(Icons.storage),
-            onSelected: (dbType) {
-              ref.read(dbTypeProvider.notifier).state = dbType;
-              ref.invalidate(wordRepositoryProvider);
-            },
-            itemBuilder: (context) => [
-              const PopupMenuItem(value: DbType.sqlite, child: Text('SQLite')),
-              const PopupMenuItem(
-                value: DbType.supabase,
-                child: Text('Supabase'),
-              ),
-            ],
-          ),
-        ],
+        ),
+        centerTitle: true,
+        backgroundColor: ref.watch(currentThemeProvider).cardColor,
+        elevation: 0,
       ),
       body: Stack(
         children: [

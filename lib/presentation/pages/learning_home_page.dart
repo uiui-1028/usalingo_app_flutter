@@ -59,11 +59,8 @@ class LearningHomePage extends ConsumerWidget {
   Widget _buildLearningDeckWidget(BuildContext context, AppTheme theme) {
     return GestureDetector(
       onTap: () {
-        // 学習画面に遷移
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (context) => const FlashcardPage()),
-        );
+        // 学習設定シートを表示
+        _showLearningSettingsSheet(context);
       },
       child: Container(
         decoration: BoxDecoration(
@@ -112,11 +109,10 @@ class LearningHomePage extends ConsumerWidget {
       child: Container(
         decoration: BoxDecoration(
           color: theme.backgroundColor,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(theme.cornerRadius),
           border: Border.all(
-            color: theme.borderColor ?? Colors.grey.withValues(alpha: 0.3),
-            width: 2,
-            style: BorderStyle.solid,
+            color: theme.borderColor,
+            width: theme.borderWidth,
           ),
         ),
         child: Column(
@@ -125,7 +121,7 @@ class LearningHomePage extends ConsumerWidget {
             Icon(Icons.add, size: 32, color: theme.textSecondaryColor),
             const SizedBox(height: 8),
             Text(
-              'ウィジェット追加',
+              'ウィジェットの追加',
               style: TextStyle(fontSize: 14, color: theme.textSecondaryColor),
               textAlign: TextAlign.center,
             ),
@@ -136,18 +132,32 @@ class LearningHomePage extends ConsumerWidget {
   }
 
   Widget _buildEmptySlot(BuildContext context, AppTheme theme) {
-    return Container(
-      decoration: BoxDecoration(
-        color: theme.backgroundColor,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: theme.borderColor ?? Colors.grey.withValues(alpha: 0.1),
-          width: 1,
-          style: BorderStyle.solid,
+    return GestureDetector(
+      onTap: () {
+        // ウィジェットギャラリーを表示
+        _showWidgetGallery(context);
+      },
+      child: Container(
+        decoration: BoxDecoration(
+          color: theme.backgroundColor,
+          borderRadius: BorderRadius.circular(theme.cornerRadius),
+          border: Border.all(
+            color: theme.borderColor,
+            width: theme.borderWidth,
+          ),
         ),
-      ),
-      child: const Center(
-        child: Icon(Icons.add_circle_outline, size: 32, color: Colors.grey),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.add, size: 32, color: theme.textSecondaryColor),
+            const SizedBox(height: 8),
+            Text(
+              'ウィジェットの追加',
+              style: TextStyle(fontSize: 14, color: theme.textSecondaryColor),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -169,6 +179,287 @@ class LearningHomePage extends ConsumerWidget {
             const Text('利用可能なウィジェットがここに表示されます'),
           ],
         ),
+      ),
+    );
+  }
+
+  void _showLearningSettingsSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // ヘッダー（タイトルとスタートボタン）
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  '学習設定',
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const FlashcardPage(),
+                      ),
+                    );
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Theme.of(context).primaryColor,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 12,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  child: const Text('スタート'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+
+            // 学習方法の選択
+            _buildSettingSection(
+              context,
+              title: '学習方法',
+              children: [
+                _buildRadioOption(
+                  context,
+                  title: '通常学習',
+                  subtitle: '新しいカードと復習カードを混ぜて学習',
+                  value: 'normal',
+                  groupValue: 'normal',
+                  onChanged: (value) {},
+                ),
+                _buildRadioOption(
+                  context,
+                  title: '新規学習のみ',
+                  subtitle: 'まだ学習していないカードのみ',
+                  value: 'new_only',
+                  groupValue: 'normal',
+                  onChanged: (value) {},
+                ),
+                _buildRadioOption(
+                  context,
+                  title: '復習のみ',
+                  subtitle: '既に学習済みのカードの復習',
+                  value: 'review_only',
+                  groupValue: 'normal',
+                  onChanged: (value) {},
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 20),
+
+            // カード枚数の選択
+            _buildSettingSection(
+              context,
+              title: 'カード枚数',
+              children: [
+                _buildSliderOption(
+                  context,
+                  title: '学習するカード数',
+                  subtitle: '1回の学習で使用するカードの枚数',
+                  value: 20,
+                  min: 5,
+                  max: 50,
+                  divisions: 9,
+                  onChanged: (value) {},
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 20),
+
+            // その他の設定
+            _buildSettingSection(
+              context,
+              title: 'その他の設定',
+              children: [
+                _buildSwitchOption(
+                  context,
+                  title: '音声を再生',
+                  subtitle: 'カードめくり時に音声を再生する',
+                  value: true,
+                  onChanged: (value) {},
+                ),
+                _buildSwitchOption(
+                  context,
+                  title: '自動めくり',
+                  subtitle: '一定時間後に自動でカードをめくる',
+                  value: false,
+                  onChanged: (value) {},
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 20),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSettingSection(
+    BuildContext context, {
+    required String title,
+    required List<Widget> children,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: Theme.of(
+            context,
+          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 12),
+        ...children,
+      ],
+    );
+  }
+
+  Widget _buildRadioOption(
+    BuildContext context, {
+    required String title,
+    required String subtitle,
+    required String value,
+    required String groupValue,
+    required ValueChanged<String?> onChanged,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          Radio<String>(
+            value: value,
+            groupValue: groupValue,
+            onChanged: onChanged,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
+                ),
+                Text(
+                  subtitle,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(color: Colors.grey[600]),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSliderOption(
+    BuildContext context, {
+    required String title,
+    required String subtitle,
+    required double value,
+    required double min,
+    required double max,
+    required int divisions,
+    required ValueChanged<double> onChanged,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
+          ),
+          Text(
+            subtitle,
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: Colors.grey[600]),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: Slider(
+                  value: value,
+                  min: min,
+                  max: max,
+                  divisions: divisions,
+                  onChanged: onChanged,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Text(
+                value.toInt().toString(),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSwitchOption(
+    BuildContext context, {
+    required String title,
+    required String subtitle,
+    required bool value,
+    required ValueChanged<bool> onChanged,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
+                ),
+                Text(
+                  subtitle,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(color: Colors.grey[600]),
+                ),
+              ],
+            ),
+          ),
+          Switch(value: value, onChanged: onChanged),
+        ],
       ),
     );
   }

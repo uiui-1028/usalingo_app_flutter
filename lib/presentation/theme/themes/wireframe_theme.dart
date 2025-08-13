@@ -7,19 +7,19 @@ class WireframeTheme implements AppTheme {
   Color get backgroundColor => const Color(0xFFFFFFFF);
 
   @override
-  Color get surfaceColor => const Color(0xFFF5F5F5);
+  Color get surfaceColor => const Color(0xFFF8F8F8);
 
   @override
-  Color get primaryColor => const Color(0xFF333333);
+  Color get primaryColor => const Color(0xFF000000);
 
   @override
   Color get accentColor => const Color(0xFF000000);
 
   @override
-  Color get textColor => const Color(0xFF333333);
+  Color get textColor => const Color(0xFF000000);
 
   @override
-  Color get textSecondaryColor => const Color(0xFF888888);
+  Color get textSecondaryColor => const Color(0xFF666666);
 
   @override
   Color get borderColor => const Color(0xFF000000);

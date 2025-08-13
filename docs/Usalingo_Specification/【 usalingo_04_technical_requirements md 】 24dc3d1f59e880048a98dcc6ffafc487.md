@@ -1,3 +1,8 @@
+# 【 usalingo_04_technical_requirements.md 】
+
+<aside>
+<img src="https://www.notion.so/icons/wheat_gray.svg" alt="https://www.notion.so/icons/wheat_gray.svg" width="40px" />
+
 # *【 usalingo_04_technical_requirements.md 】*
 
 *プロダクトを「どう作るか (How to build)」を定義する。技術的な実装の設計図。*
@@ -55,7 +60,7 @@
 
 ---
 
-## ***【 usalingo_04_02｜ディレクトリツリー 】***
+## ***【 usalingo_04_02｜ディレクトリツリー 】⚠️更新***
 
 ```yaml
 # 【 最終更新：2025/08/03 】
@@ -109,9 +114,9 @@ usalingo_app/
 │   │   │       ├── neumorphism_theme.dart       # ニューモーフィズムテーマ
 │   │   │       ├── pixel_art_theme.dart         # ピクセルアートテーマ
 │   │   │       └── wireframe_theme.dart         # ワイヤーフレームテーマ
-│   │   └── widgets/        # 再利用可能なウィジェット
-│   │       ├── flashcard_widget.dart            # フラッシュカードウィジェット
-│   │       └── lottie_feedback_widget.dart      # Lottieフィードバックウィジェット
+│   │   └── blocks/        # 再利用可能なブロック
+│   │       ├── flashcard_block.dart            # フラッシュカードブロック
+│   │       └── lottie_feedback_block.dart      # Lottieフィードバックブロック
 │   ├── main.dart           # アプリケーションのエントリーポイント
 │   └── secrets.dart        # 機密情報（APIキー等）
 ├── docs/                     # メインのDartソースコード
@@ -187,9 +192,8 @@ usalingo_app/
 | --- | --- | --- | --- |
 | **user_profiles** | `idx_user_profiles_on_user_id` | `user_id` | ユーザー情報取得時の `JOIN` 処理を高速化するため。（PKだが明示） |
 | **user_settings** | `idx_user_settings_on_user_id` | `user_id` | ユーザー設定取得時の `JOIN` 処理を高速化するため。（PKだが明示） |
-| **user_widget_layouts** | `idx_layouts_on_user_id` | `user_id` | 特定ユーザーのウィジェットレイアウトを高速に検索するため。 |
-| **~~example_contents
-⚠️ 削除~~** | `~~idx_examples_on_word_id~~` | `~~word_id~~` | ~~特定の単語に紐づく例文を高速に検索するため。~~ |
+| **user_block_layouts** | `idx_layouts_on_user_id` | `user_id` | 特定ユーザーのブロックレイアウトを高速に検索するため。 |
+| **example_contents** | `idx_examples_on_word_id` | `word_id` | 特定の単語に紐づく例文を高速に検索するため。 |
 | **deck_words** | `idx_deck_words_on_deck_id` | `deck_id` | 特定のデッキに含まれる単語リストを高速に検索するため。 |
 | **deck_words** | `idx_deck_words_on_word_id` | `word_id` | 特定の単語がどのデッキに含まれるかを高速に検索するため。 |
 | **user_learning_progress** | `idx_progress_on_user_and_word` | `(user_id, meaning_id)` | 特定ユーザーの**特定意味**に対する学習進捗を高速に取得・更新するため。 |
@@ -212,7 +216,7 @@ usalingo_app/
     - **対象テーブル:** `users`
     - **ポリシー:** **認証済みのユーザーは、自身のユーザー情報のみ読み取り可能。** 他のユーザーの情報は読み取れない。
 - **所有権に基づくデータ (Ownership-based Data):**
-    - **対象テーブル:** `user_profiles`, `user_settings`, `user_learning_progress`, `user_widget_layouts`
+    - **対象テーブル:** `user_profiles`, `user_settings`, `user_learning_progress`, `user_block_layouts`
     - **ポリシー:** **ユーザーは、自身の `user_id` に紐づくデータのみ、全ての操作（`SELECT`, `INSERT`, `UPDATE`, `DELETE`）が可能。**
         - **具体例:** `user_profiles` テーブルを操作しようとする場合、`auth.uid() = user_id` が真となる行にしかアクセスできないようにポリシーを設定します。これはSupabase Authが提供する `auth.users` テーブルと連携することで実現します。
 
@@ -287,7 +291,7 @@ storage_positions:
 
 ### ユーザー関連 (User & Profile)
 
-*ユーザーのアカウント情報、UI/UXのパーソナライズ設定、ウィジェットのレイアウトなど、**個々のユーザー体験の核となる情報**を管理するテーブル群です。*
+*ユーザーのアカウント情報、UI/UXのパーソナライズ設定、ブロックのレイアウトなど、**個々のユーザー体験の核となる情報**を管理するテーブル群です。*
 
 ```yaml
 # -----------------------------------------------
@@ -299,12 +303,15 @@ storage_positions:
     - name: id
       type: UUID (Primary Key)
       description: "Supabase Authによって自動的に割り当てられる、ユーザーの一意なID。"
+      constraints: "not_nullable"
     - name: email
       type: TEXT
       description: "ユーザーのメールアドレス。"
+      constraints: "not_nullable"
     - name: created_at
       type: TIMESTAMPTZ
       description: "アカウントの作成日時。"
+      constraints: "not_nullable, default: now()"
 
 # -----------------------------------------------
 # Table: user_profiles
@@ -315,12 +322,15 @@ storage_positions:
     - name: user_id
       type: UUID (Primary Key, Foreign Key to users.id)
       description: "ユーザーID。usersテーブルとのリレーションを確立する。"
+      constraints: "not_nullable"
     - name: plan
-      type: TEXT (default: 'free')
+      type: TEXT
       description: "ユーザーの現在のプラン ('free' or 'pro') 。"
+      constraints: "not_nullable, default: 'free'"
     - name: nickname
       type: TEXT
       description: "アプリ内で表示されるユーザーの名前。"
+      constraints: "nullable"
 
 # -----------------------------------------------
 # Table: user_settings
@@ -331,59 +341,78 @@ storage_positions:
     - name: user_id
       type: UUID (Primary Key, Foreign Key to users.id)
       description: "ユーザーID。"
+      constraints: "not_nullable"
     - name: design_style
-      type: TEXT (default: 'flat_design')
+      type: TEXT
       description: "UIの基本スタイル (例: 'flat_design', 'neumorphism') 。"
+      constraints: "not_nullable, default: 'flat_design'"
     - name: color_mode
-      type: TEXT (default: 'system')
+      type: TEXT
       description: "カラーモード ('light', 'dark', 'system') 。"
+      constraints: "not_nullable, default: 'system'"
     - name: accent_color
-      type: TEXT (default: '#FF5D97')
+      type: TEXT
       description: "アクセントカラーのHEXコード。"
+      constraints: "not_nullable, default: '#FF5D97'"
     - name: font_family
-      type: TEXT (default: 'system_default')
+      type: TEXT
       description: "アプリ全体のフォントファミリー名。"
+      constraints: "not_nullable, default: 'system_default'"
     - name: card_interaction_mode
-      type: TEXT (default: 'punch')
+      type: TEXT
       description: "解答インタラクション ('punch' or 'flip') 。"
+      constraints: "not_nullable, default: 'punch'"
     - name: tts_config
       type: JSONB
       description: "Text-to-Speechの音声（性別、速度など）に関する設定を格納する。"
+      constraints: "nullable"
     - name: selected_card_template_id
       type: INT (Foreign Key to card_templates.id)
       description: "ユーザーが選択したカードテンプレートのID。"
-      constraints: "default: 1"
+      constraints: "not_nullable, default: 1"
     - name: algorithm_settings
       type: JSONB
       description: "ユーザーがカスタマイズした忘却曲線アルゴリズムのパラメータを格納する。（例：{'new_cards_per_day': 15, 'interval_modifier': 1.2}）"
+      constraints: "nullable"
+    - name: selected_algorithm
+      type: TEXT
+      description: "ユーザーが選択した忘却曲線アルゴリズム ('leitner', 'sm2'など)。"
+      constraints: "not_nullable, default: 'sm2'"
 
 # -----------------------------------------------
-# Table: user_widget_layouts
+# Table: user_block_layouts
 # -----------------------------------------------
-- table: user_widget_layouts
-  description: "ユーザーが「学習」「プロフィール」の各タブに配置したウィジェットのレイアウト情報を管理する。"
+- table: user_block_layouts
+  description: "ユーザーが「学習」「プロフィール」の各タブに配置したブロックのレイアウト情報を管理する。"
   columns:
     - name: id
       type: SERIAL (Primary Key)
       description: "レイアウト情報の一意なID。"
+      constraints: "not_nullable"
     - name: user_id
       type: UUID (Foreign Key to users.id)
       description: "このレイアウトを所有するユーザーID。"
+      constraints: "not_nullable"
     - name: tab_name
       type: TEXT
-      description: "ウィジェットが配置されているタブ名 ('learning' or 'profile') 。"
-    - name: widget_type
+      description: "ブロックが配置されているタブ名 ('learning' or 'profile') 。"
+      constraints: "not_nullable"
+    - name: block_type
       type: TEXT
-      description: "ウィジェットの種類 (例: 'deck', 'streak', 'heatmap') 。"
+      description: "ブロックの種類 (例: 'deck', 'streak', 'heatmap') 。"
+      constraints: "not_nullable"
     - name: related_id
       type: INT
-      description: "ウィジェットのマスターデータへの参照ID。widget_typeが'deck'の場合は、decks.idを指す。"
+      description: "ウィジェットが特定のマスターデータを参照する場合、そのIDを格納する (例: 学習デッキのID)。'streak'や'heatmap'のように、特定のマスターデータに依存しないウィジェットの場合はNULLとなる。"
+      constraints: "nullable"
     - name: display_order
       type: INT
       description: "タブ内での表示順序。"
+      constraints: "not_nullable"
     - name: settings
       type: JSONB
-      description: "ウィジェット固有の設定（例：学習デッキの出題範囲やスタイル）を格納する。"
+      description: "ブロック固有の設定（例：学習デッキの出題範囲やスタイル）を格納する。"
+      constraints: "nullable"
 ```
 
 ---
@@ -402,27 +431,19 @@ storage_positions:
     - name: id
       type: SERIAL (Primary Key)
       description: "単語の一意なID。"
+      constraints: "not_nullable"
     - name: rank
       type: INTEGER
       description: "単語の出現頻度ランク。数値が小さいほど高頻度（基礎的）な単語であることを示す。"
+      constraints: "nullable"
     - name: word_text
       type: TEXT (UNIQUE)
       description: "英単語の文字列。"
-    ➖ name: definition
-      type: TEXT
-      description: "単語の主要な日本語訳。"
-    ➖ name: part_of_speech
-      type: TEXT
-      description: "品詞。"
+      constraints: "not_nullable"
     - name: etymology
       type: TEXT
       description: "語源の解説。"
-    ➖ name: synonyms
-      type: TEXT[]
-      description: "類義語のリストを配列で格納する。"
-    ➖ name: antonyms
-      type: TEXT[]
-      description: "対義語のリストを配列で格納する。"
+      constraints: "nullable"
     - name: phonetic_symbol
       type: TEXT
       description: "国際音声記号（IPA）による発音記号。"
@@ -437,24 +458,31 @@ storage_positions:
     - name: id
       type: SERIAL (Primary Key)
       description: "意味の一意なID。"
+      constraints: "not_nullable"
     - name: word_id
       type: INT (Foreign Key to words.id)
       description: "関連する単語のID。"
+      constraints: "not_nullable"
     - name: priority
-      type: INT (default: 1)
+      type: INT
       description: "意味の優先順位。数値が小さいほど主要な意味であることを示す。"
+      constraints: "not_nullable, default: 1"
     - name: part_of_speech
       type: TEXT
       description: "この意味に対応する品詞。"
+      constraints: "not_nullable"
     - name: definition
       type: TEXT
       description: "単語の意味の日本語訳。"
+      constraints: "not_nullable"
     - name: synonyms
       type: TEXT[]
       description: "この意味における類義語のリスト。"
+      constraints: "nullable"
     - name: antonyms
       type: TEXT[]
       description: "この意味における対義語のリスト。"
+      constraints: "nullable"
 
 # -----------------------------------------------
 # Table: example_contents
@@ -465,27 +493,31 @@ storage_positions:
     - name: id
       type: SERIAL (Primary Key)
       description: "コンテンツセットの一意なID。"
-    ➖ name: word_id
-      type: INT (Foreign Key to words.id)
-      description: "関連する単語のID。"
-    ➕ name: meaning_id
+      constraints: "not_nullable"
+    - name: meaning_id
       type: INT (Foreign Key to word_meanings.id)
       description: "この例文が対応する、単語の具体的な意味のID。"
+      constraints: "not_nullable"
     - name: theme
-      type: TEXT (default: 'simple')
+      type: TEXT
       description: "コンテンツのテーマ ('simple', 'tsundere', 'animal'など) 。"
+      constraints: "not_nullable, default: 'simple'"
     - name: sentence_en
       type: TEXT
       description: "英語の例文。"
+      constraints: "not_nullable"
     - name: sentence_ja
       type: TEXT
       description: "例文の日本語訳。"
+      constraints: "not_nullable"
     - name: illustration_url
       type: TEXT
       description: "例文イラスト画像のURL (Supabase Storage) 。"
+      constraints: "nullable"
     - name: audio_url
       type: TEXT
       description: "例文読み上げ音声のURL (Supabase Storage) 。"
+      constraints: "nullable"
 
 # -----------------------------------------------
 # Table: decks
@@ -496,18 +528,23 @@ storage_positions:
     - name: id
       type: SERIAL (Primary Key)
       description: "デッキの一意なID。"
+      constraints: "not_nullable"
     - name: deck_name
       type: TEXT (UNIQUE)
       description: "デッキの名称 (例: 'NGSL - 基礎単語') 。"
+      constraints: "not_nullable"
     - name: description
       type: TEXT
       description: "デッキの内容に関する詳細な説明。"
+      constraints: "nullable"
     - name: source_list_name
       type: TEXT
       description: "参照元の単語リスト名 (例: 'NGSL', 'TSL') 。"
+      constraints: "nullable"
     - name: license
       type: TEXT
       description: "コンテンツのライセンス情報 (例: 'CC BY-SA 4.0') 。"
+      constraints: "nullable"
 
 # -----------------------------------------------
 # Table: deck_words
@@ -518,10 +555,12 @@ storage_positions:
     - name: deck_id
       type: INT (Primary Key, Foreign Key to decks.id)
       description: "デッキID。"
+      constraints: "not_nullable"
     - name: word_id
       type: INT (Primary Key, Foreign Key to words.id)
       description: "単語ID。"
-      
+      constraints: "not_nullable"
+
 # -----------------------------------------------
 # Table: card_templates
 # -----------------------------------------------
@@ -531,15 +570,19 @@ storage_positions:
     - name: id
       type: SERIAL (Primary Key)
       description: "テンプレートの一意なID。"
+      constraints: "not_nullable"
     - name: template_name
       type: TEXT (UNIQUE)
       description: "テンプレートの名称（例：「シンプル重視」「情報たっぷり」「イラストメイン」）。"
+      constraints: "not_nullable"
     - name: surface_a_items
       type: TEXT[]
       description: "カードの表面に表示する項目を配列で定義（例：['word', 'illustration']）。"
+      constraints: "not_nullable"
     - name: surface_b_items
       type: TEXT[]
       description: "カードの裏面に表示する項目を配列で定義（例：['definition', 'sentence_en', 'synonyms']）。"
+      constraints: "not_nullable"
 ```
 
 ---
@@ -553,35 +596,79 @@ storage_positions:
 # Table: user_learning_progress
 # -----------------------------------------------
 - table: user_learning_progress
-  description: "ユーザーごとの単語学習進捗。忘却曲線アルゴリズムのパラメータもここで管理する。"
+  description: "ユーザーごとの、単語の意味単位での共通学習進捗を管理する。アルゴリズム固有の情報は含まない。"
   columns:
+    - name: id
+      type: SERIAL (Primary Key)
+      description: "学習進捗レコードの一意なID。"
+      constraints: "not_nullable"
     - name: user_id
-      type: UUID (Primary Key, Foreign Key to users.id)
+      type: UUID (Foreign Key to users.id)
       description: "ユーザーID。"
-    - name: word_id
-      type: INT (Primary Key, Foreign Key to words.id)
-      description: "学習対象の単語ID。"
+      constraints: "not_nullable"
+    - name: meaning_id
+      type: INT (Foreign Key to word_meanings.id)
+      description: "学習対象の単語の意味ID。"
+      constraints: "not_nullable"
     - name: status
-      type: TEXT (default: 'new')
+      type: TEXT
       description: "学習ステータス ('new', 'learning', 'mastered') 。"
+      constraints: "not_nullable, default: 'new'"
     - name: last_reviewed_at
       type: TIMESTAMPTZ
       description: "最後にこの単語を復習した日時。"
+      constraints: "nullable"
     - name: next_review_date
       type: TIMESTAMPTZ
-      description: "アルゴリズムによって算出された、次回復習推奨日時。"
+      description: "アルゴリズムによって算出された、次回復習推奨日時。クエリのパフォーマンス向上のため、この共通テーブルに保持する。"
+      constraints: "nullable"
+    - name: created_at
+      type: TIMESTAMPTZ
+      description: "レコード作成日時"
+      constraints: "not_nullable, default: now()"
+    - name: updated_at
+      type: TIMESTAMPTZ
+      description: "レコード更新日時"
+      constraints: "not_nullable, default: now()"
+  constraints: "UNIQUE(user_id, meaning_id)"
+
+# -----------------------------------------------
+# Table: leitner_progress
+# -----------------------------------------------
+- table: leitner_progress
+  description: "リートナー方式の進捗パラメータを管理する。"
+  columns:
+    - name: progress_id
+      type: INT (Primary Key, Foreign Key to user_learning_progress.id)
+      description: "対応する共通進捗レコードのID。"
+      constraints: "not_nullable"
     - name: srs_level
-      type: INT (default: 1)
-      description: "リートナー方式における現在のレベル。"
+      type: INT
+      description: "リートナー方式における現在のレベル（1〜5）。"
+      constraints: "not_nullable, default: 1"
+
+# -----------------------------------------------
+# Table: sm2_progress
+# -----------------------------------------------
+- table: sm2_progress
+  description: "SM-2アルゴリズムの進捗パラメータを管理する。"
+  columns:
+    - name: progress_id
+      type: INT (Primary Key, Foreign Key to user_learning_progress.id)
+      description: "対応する共通進捗レコードのID。"
+      constraints: "not_nullable"
     - name: easiness_factor
-      type: REAL (default: 2.5)
+      type: REAL
       description: "SM-2アルゴリズムにおける易しさ係数（E-Factor）。"
+      constraints: "not_nullable, default: 2.5"
     - name: repetitions
-      type: INT (default: 0)
+      type: INT
       description: "SM-2アルゴリズムにおける連続正解回数。"
+      constraints: "not_nullable, default: 0"
     - name: interval_days
-      type: INT (default: 0)
+      type: INT
       description: "SM-2アルゴリズムにおける前回の復習間隔。"
+      constraints: "not_nullable, default: 0"
 ```
 
 ---
@@ -715,48 +802,7 @@ storage_positions:
 
 ---
 
-### 【 Algorithm｜03 】学習履歴に基づく動的コンテンツ生成
-
----
-
-### **✦ AIによる学習コンテンツ生成機能の詳細**
-
-「AIによる学習コンテンツ生成」は、Proプラン限定の機能である。ユーザーがこれまでに学習した単語の中から、AIが自動で複数の単語をピックアップし、それらを用いてリアルタイムでユニークな例文（英文＋和訳）を生成する。これにより、ユーザーは自身の学習履歴に基づいた文脈で単語を復習でき、記憶の定着を促進する。本機能の優先度は「P3（中長期的な改善・追加機能）」と位置づけられる。例えば、学習した単語が予期せぬ組み合わせで文章に登場することにより、ユーザーは自身の理解度を多角的に試すことができる。
-
----
-
-### **✦ 技術的な仕様**
-
-技術的には、OpenAI（GPTシリーズ）またはGoogle（Geminiシリーズ）のAIモデルを利用する。APIキーを安全に管理するため、アプリから直接AIを呼び出すのではなく、SupabaseのEdge Functionsを介してリクエストを中継する。データの品質を保つため、AIへの指示はあらかじめ定義されたテンプレートを使用し、常にJSON形式でデータをやり取りする。
-
-```yaml
-1. ユーザーがアプリで例文生成をリクエストする。
-2. アプリはSupabase Edge Functionにリクエストを送信する。
-3. Edge Functionは、ユーザーの学習進捗データ（user_learning_progress）を参照し、復習対象となる単語を複数抽出する。
-4. Edge Functionが抽出した単語群と、任意で指定された文脈テーマを基に、AIモデルへ最適な指示（プロンプト）を組み立て、例文の生成をリクエストする。
-5. AIが生成した例文のデータをEdge Functionが受け取る。
-6. Edge Functionがデータを整形し、安全にアプリへ返す。
-7. アプリが受け取った例文を画面に表示する。
-```
-
----
-
-### **✦ ユーザー体験の流れ**
-
-ユーザーは学習タブに配置できる「AI例文生成ウィジェット」からこの機能を使う。ウィジェットには、任意で文脈（例：'ビジネス'、'医療'など）を指定する欄が用意される。「例文を生成する」ボタンを押すと、AIが応答するまでの待機時間には、処理中であることが分かるようにローディングアニメーションが表示される。生成された例文は、学習カード形式ではなく、ニュース記事を読むような感覚でスクロールしながら読めるシンプルなテキストビューとして表示される。ここでは「わかる／わからない」といった評価操作は行わず、純粋な読解と復習に集中することができる。APIでエラーが発生した場合は、その旨を分かりやすく伝え、再試行を促する。
-
----
-
-### **✦ 機能制約と前提条件**
-
-- **APIコスト**: AIモデルの呼び出しごとに従量課金が発生する。本機能の事業採算性は、Proプランの価格とユーザー一人あたりのAPI利用回数制限のバランスに依存する。
-- **応答遅延 (Latency)**: AIの応答には数秒の遅延が内在する。この待機時間がユーザー体験を損なわないよう、適切なUI/UX（ローディング表示等）によるハンドリングを前提とする。
-- **品質の不確実性**: AIが不正確、または文脈に合わない不適切な例文を生成するリスクは常に存在する。機能の信頼性は、プロンプトエンジニアリングの継続的な改善によって担保される。
-- **ロジック依存性**: 本機能が提供する学習価値は、ユーザーの学習履歴から復習に最適な単語を選び出す、その選定ロジックの精度に直接的に依存する。
-
----
-
-### 【 Algorithm｜04 】**英語力別のデータパーソナライズ方法**
+### 【 Algorithm｜03 】**英語力別のデータパーソナライズ方法**
 
 *本アルゴリズムは、ユーザーがアプリを使い始めた瞬間の体験価値を最大化し、学習離脱率を低減させることを目的とする。*
 
@@ -764,7 +810,7 @@ storage_positions:
 
 ### **✦ 基本思想**
 
-多くのユーザーは、学習を開始する前の「選択」や「登録」といった行為に負荷を感じ、意欲を削がれてしまう。この障壁を取り除くため、アプリ初回起動時にはアカウント登録を要求せず、標準の「ウェルカムデッキ」を自動提供し、即座に学習を開始できる環境を用意する。その後、ユーザーがアカウント登録を行った際には、それまでの学習履歴を失うことなく新しいアカウントへ引き継ぐ。同時に、アンケートに基づきユーザーの目的に合った「パーソナライズドデッキ」を新しいウィジェットとして追加することで、気軽な体験から本格的なパーソナライズ学習へのシームレスな移行を実現する。
+多くのユーザーは、学習を開始する前の「選択」や「登録」といった行為に負荷を感じ、意欲を削がれてしまう。この障壁を取り除くため、アプリ初回起動時にはアカウント登録を要求せず、標準の「ウェルカムデッキ」を自動提供し、即座に学習を開始できる環境を用意する。その後、ユーザーがアカウント登録を行った際には、それまでの学習履歴を失うことなく新しいアカウントへ引き継ぐ。同時に、アンケートに基づきユーザーの目的に合った「パーソナライズドデッキ」を新しいブロックとして追加することで、気軽な体験から本格的なパーソナライズ学習へのシームレスな移行を実現する。
 
 ---
 
@@ -780,7 +826,7 @@ storage_positions:
 # -----------------------------------------------
 - event: ユーザーがアプリを初めて起動する
 - action:
-    - 1. ウェルカムデッキの自動配置：約300語を収録した標準のウェルカムデッキを、学習タブのウィジェットエリアに自動で配置する。
+    - 1. ウェルカムデッキの自動配置：約300語を収録した標準のウェルカムデッキを、学習タブのブロックエリアに自動で配置する。
     - 2. ゲスト学習の開始：ユーザーはアカウント登録なしで、すぐにウェルカムデッキの学習を開始できる。学習進捗は端末のローカルDB（SQLite）に一時的に保存される。
 - result: ユーザーは一切の摩擦なく、即座に学習体験を開始できる。
 
@@ -808,24 +854,24 @@ storage_positions:
           - id: none
             label: 特に決まっていない
 ------------------------------------------
-    - 3. 最適な学習デッキの追加：アンケートの回答（option.id）に基づき、以下のマッピングルールに従ってパーソナライズドデッキを決定し、学習タブに新しいウィジェットとして追加する。
+    - 3. 最適な学習デッキの追加：アンケートの回答（option.id）に基づき、以下のマッピングルールに従ってパーソナライズドデッキを決定し、学習タブに新しいブロックとして追加する。
     -   mapping_rules:
           - if: option.id is 'daily_conversation'
-            then: deck_id: 1 (NGSL基礎単語デッキ) をウィジェットとして追加する
+            then: deck_id: 1 (NGSL基礎単語デッキ) をブロックとして追加する
           - if: option.id is 'business'
-            then: deck_id: 2 (BSLビジネス単語デッキ) をウィジェットとして追加する
+            then: deck_id: 2 (BSLビジネス単語デッキ) をブロックとして追加する
           - if: option.id is 'toeic'
-            then: deck_id: 3 (TSL TOEIC頻出単語デッキ) をウィジェットとして追加する
+            then: deck_id: 3 (TSL TOEIC頻出単語デッキ) をブロックとして追加する
           - if: option.id is 'exam' or 'junior_english'
-            then: deck_id: 4 (学術基礎単語デッキ) をウィジェットとして追加する
+            then: deck_id: 4 (学術基礎単語デッキ) をブロックとして追加する
           - if: option.id is 'none'
             then: deck_id: 1 (NGSL基礎単語デッキ) をデフォルトとして追加し、さらにデッキ選択を促すUIを表示する
-- result: 学習タブにはウェルカムデッキと新しいパーソナライズドデッキが別々のウィジェットとして共存する。ユーザーは自身の学習履歴を維持したまま、新たな目的の学習へとスムーズに移行できる。
+- result: 学習タブにはウェルカムデッキと新しいパーソナライズドデッキが別々のブロックとして共存する。ユーザーは自身の学習履歴を維持したまま、新たな目的の学習へとスムーズに移行できる。
 ```
 
 ---
 
-### 【 Algorithm｜05 】動的UIテーマシステム
+### 【 Algorithm｜04 】動的UIテーマシステム
 
 *本アルゴリズムは、競争優位性の一つである「適応型パーソナル空間（アダプティブ・スペース）」を実現するための技術的根幹である。中心的な思想は、UIの構造的骨格と、その視覚的表現であるデザイン思想を完全に分離することにある。これにより、UIデザインの拡張性とメンテナンス性を最大化する。*
 
@@ -853,11 +899,11 @@ storage_positions:
 
 ### **3. テーマの利用規約（参照側）**
 
-アプリケーションのUIを構築する際、個々のウィジェットは特定の色やフォントサイズといった値を直接コード内に記述しません。その代わり、状態管理システムを通じて、現在ユーザーに選択されているテーマオブジェクトを一元的に受け取る。全てのウィジェットは、この注入されたテーマオブジェクトから「基本色」や「標準の角丸」といった値を参照して自身のスタイルを決定する。これにより、注入するテーマオブジェクトを切り替えるだけで、アプリケーション全体のルックアンドフィールを瞬時に、かつ整合性を保ったまま変更することが可能になる。
+アプリケーションのUIを構築する際、個々のブロックは特定の色やフォントサイズといった値を直接コード内に記述しません。その代わり、状態管理システムを通じて、現在ユーザーに選択されているテーマオブジェクトを一元的に受け取る。全てのブロックは、この注入されたテーマオブジェクトから「基本色」や「標準の角丸」といった値を参照して自身のスタイルを決定する。これにより、注入するテーマオブジェクトを切り替えるだけで、アプリケーション全体のルックアンドフィールを瞬時に、かつ整合性を保ったまま変更することが可能になる。
 
 ---
 
-### 4. ワイヤーフレームテーマのコンポーネントスタイル定義
+### 4. ワイヤーフレームテーマ｜スタイル定義
 
 *「ワイヤーフレーム駆動開発」で用いる、UIの骨格を可視化するためのテーマ。全てのコンポーネントは、ここで定義された統一のスタイルに従う。*
 
@@ -877,7 +923,7 @@ storage_positions:
 --color-background: #FFFFFF;  /* 画面背景 */
 --color-surface: #F5F5F5;     /* カードやボタンなどのコンポーネント表面 */
 --color-border: #CCCCCC;      /* 境界線 */
---color-text-primary: #333333;/* 主要テキスト */
+--color-text-primary: #393939;/* 主要テキスト */
 --color-text-secondary: #888888;/* 補助テキスト */
 --color-icon: #757575;        /* アイコン */
 --color-overlay: rgba(0, 0, 0, 0.4); /* ダイアログ背後のオーバーレイ */
@@ -1029,7 +1075,7 @@ details: クライアントアプリから、削除対象のユーザーID（JWT
 details: service_role_key を用いてRLSをバイパスし、外部キー制約に違反しないよう、ユーザーIDに紐づく依存テーブルのレコードを順番に削除する。
 sequence:
 - "1. user_learning_progress"
-- "2. user_widget_layouts"
+- "2. user_block_layouts"
 - "3. user_settings"
 - "4. user_profiles"
 --------------------------------
@@ -1120,7 +1166,7 @@ workflow:
   details: 開発の初期段階では、`usalingo_04_04`で定義された「ワイヤーフレームテーマ」をアプリケーション全体に適用する。これにより、全ての装飾的要素が排除され、レイアウトと機能配置に集中できる環境を構築する。
 --------------------------------
 - step: 2. UI骨格の実装 (UI Scaffolding)
-  details: Figmaなどで設計された画面レイアウトに基づき、具体的なウィジェット（ボタン、テキストフィールド、カード等）を配置し、画面全体の構造をコードとして実装する。この段階では、データの表示やボタンの動作はモックデータや空の関数を用いて仮実装する。
+  details: Figmaなどで設計された画面レイアウトに基づき、具体的なブロック（ボタン、テキストフィールド、カード等）を配置し、画面全体の構造をコードとして実装する。この段階では、データの表示やボタンの動作はモックデータや空の関数を用いて仮実装する。
 --------------------------------
 - step: 3. ロジックとデータの統合 (Logic & Data Integration)
   details: UIの骨格が完成した後、実際のビジネスロジック（状態管理、API通信、データベース連携など）を実装し、UIコンポーネントと接続する。
@@ -1155,7 +1201,7 @@ workflow:
 | --- | --- | --- |
 | **形式** | **MP3** | 幅広いプラットフォームでサポートされており、圧縮率と音質のバランスが良いため。 |
 | **命名規則** | `{word_text}_{locale}_{gender}.mp3` | 例: `apple_us_female.mp3` |
-| **格納場所 (MVP)** | アプリパッケージ (`assets/test_audio/`) | オフライン再生とAPIコストゼロを実現するため。 |
+| **格納場所 (MVP)** | アプリパッケージ (`assets/audio/`) | オフライン再生とAPIコストゼロを実現するため。 |
 | **格納場所 (Ver1.x以降)** | クラウドTTSサービスから動的生成 | Proプラン向けの高音質化とアプリ容量削減のため。 |
 
 ---
@@ -1165,13 +1211,9 @@ workflow:
 | **項目** | **仕様** | **備考** |
 | --- | --- | --- |
 | **アセット調達方針** | MVP段階では、LottieFiles Marketplace等でライセンス購入した汎用アセットを利用する。 | 開発速度を優先するため。 |
-| **格納場所** | アプリパッケージ (`assets/test_lottie/`) | オフライン環境での表示を保証し、読み込み遅延を防ぐため。 |
+| **格納場所** | アプリパッケージ (`assets/lottie/`) | オフライン環境での表示を保証し、読み込み遅延を防ぐため。 |
 | **ライセンス管理** | プロジェクトルートに `LOTTIE_LICENSES.md` を作成し、購入した全アセットの情報を明記する。 | 権利関係を明確化し、ライセンス違反リスクを回避するため。 |
 
 ---
 
 </aside>
-
-$$
-\color{FF5D97}\rule{400px}{10px}
-$$

@@ -91,14 +91,11 @@ class DesignCustomizePage extends ConsumerWidget {
       child: Container(
         decoration: BoxDecoration(
           color: theme.cardColor,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.1),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
-          ],
+          borderRadius: BorderRadius.circular(theme.cornerRadius),
+          border: Border.all(
+            color: theme.borderColor,
+            width: theme.borderWidth,
+          ),
         ),
         child: Padding(
           padding: const EdgeInsets.all(20),
@@ -108,7 +105,7 @@ class DesignCustomizePage extends ConsumerWidget {
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
                   color: theme.primaryColor.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(theme.cornerRadius),
                 ),
                 child: Icon(icon, size: 32, color: theme.primaryColor),
               ),
@@ -149,6 +146,7 @@ class DesignCustomizePage extends ConsumerWidget {
   }
 
   void _showThemeSettings(BuildContext context, WidgetRef ref) {
+    final theme = ref.read(currentThemeProvider);
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -166,12 +164,30 @@ class DesignCustomizePage extends ConsumerWidget {
                 crossAxisSpacing: 16,
                 mainAxisSpacing: 16,
                 children: [
-                  _buildThemeOption(context, ref, 'フラット', Icons.crop_square),
-                  _buildThemeOption(context, ref, 'マテリアル', Icons.layers),
-                  _buildThemeOption(context, ref, 'ニューモーフ', Icons.blur_on),
-                  _buildThemeOption(context, ref, 'ガラス', Icons.blur_circular),
-                  _buildThemeOption(context, ref, 'ピクセル', Icons.grid_on),
-                  _buildThemeOption(context, ref, 'ワイヤー', Icons.grain),
+                  _buildThemeOption(
+                    context,
+                    ref,
+                    theme,
+                    'フラット',
+                    Icons.crop_square,
+                  ),
+                  _buildThemeOption(context, ref, theme, 'マテリアル', Icons.layers),
+                  _buildThemeOption(
+                    context,
+                    ref,
+                    theme,
+                    'ニューモーフ',
+                    Icons.blur_on,
+                  ),
+                  _buildThemeOption(
+                    context,
+                    ref,
+                    theme,
+                    'ガラス',
+                    Icons.blur_circular,
+                  ),
+                  _buildThemeOption(context, ref, theme, 'ピクセル', Icons.grid_on),
+                  _buildThemeOption(context, ref, theme, 'ワイヤー', Icons.grain),
                 ],
               ),
             ),
@@ -184,6 +200,7 @@ class DesignCustomizePage extends ConsumerWidget {
   Widget _buildThemeOption(
     BuildContext context,
     WidgetRef ref,
+    AppTheme theme,
     String name,
     IconData icon,
   ) {
@@ -195,8 +212,11 @@ class DesignCustomizePage extends ConsumerWidget {
       child: Container(
         decoration: BoxDecoration(
           color: Colors.grey.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.grey.withValues(alpha: 0.3)),
+          borderRadius: BorderRadius.circular(theme.cornerRadius),
+          border: Border.all(
+            color: theme.borderColor,
+            width: theme.borderWidth,
+          ),
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,

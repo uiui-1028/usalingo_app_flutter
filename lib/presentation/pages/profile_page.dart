@@ -67,14 +67,8 @@ class ProfilePage extends ConsumerWidget {
     return Container(
       decoration: BoxDecoration(
         color: theme.cardColor,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.1),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
+        borderRadius: BorderRadius.circular(theme.cornerRadius),
+        border: Border.all(color: theme.borderColor, width: theme.borderWidth),
       ),
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -106,14 +100,8 @@ class ProfilePage extends ConsumerWidget {
     return Container(
       decoration: BoxDecoration(
         color: theme.cardColor,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.1),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
+        borderRadius: BorderRadius.circular(theme.cornerRadius),
+        border: Border.all(color: theme.borderColor, width: theme.borderWidth),
       ),
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -160,14 +148,8 @@ class ProfilePage extends ConsumerWidget {
     return Container(
       decoration: BoxDecoration(
         color: theme.cardColor,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.1),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
+        borderRadius: BorderRadius.circular(theme.cornerRadius),
+        border: Border.all(color: theme.borderColor, width: theme.borderWidth),
       ),
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -206,14 +188,11 @@ class ProfilePage extends ConsumerWidget {
       child: Container(
         decoration: BoxDecoration(
           color: theme.cardColor,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.1),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
-          ],
+          borderRadius: BorderRadius.circular(theme.cornerRadius),
+          border: Border.all(
+            color: theme.borderColor,
+            width: theme.borderWidth,
+          ),
         ),
         child: Padding(
           padding: const EdgeInsets.all(16),
@@ -257,14 +236,11 @@ class ProfilePage extends ConsumerWidget {
       child: Container(
         decoration: BoxDecoration(
           color: theme.cardColor,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.1),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
-          ],
+          borderRadius: BorderRadius.circular(theme.cornerRadius),
+          border: Border.all(
+            color: theme.borderColor,
+            width: theme.borderWidth,
+          ),
         ),
         child: Padding(
           padding: const EdgeInsets.all(16),
@@ -316,11 +292,10 @@ class ProfilePage extends ConsumerWidget {
       child: Container(
         decoration: BoxDecoration(
           color: theme.backgroundColor,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(theme.cornerRadius),
           border: Border.all(
-            color: theme.borderColor ?? Colors.grey.withValues(alpha: 0.3),
-            width: 2,
-            style: BorderStyle.solid,
+            color: theme.borderColor,
+            width: theme.borderWidth,
           ),
         ),
         child: Column(
