@@ -6,7 +6,49 @@ class WordRepositorySQLite implements WordRepository {
   @override
   Future<List<Word>> fetchAllWords() async {
     // TODO: SQLiteから全ての単語を取得する実装
-    throw UnimplementedError();
+    // 一時的にサンプルデータを返す
+    return [
+      Word(
+        id: 1,
+        text: 'Hello',
+        meaning: 'こんにちは',
+        sentence: 'Hello, how are you?',
+        tags: '挨拶',
+        imageUrl: null,
+      ),
+      Word(
+        id: 2,
+        text: 'World',
+        meaning: '世界',
+        sentence: 'Hello, world!',
+        tags: '名詞',
+        imageUrl: null,
+      ),
+      Word(
+        id: 3,
+        text: 'Flutter',
+        meaning: 'フラッター',
+        sentence: 'Flutter is amazing!',
+        tags: '技術',
+        imageUrl: null,
+      ),
+      Word(
+        id: 4,
+        text: 'Dart',
+        meaning: 'ダート',
+        sentence: 'Dart is a programming language.',
+        tags: '技術',
+        imageUrl: null,
+      ),
+      Word(
+        id: 5,
+        text: 'App',
+        meaning: 'アプリ',
+        sentence: 'This is a great app!',
+        tags: '技術',
+        imageUrl: null,
+      ),
+    ];
   }
 
   @override

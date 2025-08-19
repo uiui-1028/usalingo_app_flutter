@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../widgets/flashcard_widget.dart';
 import '../theme/app_theme_provider.dart';
 import '../theme/app_theme.dart';
+import '../../app/providers.dart';
+import '../../domain/entities/learning_progress.dart';
 
 class FlashcardPage extends ConsumerStatefulWidget {
   const FlashcardPage({super.key});
@@ -11,488 +13,234 @@ class FlashcardPage extends ConsumerStatefulWidget {
   ConsumerState<FlashcardPage> createState() => _FlashcardPageState();
 }
 
-class _FlashcardPageState extends ConsumerState<FlashcardPage>
-    with TickerProviderStateMixin {
-  late AnimationController _punchController;
-  late AnimationController _flipController;
-  late Animation<double> _punchAnimation;
-  late Animation<double> _flipAnimation;
-  bool _isFlipped = false;
-  bool _showAnswer = false;
-  int _currentCardIndex = 0;
-  int _totalCards = 10;
-  int _correctAnswers = 0;
-  int _wrongAnswers = 0;
-
-  // サンプルデータ（実際のアプリではデータベースから取得）
-  final List<Map<String, String>> _cards = [
-    {'word': 'Hello', 'definition': 'こんにちは', 'sentence': 'Hello, how are you?'},
-    {'word': 'World', 'definition': '世界', 'sentence': 'Hello, world!'},
-    {
-      'word': 'Flutter',
-      'definition': 'フラッター',
-      'sentence': 'Flutter is amazing!',
-    },
-    {
-      'word': 'Dart',
-      'definition': 'ダート',
-      'sentence': 'Dart is a programming language.',
-    },
-    {'word': 'App', 'definition': 'アプリ', 'sentence': 'This is a great app!'},
-  ];
+class _FlashcardPageState extends ConsumerState<FlashcardPage> {
+  List<LearningProgress> dueTodayCards = [];
+  int currentCardIndex = 0;
+  bool isLoading = false;
 
   @override
   void initState() {
     super.initState();
-    _punchController = AnimationController(
-      duration: const Duration(milliseconds: 200),
-      vsync: this,
-    );
-    _flipController = AnimationController(
-      duration: const Duration(milliseconds: 600),
-      vsync: this,
-    );
+    _loadDueTodayCards();
+  }
 
-    _punchAnimation = Tween<double>(begin: 1.0, end: 0.8).animate(
-      CurvedAnimation(parent: _punchController, curve: Curves.easeInOut),
-    );
+  Future<void> _loadDueTodayCards() async {
+    setState(() {
+      isLoading = true;
+    });
 
-    _flipAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _flipController, curve: Curves.easeInOut),
-    );
+    try {
+      final getDueTodayCards = ref.read(getDueTodayCardsProvider);
+      final cards = await getDueTodayCards.execute();
+      setState(() {
+        dueTodayCards = cards;
+        isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        isLoading = false;
+      });
+    }
+  }
+
+  double get _progressValue {
+    if (dueTodayCards.isEmpty) return 0.0;
+    return (currentCardIndex + 1) / dueTodayCards.length;
   }
 
   @override
-  void dispose() {
-    _punchController.dispose();
-    _flipController.dispose();
-    super.dispose();
-  }
-
-  void _punchAction() {
-    _punchController.forward().then((_) {
-      _punchController.reverse();
-    });
-    setState(() {
-      _showAnswer = !_showAnswer;
-    });
-  }
-
-  void _flipAction() {
-    if (_flipAnimation.status == AnimationStatus.completed) {
-      _flipController.reverse();
-    } else {
-      _flipController.forward();
-    }
-    setState(() {
-      _isFlipped = !_isFlipped;
-    });
-  }
-
-  void _handleSwipe(DragEndDetails details) {
-    if (details.primaryVelocity! > 500) {
-      // 右スワイプ - 正解
-      _handleCorrectAnswer();
-    } else if (details.primaryVelocity! < -500) {
-      // 左スワイプ - 間違い
-      _handleWrongAnswer();
-    }
-  }
-
-  void _handleCorrectAnswer() {
-    setState(() {
-      _correctAnswers++;
-      _currentCardIndex++;
-    });
-
-    if (_currentCardIndex >= _totalCards) {
-      _showCompletionDialog();
-    } else {
-      _resetCardState();
-      _showFeedback(true);
-    }
-  }
-
-  void _handleWrongAnswer() {
-    setState(() {
-      _wrongAnswers++;
-      _currentCardIndex++;
-    });
-
-    if (_currentCardIndex >= _totalCards) {
-      _showCompletionDialog();
-    } else {
-      _resetCardState();
-      _showFeedback(false);
-    }
-  }
-
-  void _resetCardState() {
-    _isFlipped = false;
-    _showAnswer = false;
-    _flipController.reset();
-  }
-
-  void _showFeedback(bool isCorrect) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(isCorrect ? '正解です！' : '間違えました...'),
-        backgroundColor: isCorrect ? Colors.green : Colors.red,
-        duration: const Duration(seconds: 1),
+  Widget build(BuildContext context) {
+    final theme = ref.watch(currentThemeProvider);
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: SafeArea(
+        child: Column(
+          children: [
+            // カスタムヘッダー（タイトルなし、戻るボタンと進捗バーのみ）
+            _buildCustomHeader(context, theme),
+            // フラッシュカードコンテンツ
+            Expanded(
+              child: Center(
+                child: FlashcardWidget(
+                  onCardIndexChanged: (index) {
+                    setState(() {
+                      currentCardIndex = index;
+                    });
+                  },
+                ),
+              ),
+            ),
+            // ツールバー
+            _buildToolbar(context, theme),
+          ],
+        ),
       ),
     );
   }
 
-  void _showCompletionDialog() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: const Text('学習完了！'),
-        content: Text(
-          'お疲れさまでした！\n'
-          '正解: $_correctAnswers問\n'
-          '間違い: $_wrongAnswers問\n'
-          '正答率: ${((_correctAnswers / _totalCards) * 100).toStringAsFixed(1)}%',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              Navigator.of(context).pop();
-            },
-            child: const Text('完了'),
+  Widget _buildCustomHeader(BuildContext context, AppTheme theme) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+      child: Row(
+        children: [
+          // 戻るボタン
+          IconButton(
+            onPressed: () => Navigator.of(context).pop(),
+            icon: Icon(Icons.close, color: theme.textSecondaryColor, size: 24),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+          ),
+          const SizedBox(width: 20),
+          // 進捗バー
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // 進捗テキスト
+                Text(
+                  '${currentCardIndex + 1} / ${dueTodayCards.length}',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: theme.textSecondaryColor,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                // 進捗バー
+                Container(
+                  height: 10,
+                  width: double.infinity,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF333333), // 黒いパイプライン
+                    borderRadius: BorderRadius.circular(5),
+                  ),
+                  child: FractionallySizedBox(
+                    alignment: Alignment.centerLeft,
+                    widthFactor: _progressValue,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFF5D97), // 写真に近いピンクの進捗
+                        borderRadius: BorderRadius.circular(5),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final theme = ref.watch(currentThemeProvider);
-
-    return Scaffold(
-      backgroundColor: theme.backgroundColor,
-      appBar: AppBar(
-        title: const Text('フラッシュカード学習'),
-        backgroundColor: theme.backgroundColor,
-        foregroundColor: theme.textColor,
-        elevation: 0,
-      ),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            children: [
-              // 学習進捗表示
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: theme.cardColor,
-                  borderRadius: BorderRadius.circular(12),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.1),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      '進捗: ${_currentCardIndex + 1}/$_totalCards',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: theme.textColor,
-                      ),
-                    ),
-                    Text(
-                      '残り: ${_totalCards - _currentCardIndex - 1}枚',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: theme.textSecondaryColor,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 24),
-
-              // フラッシュカード（中央配置）
-              Expanded(
-                child: GestureDetector(
-                  onPanEnd: _handleSwipe,
-                  child: Center(
-                    child: AnimatedBuilder(
-                      animation: _punchAnimation,
-                      builder: (context, child) {
-                        return Transform.scale(
-                          scale: _punchAnimation.value,
-                          child: _buildFlashCard(theme),
-                        );
-                      },
-                    ),
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 24),
-
-              // 操作ボタン
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  _buildActionButton(
-                    context,
-                    theme,
-                    Icons.close,
-                    '間違えた',
-                    Colors.red,
-                    _handleWrongAnswer,
-                  ),
-                  _buildActionButton(
-                    context,
-                    theme,
-                    Icons.flip,
-                    'フリップ',
-                    Colors.blue,
-                    _flipAction,
-                  ),
-                  _buildActionButton(
-                    context,
-                    theme,
-                    Icons.check,
-                    '正解',
-                    Colors.green,
-                    _handleCorrectAnswer,
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 16),
-
-              // 操作説明
-              Text(
-                '💡 カードをタップでパンチ、スワイプで回答、フリップボタンで裏返し',
-                style: TextStyle(fontSize: 12, color: theme.textSecondaryColor),
-                textAlign: TextAlign.center,
-              ),
-            ],
+  Widget _buildToolbar(BuildContext context, AppTheme theme) {
+    return Container(
+      margin: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+      decoration: BoxDecoration(
+        color: theme.surfaceColor,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: theme.borderColor, width: theme.borderWidth),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
           ),
-        ),
+        ],
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          // タグ付けボタン
+          _buildToolbarButton(
+            icon: Icons.local_offer_outlined,
+            onTap: () => _onTagButtonTap(),
+            theme: theme,
+          ),
+          // 音声再生ボタン
+          _buildToolbarButton(
+            icon: Icons.volume_up_outlined,
+            onTap: () => _onAudioButtonTap(),
+            theme: theme,
+          ),
+          // 一つ戻るボタン
+          _buildToolbarButton(
+            icon: Icons.undo_outlined,
+            onTap: () => _onUndoButtonTap(),
+            theme: theme,
+          ),
+          // 編集ボタン
+          _buildToolbarButton(
+            icon: Icons.edit_outlined,
+            onTap: () => _onEditButtonTap(),
+            theme: theme,
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildFlashCard(AppTheme theme) {
-    final currentCard = _cards[_currentCardIndex % _cards.length];
-
+  Widget _buildToolbarButton({
+    required IconData icon,
+    required VoidCallback onTap,
+    required AppTheme theme,
+  }) {
     return GestureDetector(
-      onTap: _punchAction,
-      child: AnimatedBuilder(
-        animation: _flipAnimation,
-        builder: (context, child) {
-          final flipValue = _flipAnimation.value;
-          final isFlipped = flipValue >= 0.5;
-
-          return Transform(
-            alignment: Alignment.center,
-            transform: Matrix4.identity()
-              ..setEntry(3, 2, 0.001)
-              ..rotateY(flipValue * 3.14159),
-            child: isFlipped
-                ? _buildBackSide(theme, currentCard)
-                : _buildFrontSide(theme, currentCard),
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildFrontSide(AppTheme theme, Map<String, String> card) {
-    return Card(
-      elevation: 8,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      onTap: onTap,
       child: Container(
-        width: 300,
-        height: 400,
-        padding: const EdgeInsets.all(24),
+        width: 48,
+        height: 48,
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(20),
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [theme.cardColor, theme.cardColor.withValues(alpha: 0.8)],
-          ),
+          color: theme.backgroundColor,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: theme.borderColor, width: 1),
         ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.lightbulb_outline, size: 48, color: theme.primaryColor),
-            const SizedBox(height: 24),
-            Text(
-              card['word']!,
-              style: TextStyle(
-                fontSize: 32,
-                fontWeight: FontWeight.bold,
-                color: theme.textColor,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              card['sentence']!,
-              style: TextStyle(
-                fontSize: 16,
-                color: theme.textSecondaryColor,
-                fontStyle: FontStyle.italic,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 24),
-            Text(
-              'タップしてパンチ！',
-              style: TextStyle(
-                fontSize: 14,
-                color: theme.primaryColor,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
-        ),
+        child: Icon(icon, color: theme.primaryColor, size: 24),
       ),
     );
   }
 
-  Widget _buildBackSide(AppTheme theme, Map<String, String> card) {
-    return Card(
-      elevation: 8,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      child: Container(
-        width: 300,
-        height: 400,
-        padding: const EdgeInsets.all(24),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(20),
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              theme.primaryColor.withValues(alpha: 0.1),
-              theme.primaryColor.withValues(alpha: 0.05),
-            ],
-          ),
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.translate, size: 48, color: theme.primaryColor),
-            const SizedBox(height: 24),
-            Text(
-              card['definition']!,
-              style: TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.bold,
-                color: theme.textColor,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              '意味',
-              style: TextStyle(
-                fontSize: 14,
-                color: theme.textSecondaryColor,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-            const SizedBox(height: 32),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _buildAnswerButton(
-                  context,
-                  theme,
-                  '間違えた',
-                  Colors.red,
-                  _handleWrongAnswer,
-                ),
-                _buildAnswerButton(
-                  context,
-                  theme,
-                  '正解',
-                  Colors.green,
-                  _handleCorrectAnswer,
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
+  // ツールバーボタンのタップハンドラー
+  void _onTagButtonTap() {
+    // TODO: タグ付け機能の実装
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('タグ付け機能')));
   }
 
-  Widget _buildAnswerButton(
-    BuildContext context,
-    AppTheme theme,
-    String label,
-    Color color,
-    VoidCallback onPressed,
-  ) {
-    return ElevatedButton(
-      onPressed: onPressed,
-      style: ElevatedButton.styleFrom(
-        backgroundColor: color,
-        foregroundColor: Colors.white,
-        elevation: 4,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-      ),
-      child: Text(
-        label,
-        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-      ),
-    );
+  void _onAudioButtonTap() {
+    // TODO: 音声再生機能の実装
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('音声再生機能')));
   }
 
-  Widget _buildActionButton(
-    BuildContext context,
-    AppTheme theme,
-    IconData icon,
-    String label,
-    Color color,
-    VoidCallback onPressed,
-  ) {
-    return GestureDetector(
-      onTap: onPressed,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(25),
-          border: Border.all(color: color, width: 2),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, color: color, size: 24),
-            const SizedBox(width: 8),
-            Text(
-              label,
-              style: TextStyle(
-                color: color,
-                fontWeight: FontWeight.w600,
-                fontSize: 16,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
+  void _onUndoButtonTap() {
+    // TODO: 一つ戻る機能の実装
+    if (currentCardIndex > 0) {
+      setState(() {
+        currentCardIndex--;
+      });
+
+      // フラッシュカードウィジェットの状態も更新
+      ref.read(currentIndexProvider.notifier).state = currentCardIndex;
+      ref.read(isAnswerVisibleProvider.notifier).state = false;
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('一つ戻りました')));
+    } else {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('これ以上戻れません')));
+    }
+  }
+
+  void _onEditButtonTap() {
+    // TODO: 編集機能の実装
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('編集機能')));
   }
 }

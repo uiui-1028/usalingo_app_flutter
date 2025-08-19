@@ -111,7 +111,7 @@ class _Test3DCardScreenState extends ConsumerState<Test3DCardScreen>
     final theme = ref.watch(currentThemeProvider);
 
     return Scaffold(
-      backgroundColor: Colors.grey[900], // 暗めの背景色
+      backgroundColor: Colors.white,
       body: Stack(
         children: [
           // 3Dカード
@@ -402,6 +402,7 @@ class _Test3DCardScreenState extends ConsumerState<Test3DCardScreen>
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
+      constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width),
       builder: (context) => _buildSettingsPanel(),
     );
   }
@@ -412,6 +413,7 @@ class _Test3DCardScreenState extends ConsumerState<Test3DCardScreen>
     final theme = ref.watch(currentThemeProvider);
 
     return Container(
+      width: MediaQuery.of(context).size.width,
       height: MediaQuery.of(context).size.height * 0.6,
       decoration: BoxDecoration(
         color: theme.surfaceColor,

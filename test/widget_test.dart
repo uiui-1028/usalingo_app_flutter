@@ -23,14 +23,12 @@ void main() {
 
   testWidgets('FlashcardWidget test', (WidgetTester tester) async {
     await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: FlashcardWidget(word: 'Hello', definition: 'こんにちは'),
-        ),
+      const ProviderScope(
+        child: MaterialApp(home: Scaffold(body: FlashcardWidget())),
       ),
     );
 
-    // Verify that the word is displayed
-    expect(find.text('Hello'), findsOneWidget);
+    // Verify that the widget is displayed
+    expect(find.byType(FlashcardWidget), findsOneWidget);
   });
 }

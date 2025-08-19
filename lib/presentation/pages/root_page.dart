@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'word_list_page.dart';
 import '../widgets/flashcard_widget.dart';
+import '../widgets/grid_background.dart';
 import 'test_3d_card_screen.dart';
 import 'learning_progress_test_page.dart';
 import '../../presentation/theme/app_theme_provider.dart';
@@ -35,6 +36,7 @@ class _RootPageState extends ConsumerState<RootPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.white,
       appBar: AppBar(
         title: Center(
           child: Image.asset(
@@ -44,10 +46,11 @@ class _RootPageState extends ConsumerState<RootPage> {
           ),
         ),
         centerTitle: true,
-        backgroundColor: ref.watch(currentThemeProvider).cardColor,
+        backgroundColor: Colors.white,
         elevation: 0,
       ),
-      body: Stack(
+      body: GridBackground(
+        child: Stack(
         children: [
           // メインコンテンツ（下部にパディングを追加）
           Padding(
@@ -64,8 +67,12 @@ class _RootPageState extends ConsumerState<RootPage> {
             child: Container(
               margin: const EdgeInsets.symmetric(horizontal: 16),
               decoration: BoxDecoration(
-                color: ref.watch(currentThemeProvider).cardColor,
+                color: Colors.white,
                 borderRadius: BorderRadius.circular(25),
+                border: Border.all(
+                  color: Colors.grey.withValues(alpha: 0.3),
+                  width: 1,
+                ),
                 boxShadow: [
                   BoxShadow(
                     color: Colors.black.withValues(alpha: 0.15),
@@ -133,6 +140,7 @@ class _RootPageState extends ConsumerState<RootPage> {
             ),
           ),
         ],
+        ),
       ),
     );
   }
