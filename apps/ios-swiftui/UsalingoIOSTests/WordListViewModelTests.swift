@@ -183,6 +183,31 @@ final class WordListViewModelTests: XCTestCase {
         XCTAssertNil(viewModel.selectedTagFilter)
     }
 
+    func testChoosingColumnAlreadyOnOtherSideSwapsSides() {
+        let left = WordListColumn.choosing(.meaning, onLeft: true, left: .word, right: .meaning)
+        XCTAssertEqual(left.left, .meaning)
+        XCTAssertEqual(left.right, .word)
+
+        let right = WordListColumn.choosing(.word, onLeft: false, left: .word, right: .meaning)
+        XCTAssertEqual(right.left, .meaning)
+        XCTAssertEqual(right.right, .word)
+    }
+
+    func testChoosingNewColumnKeepsOtherSide() {
+        let chosen = WordListColumn.choosing(.etymology, onLeft: false, left: .word, right: .meaning)
+        XCTAssertEqual(chosen.left, .word)
+        XCTAssertEqual(chosen.right, .etymology)
+    }
+
+    func testColumnValueIsEmptyWhenDataIsMissing() {
+        let word = makeWord(id: 1, text: "apple")
+        XCTAssertEqual(WordListColumn.word.value(of: word), "apple")
+        XCTAssertEqual(WordListColumn.meaning.value(of: word), "meaning")
+        XCTAssertEqual(WordListColumn.sentenceEnglish.value(of: word), "")
+        XCTAssertEqual(WordListColumn.etymology.value(of: word), "")
+        XCTAssertEqual(WordListColumn.synonyms.value(of: word), "")
+    }
+
     private func makeWord(
         id: Int,
         text: String,

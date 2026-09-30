@@ -25,7 +25,8 @@ struct WordListDisplayModeBar: View {
 
 /// 画面下端に浮かべる2本のバー。左が絞り込み・並べ替え・検索、右が表示切り替え。
 /// 検索を開いている間は、左のバーが横いっぱいに広がるので右のバーは引っ込める。
-struct WordListBottomBars: View {
+/// 赤シート中は左のバーを赤シートボタンだけに畳み、右に赤シート専用のバーを出す。
+struct WordListBottomBars<RedSheetActions: View>: View {
     let tags: [String]
     @Binding var selectedTag: String?
     @Binding var selectedStatusFilter: WordStatusFilter
@@ -34,6 +35,8 @@ struct WordListBottomBars: View {
     @Binding var searchText: String
     @Binding var selectedDisplayMode: WordListDisplayMode
     @Binding var isRedSheetEnabled: Bool
+    let canToggleRedSheet: Bool
+    @ViewBuilder let redSheetActions: RedSheetActions
 
     @State private var isSearchExpanded = false
 
@@ -41,10 +44,10 @@ struct WordListBottomBars: View {
         ViewThatFits(in: .horizontal) {
             HStack(spacing: WireMetrics.spacingS) {
                 actionBar
-                displayBar
+                trailingBar
             }
             VStack(spacing: WireMetrics.spacingS) {
-                displayBar
+                trailingBar
                 actionBar
             }
         }
@@ -63,12 +66,16 @@ struct WordListBottomBars: View {
             searchText: $searchText,
             isSearchExpanded: $isSearchExpanded,
             isRedSheetEnabled: $isRedSheetEnabled,
-            selectedDisplayMode: $selectedDisplayMode
+            selectedDisplayMode: $selectedDisplayMode,
+            canToggleRedSheet: canToggleRedSheet
         )
     }
 
-    @ViewBuilder private var displayBar: some View {
-        if !isSearchExpanded {
+    @ViewBuilder private var trailingBar: some View {
+        if isRedSheetEnabled {
+            redSheetActions
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+        } else if !isSearchExpanded {
             WordListDisplayModeBar(selectedMode: $selectedDisplayMode)
         }
     }
@@ -87,12 +94,14 @@ struct WordListActionBar: View {
     @Binding var isSearchExpanded: Bool
     @Binding var isRedSheetEnabled: Bool
     @Binding var selectedDisplayMode: WordListDisplayMode
+    let canToggleRedSheet: Bool
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @FocusState private var isSearchFocused: Bool
 
     var body: some View {
         HStack(spacing: WireMetrics.spacingS) {
-            if !isSearchExpanded {
+            if !isSearchExpanded && !isRedSheetEnabled {
                 WordListFilterMenu(
                     tags: tags,
                     selectedTag: $selectedTag,
@@ -101,10 +110,14 @@ struct WordListActionBar: View {
                 )
 
                 WordListSortMenu(selectedSort: $selectedSort)
+            }
 
+            if !isSearchExpanded {
                 Button {
                     if !isRedSheetEnabled { selectedDisplayMode = .list }
-                    isRedSheetEnabled.toggle()
+                    withAnimation(reduceMotion ? nil : .spring(response: 0.36, dampingFraction: 0.88)) {
+                        isRedSheetEnabled.toggle()
+                    }
                 } label: {
                     Image(systemName: "rectangle.fill")
                         .foregroundStyle(.red)
@@ -113,12 +126,15 @@ struct WordListActionBar: View {
                         .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
+                .disabled(!canToggleRedSheet)
                 .accessibilityLabel("赤シート")
                 .accessibilityValue(isRedSheetEnabled ? "オン" : "オフ")
                 .accessibilityHint("意味欄を隠すシートを切り替えます")
             }
 
-            searchControl
+            if !isRedSheetEnabled {
+                searchControl
+            }
         }
         .wordListBarChrome()
     }
@@ -286,5 +302,88 @@ extension View {
     func wordListBarChrome() -> some View {
         padding(WireMetrics.spacingM)
             .glassBarSurface(in: Capsule())
+    }
+}
+
+/// 単語リストの上端に浮かべるガラスのパネル。進み具合のバーと、左右の列を選ぶプルダウン。
+/// カード表示では列が無いので、`columns` を nil にしてバーだけ出す。
+struct WordListColumnHeader: View {
+    /// 0...1 の進み具合。
+    let progress: Double
+    var columns: (left: Binding<WordListColumn>, right: Binding<WordListColumn>)?
+
+    var body: some View {
+        VStack(spacing: WireMetrics.spacingS) {
+            WordListProgressBar(progress: progress)
+
+            if let columns {
+                HStack(spacing: WireMetrics.spacingS) {
+                    columnMenu(columns.left, onLeft: true, other: columns.right)
+                    columnMenu(columns.right, onLeft: false, other: columns.left)
+                }
+            }
+        }
+        .padding(WireMetrics.spacingM)
+        .glassBarSurface(in: RoundedRectangle(cornerRadius: WireMetrics.radiusLarge, style: .continuous))
+    }
+
+    private func columnMenu(
+        _ selection: Binding<WordListColumn>,
+        onLeft: Bool,
+        other: Binding<WordListColumn>
+    ) -> some View {
+        Menu {
+            ForEach(WordListColumn.allCases) { column in
+                Button {
+                    let left = onLeft ? selection.wrappedValue : other.wrappedValue
+                    let right = onLeft ? other.wrappedValue : selection.wrappedValue
+                    let chosen = WordListColumn.choosing(column, onLeft: onLeft, left: left, right: right)
+                    selection.wrappedValue = onLeft ? chosen.left : chosen.right
+                    other.wrappedValue = onLeft ? chosen.right : chosen.left
+                } label: {
+                    if selection.wrappedValue == column {
+                        Label(column.title, systemImage: "checkmark")
+                    } else {
+                        Text(column.title)
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: WireMetrics.spacingXS) {
+                Text(selection.wrappedValue.title)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                Image(systemName: "chevron.down")
+                    .font(.caption.weight(.semibold))
+                    .accessibilityHidden(true)
+            }
+            .wireFont(.label, color: .primary)
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .glassBarSelection(true, in: Capsule())
+            .contentShape(Capsule())
+        }
+        .accessibilityLabel(onLeft ? "左の列" : "右の列")
+        .accessibilityValue(selection.wrappedValue.title)
+    }
+}
+
+/// 上のパネルの進み具合。色相を使わず、墨の濃淡だけで示す。
+struct WordListProgressBar: View {
+    let progress: Double
+
+    var body: some View {
+        GeometryReader { proxy in
+            Capsule()
+                .fill(WireColor.ink.opacity(0.12))
+                .overlay(alignment: .leading) {
+                    Capsule()
+                        .fill(WireColor.ink)
+                        .frame(width: proxy.size.width * min(1, max(0, progress)))
+                }
+        }
+        .frame(height: 8)
+        .accessibilityElement()
+        .accessibilityLabel("進み具合")
+        .accessibilityValue("\(Int((min(1, max(0, progress)) * 100).rounded()))パーセント")
     }
 }

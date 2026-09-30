@@ -63,7 +63,8 @@ struct WordRow: View {
     var checkResult: Bool? = nil
     var reservesCheckResultSpace = false
     var isCheckTarget = false
-    var isLanguageSwapped = false
+    var leftColumn: WordListColumn = .word
+    var rightColumn: WordListColumn = .meaning
 
     var body: some View {
         HStack(spacing: 0) {
@@ -72,8 +73,7 @@ struct WordRow: View {
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
                     .frame(minWidth: 22, alignment: .trailing)
-                Text(isLanguageSwapped ? word.meaning : word.text)
-                    .wireFont(.titleS)
+                columnText(leftColumn, font: .titleS, color: .primary)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -82,8 +82,7 @@ struct WordRow: View {
             .frame(maxHeight: .infinity, alignment: .leading)
             .containerRelativeFrame(.horizontal, count: 2, spacing: 0)
 
-            Text(isLanguageSwapped ? word.text : word.meaning)
-                .wireFont(.body, color: Color(red: 0.65, green: 0.09, blue: 0.1))
+            columnText(rightColumn, font: .body, color: Color(red: 0.65, green: 0.09, blue: 0.1))
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.leading, 14)
                 .padding(.trailing, reservesCheckResultSpace || checkResult != nil ? 42 : 14)
@@ -124,6 +123,17 @@ struct WordRow: View {
         .accessibilityHint(reservesCheckResultSpace
             ? (isCheckTarget ? "チェック中の単語。タップで答えを表示します" : "単語を順番にチェックします")
             : "単語の詳細を開きます")
+    }
+
+    /// データが無い項目は、空欄だと列ずれに見えるので「—」を薄く出す。
+    @ViewBuilder
+    private func columnText(_ column: WordListColumn, font: WireFont, color: Color) -> some View {
+        let value = column.value(of: word)
+        if value.isEmpty {
+            Text("—").wireFont(font, color: .secondary)
+        } else {
+            Text(value).wireFont(font, color: color)
+        }
     }
 }
 
