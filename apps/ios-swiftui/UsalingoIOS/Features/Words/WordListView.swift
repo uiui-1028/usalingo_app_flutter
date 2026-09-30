@@ -8,7 +8,7 @@ struct WordListView: View {
     /// 浮動バーの高さと下余白のぶん、最後の行が隠れないように空ける量。
     @State private var bottomBarClearance: CGFloat = 96
     /// 赤シート上端は、初期状態では画面下から55%（上から45%）。
-    private static let initialRedSheetTopRatio: CGFloat = 0.45
+    private static let initialRedSheetTopRatio: CGFloat = 0.55
     private static let minimumRedSheetTopRatio: CGFloat = 0.30
     private static let maximumRedSheetTopRatio: CGFloat = 0.80
     @State private var isRedSheetEnabled = false
@@ -140,7 +140,7 @@ struct WordListView: View {
                         minimumTopRatio: Self.minimumRedSheetTopRatio,
                         maximumTopRatio: Self.maximumRedSheetTopRatio
                     )
-                    .frame(width: proxy.size.width / 2, height: proxy.size.height)
+                    .frame(width: proxy.size.width / 2 + RedSheetLayer.leadingOverlap, height: proxy.size.height)
                     .zIndex(1)
                 }
 
@@ -264,7 +264,6 @@ struct WordListView: View {
                         ForEach(Array(displayedWords.enumerated()), id: \.element.id) { index, word in
                             WordRow(
                                 word: word,
-                                number: index + 1,
                                 hidesAnswerFromAccessibility: answerIsHidden(at: index),
                                 checkResult: check.answers[word.id],
                                 reservesCheckResultSpace: check.isStarted,
@@ -501,7 +500,7 @@ private struct RedSheetEmptyRecords: View {
         VStack(spacing: 0) {
             ForEach(0..<count, id: \.self) { index in
                 Rectangle()
-                    .fill(index.isMultiple(of: 2) ? WireColor.ink.opacity(0.04) : WireColor.surface)
+                    .fill(WireColor.surface)
                     .frame(height: rowHeight)
                     .overlay(alignment: .bottom) {
                         Rectangle().fill(WireColor.ink.opacity(0.12)).frame(height: 1)

@@ -58,7 +58,6 @@ struct WordLibraryCard: View {
 
 struct WordRow: View {
     let word: WordCard
-    let number: Int
     var hidesAnswerFromAccessibility = false
     var checkResult: Bool? = nil
     var reservesCheckResultSpace = false
@@ -68,19 +67,13 @@ struct WordRow: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text("\(number)")
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                    .frame(minWidth: 22, alignment: .trailing)
-                columnText(leftColumn, font: .titleS, color: .primary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 20)
-            .frame(maxHeight: .infinity, alignment: .leading)
-            .containerRelativeFrame(.horizontal, count: 2, spacing: 0)
+            columnText(leftColumn, font: .titleS, color: .primary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 20)
+                .frame(maxHeight: .infinity, alignment: .leading)
+                .containerRelativeFrame(.horizontal, count: 2, spacing: 0)
 
             columnText(rightColumn, font: .body, color: Color(red: 0.65, green: 0.09, blue: 0.1))
                 .fixedSize(horizontal: false, vertical: true)
@@ -106,15 +99,8 @@ struct WordRow: View {
         }
         .frame(minHeight: 80)
         .fixedSize(horizontal: false, vertical: true)
-        .background(number.isMultiple(of: 2) ? WireColor.surface : WireColor.ink.opacity(0.04))
-        .overlay {
-            if isCheckTarget {
-                Rectangle().fill(Color.black.opacity(0.055))
-                    .overlay(alignment: .leading) { Rectangle().fill(Color.black).frame(width: 3) }
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
-            }
-        }
+        // 行はすべて白。チェック中の行（答えを隠している／評価待ち）だけ灰色にする。
+        .background(isCheckTarget ? WireColor.ink.opacity(0.04) : WireColor.surface)
         .overlay(alignment: .bottom) {
             Rectangle().fill(WireColor.ink.opacity(0.12)).frame(height: 1)
         }
