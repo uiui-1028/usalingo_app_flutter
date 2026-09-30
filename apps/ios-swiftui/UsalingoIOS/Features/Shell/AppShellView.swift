@@ -6,9 +6,10 @@ struct AppShellView: View {
     @State private var selectedTab = 1
     @State private var isTabBarHiddenByScroll = false
     @State private var previousVerticalDragTranslation: CGFloat?
-    @State private var playStyleFrames: [DeckPlayStyle: CGRect] = [:]
-    @State private var playStyleDragOffset: CGFloat = 0
-    @Namespace private var playStyleSelection
+    @GestureState private var isPlayStyleTouchActive = false
+    @State private var playStyleDrag: DragGesture.Value?
+    @State private var playStyleDragOrigin: Int?
+    @State private var playStyleHapticIndex: Int?
     @AppStorage(DeckPlayStyle.storageKey) private var playStyle: DeckPlayStyle = .card
 
     var body: some View {
@@ -70,104 +71,127 @@ struct AppShellView: View {
         isTabBarHiddenByScroll = verticalMovement < 0
     }
 
-    /// 遊び方は5つあるので、普段はアイコンだけにし、
-    /// 選んだものにだけ名前を出す。1行に収めたまま、いまの選択が読めるようにする。
+    /// 固定した5等分の領域で、表示位置と選択判定をそろえる。
     private var playStyleBar: some View {
-        HStack(spacing: WireMetrics.spacingXS) {
-            ForEach(DeckPlayStyle.allCases) { style in
-                let isSelected = playStyle == style
-                Button {
-                    playStyle = style
-                } label: {
-                    HStack(spacing: WireMetrics.spacingXS) {
-                        Image(systemName: style.symbol)
+        GeometryReader { geometry in
+            let styles = DeckPlayStyle.allCases
+            let selectedIndex = styles.firstIndex(of: playStyle) ?? 0
+            let itemWidth = geometry.size.width / CGFloat(styles.count)
+            let canDrag = playStyleDragOrigin != nil
+            let translation = canDrag ? (playStyleDrag?.translation.width ?? 0) : 0
+            let indicatorX = min(max(CGFloat(playStyleDragOrigin ?? selectedIndex) * itemWidth + translation, 0), geometry.size.width - itemWidth)
 
-                        if isSelected {
-                            Text(style.title)
-                                .wireFont(.label, color: .primary)
-                                .lineLimit(1)
-                                .fixedSize()
-                                .transition(.opacity.combined(with: .move(edge: .leading)))
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(WireColor.ink.opacity(0.16))
+                    .overlay(Capsule().strokeBorder(WireColor.ink, lineWidth: 1))
+                    .frame(width: itemWidth)
+                    .offset(x: indicatorX)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+
+                HStack(spacing: 0) {
+                    ForEach(styles) { style in
+                        Button {
+                            playStyle = style
+                        } label: {
+                            Image(systemName: style.symbol)
+                                .font(.system(size: 20))
+                                .foregroundStyle(WireColor.ink)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .contentShape(Rectangle())
                         }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(style.title)
+                        .accessibilityAddTraits(playStyle == style ? .isSelected : [])
                     }
-                    .foregroundStyle(.primary)
-                    .frame(minWidth: 44, minHeight: 44)
-                    .padding(.horizontal, isSelected ? WireMetrics.spacingM : 0)
-                    .background {
-                        if isSelected {
-                            playStyleSelectionBackground
-                                .offset(x: playStyleDragOffset)
-                                .matchedGeometryEffect(id: "selection", in: playStyleSelection)
-                        }
-                    }
-                    .contentShape(Capsule())
                 }
-                .buttonStyle(.plain)
-                .simultaneousGesture(
-                    DragGesture(minimumDistance: 5, coordinateSpace: .named("playStyleBar"))
-                        .onChanged { value in
-                            guard isSelected else { return }
-                            playStyleDragOffset = value.translation.width
+            }
+            .contentShape(Rectangle())
+            // タッチはバー全体で一度だけ確定する。各Buttonは支援技術からの選択にも使う。
+            .highPriorityGesture(
+                DragGesture(minimumDistance: 0)
+                    .updating($isPlayStyleTouchActive) { _, state, _ in
+                        state = true
+                    }
+                    .onChanged { value in
+                        if playStyleDrag == nil {
+                            let start = PlayStyleBarHitTest.index(at: value.startLocation, size: geometry.size, count: styles.count)
+                            playStyleDragOrigin = start == selectedIndex ? selectedIndex : nil
+                            playStyleHapticIndex = selectedIndex
                         }
-                        .onEnded { value in
-                            guard isSelected else { return }
-                            finishPlayStyleDrag(value)
+                        // 追従は短く、弾ませずにわずかな柔らかさだけを付ける。
+                        withAnimation(reduceMotion ? nil : .interactiveSpring(response: 0.16, dampingFraction: 1, blendDuration: 0.08)) {
+                            playStyleDrag = value
                         }
-                )
-                .background {
-                    GeometryReader { geometry in
-                        Color.clear.preference(
-                            key: PlayStyleFramesKey.self,
-                            value: [style: geometry.frame(in: .named("playStyleBar"))]
+                        if playStyleDragOrigin != nil,
+                           let candidate = PlayStyleBarHitTest.nearestIndex(atX: value.location.x, width: geometry.size.width, count: styles.count),
+                           candidate != playStyleHapticIndex {
+                            HapticFeedbackService.detent()
+                            playStyleHapticIndex = candidate
+                        }
+                    }
+                    .onEnded { value in
+                        let index = PlayStyleBarHitTest.selection(
+                            from: value.startLocation, to: value.location,
+                            selectedIndex: playStyleDragOrigin ?? selectedIndex, size: geometry.size, count: styles.count
                         )
+                        // 確定先へ吸い付いた最後だけ、ごく小さく弾ませる。
+                        withAnimation(reduceMotion ? nil : .spring(response: 0.32, dampingFraction: 0.82)) {
+                            if let index { playStyle = styles[index] }
+                            clearPlayStyleDrag()
+                        }
+                    }
+            )
+            .onChange(of: isPlayStyleTouchActive) { _, active in
+                // システムによるジェスチャー中断では onEnded が呼ばれない。
+                if !active, playStyleDrag != nil {
+                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18)) {
+                        clearPlayStyleDrag()
                     }
                 }
-                .accessibilityLabel(style.title)
-                .accessibilityAddTraits(isSelected ? .isSelected : [])
             }
         }
+        .frame(height: 48)
         .padding(WireMetrics.spacingXS)
-        .glassBarSurface(in: Capsule())
-        .coordinateSpace(name: "playStyleBar")
-        .onPreferenceChange(PlayStyleFramesKey.self) { playStyleFrames = $0 }
-        .animation(reduceMotion ? nil : .spring(response: 0.26, dampingFraction: 0.82), value: playStyle)
+        .background(WireColor.surface, in: Capsule())
+        .overlay(Capsule().strokeBorder(WireColor.ink, lineWidth: 1))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("デッキの遊び方")
     }
 
-    @ViewBuilder
-    private var playStyleSelectionBackground: some View {
-        #if compiler(>=6.2)
-        if #available(iOS 26.0, *) {
-            Capsule().fill(.clear).glassEffect(.regular.interactive(), in: Capsule())
-        } else {
-            Capsule().fill(.primary.opacity(0.14))
-        }
-        #else
-        Capsule().fill(.primary.opacity(0.14))
-        #endif
+    private func clearPlayStyleDrag() {
+        playStyleDrag = nil
+        playStyleDragOrigin = nil
+        playStyleHapticIndex = nil
     }
-
-    private func finishPlayStyleDrag(_ value: DragGesture.Value) {
-        let barBounds = playStyleFrames.values.reduce(CGRect.null) { $0.union($1) }
-        let destination = value.location
-        let nextStyle: DeckPlayStyle? = barBounds.contains(destination)
-            ? playStyleFrames.min { abs($0.value.midX - destination.x) < abs($1.value.midX - destination.x) }?.key
-            : nil
-
-        withAnimation(reduceMotion ? nil : .spring(response: 0.26, dampingFraction: 0.82)) {
-            playStyleDragOffset = 0
-            if let nextStyle { playStyle = nextStyle }
-        }
-    }
-
 }
 
-private struct PlayStyleFramesKey: PreferenceKey {
-    static var defaultValue: [DeckPlayStyle: CGRect] = [:]
+enum PlayStyleBarHitTest {
+    static func index(at point: CGPoint, size: CGSize, count: Int) -> Int? {
+        guard count > 0, size.width > 0, size.height > 0,
+              point.x.isFinite, point.y.isFinite,
+              CGRect(origin: .zero, size: size).contains(point) else { return nil }
+        return min(Int(point.x / (size.width / CGFloat(count))), count - 1)
+    }
 
-    static func reduce(value: inout [DeckPlayStyle: CGRect], nextValue: () -> [DeckPlayStyle: CGRect]) {
-        value.merge(nextValue(), uniquingKeysWith: { _, latest in latest })
+    static func selection(from start: CGPoint, to end: CGPoint, selectedIndex: Int, size: CGSize, count: Int) -> Int? {
+        guard let startIndex = index(at: start, size: size, count: count) else { return nil }
+        // 選択中から始めたドラッグは、バーを上下に離れても横位置だけで確定する。
+        if startIndex == selectedIndex {
+            return nearestIndex(atX: end.x, width: size.width, count: count)
+        }
+        guard let endIndex = index(at: end, size: size, count: count) else { return nil }
+        if hypot(end.x - start.x, end.y - start.y) < 5 {
+            return startIndex == endIndex ? endIndex : nil
+        }
+        return nil
+    }
+
+    static func nearestIndex(atX x: CGFloat, width: CGFloat, count: Int) -> Int? {
+        guard count > 0, width.isFinite, width > 0, x.isFinite else { return nil }
+        let clampedX = min(max(x, 0), width)
+        return min(Int(clampedX / (width / CGFloat(count))), count - 1)
     }
 }
 

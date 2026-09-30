@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		C30100000000000000000001 /* PlayStyleBarHitTestTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C30200000000000000000001 /* PlayStyleBarHitTestTests.swift */; };
 		A10000000000000000000001 /* UsalingoIOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* UsalingoIOSApp.swift */; };
 		A10000000000000000000002 /* App/AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* App/AppState.swift */; };
 		A10000000000000000000003 /* Models/Deck.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000003 /* Models/Deck.swift */; };
@@ -116,6 +117,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		C30200000000000000000001 /* PlayStyleBarHitTestTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayStyleBarHitTestTests.swift; sourceTree = "<group>"; };
 		A20000000000000000000001 /* UsalingoIOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsalingoIOSApp.swift; sourceTree = "<group>"; };
 		A20000000000000000000002 /* App/AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/AppState.swift; sourceTree = "<group>"; };
 		A20000000000000000000003 /* Models/Deck.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models/Deck.swift; sourceTree = "<group>"; };
@@ -345,6 +347,7 @@
 				B20000000000000000000E12 /* DeckProgressSummaryTests.swift */,
 				B20000000000000000000E90 /* DeckCarouselTests.swift */,
 				B2000000000000000000A201 /* MatchingGameTests.swift */,
+				C30200000000000000000001 /* PlayStyleBarHitTestTests.swift */,
 				B2000000000000000000C201 /* FiveChoiceGameTests.swift */,
 				B2000000000000000000A202 /* RadioQueueTests.swift */,
 				B2000000000000000000A203 /* AudioCarouselMotionTests.swift */,
@@ -547,6 +550,7 @@
 				B10000000000000000000E12 /* DeckProgressSummaryTests.swift in Sources */,
 				B10000000000000000000E90 /* DeckCarouselTests.swift in Sources */,
 				B1000000000000000000A201 /* MatchingGameTests.swift in Sources */,
+				C30100000000000000000001 /* PlayStyleBarHitTestTests.swift in Sources */,
 				B1000000000000000000C201 /* FiveChoiceGameTests.swift in Sources */,
 				B1000000000000000000A202 /* RadioQueueTests.swift in Sources */,
 				B1000000000000000000A203 /* AudioCarouselMotionTests.swift in Sources */,
