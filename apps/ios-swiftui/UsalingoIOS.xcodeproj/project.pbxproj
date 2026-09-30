@@ -103,6 +103,7 @@
 		B1000000000000000000009C /* CardImageCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000000000000000000009C /* CardImageCacheTests.swift */; };
 		B100000000000000000012 /* WordListFiltersTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B200000000000000000012 /* WordListFiltersTests.swift */; };
 		B100000000000000000013 /* WordListViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B200000000000000000013 /* WordListViewModelTests.swift */; };
+		B1000000000000000000A204 /* WordListColumnLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000000000000000000A204 /* WordListColumnLayoutTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -214,6 +215,7 @@
 		B2000000000000000000009C /* CardImageCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardImageCacheTests.swift; sourceTree = "<group>"; };
 		B200000000000000000012 /* WordListFiltersTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WordListFiltersTests.swift; sourceTree = "<group>"; };
 		B200000000000000000013 /* WordListViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WordListViewModelTests.swift; sourceTree = "<group>"; };
+		B2000000000000000000A204 /* WordListColumnLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WordListColumnLayoutTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -351,6 +353,7 @@
 				B20000000000000000000003 /* WordCardTests.swift */,
 				B200000000000000000012 /* WordListFiltersTests.swift */,
 				B200000000000000000013 /* WordListViewModelTests.swift */,
+				B2000000000000000000A204 /* WordListColumnLayoutTests.swift */,
 				B20000000000000000000005 /* AuthTransportTests.swift */,
 				B20000000000000000000006 /* AuthConfirmationTests.swift */,
 				B20000000000000000000007 /* AccountDeletionTests.swift */,
@@ -553,6 +556,7 @@
 				B10000000000000000000002 /* WordCardTests.swift in Sources */,
 				B100000000000000000012 /* WordListFiltersTests.swift in Sources */,
 				B100000000000000000013 /* WordListViewModelTests.swift in Sources */,
+				B1000000000000000000A204 /* WordListColumnLayoutTests.swift in Sources */,
 				B10000000000000000000004 /* AuthTransportTests.swift in Sources */,
 				B10000000000000000000005 /* AuthConfirmationTests.swift in Sources */,
 				B10000000000000000000006 /* AccountDeletionTests.swift in Sources */,

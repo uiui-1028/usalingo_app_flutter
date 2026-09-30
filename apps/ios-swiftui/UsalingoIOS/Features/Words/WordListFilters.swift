@@ -188,7 +188,8 @@ enum WordListDisplayMode: String, CaseIterable, Identifiable {
     }
 }
 
-/// 単語リストの左右の列に出す項目。上のパネルのプルダウンで選び、端末に覚えておく。
+/// 単語リストの列に出す項目。上のパネルのプルダウンで選び、端末に覚えておく。
+/// 列は左右の2列が基本で、真ん中に1列だけ足して3列にできる。
 enum WordListColumn: String, CaseIterable, Identifiable {
     case word
     case meaning
@@ -200,6 +201,9 @@ enum WordListColumn: String, CaseIterable, Identifiable {
 
     static let leftStorageKey = "wordList.leftColumn"
     static let rightStorageKey = "wordList.rightColumn"
+    static let middleStorageKey = "wordList.middleColumn"
+    /// 端末の横幅で読める限界。
+    static let maximumCount = 3
 
     var id: String { rawValue }
 
@@ -212,6 +216,14 @@ enum WordListColumn: String, CaseIterable, Identifiable {
         case .sentenceJapanese: "例文の和訳"
         case .synonyms: "類義語"
         case .etymology: "語源"
+        }
+    }
+
+    /// 短い語句は中央、文章は読みやすいよう左に揃える。
+    var isCentered: Bool {
+        switch self {
+        case .word, .meaning, .partOfSpeech, .synonyms: true
+        case .sentenceEnglish, .sentenceJapanese, .etymology: false
         }
     }
 
@@ -235,9 +247,39 @@ enum WordListColumn: String, CaseIterable, Identifiable {
         left: WordListColumn,
         right: WordListColumn
     ) -> (left: WordListColumn, right: WordListColumn) {
-        if onLeft {
-            return (column, column == right ? left : right)
+        let chosen = choosing(column, at: onLeft ? 0 : 1, in: [left, right])
+        return (chosen[0], chosen[1])
+    }
+
+    /// `index` の列に項目を入れる。ほかの列に同じ項目があれば、そこへ元の項目を回して重複させない。
+    static func choosing(_ column: WordListColumn, at index: Int, in columns: [WordListColumn]) -> [WordListColumn] {
+        var result = columns
+        if let other = result.firstIndex(of: column), other != index {
+            result[other] = result[index]
         }
-        return (column == left ? right : left, column)
+        result[index] = column
+        return result
+    }
+
+    /// まだどの列にも出していない項目を、真ん中に足す。3列あるときは何もしない。
+    static func adding(_ column: WordListColumn, to columns: [WordListColumn]) -> [WordListColumn] {
+        guard columns.count < maximumCount, !columns.contains(column) else { return columns }
+        var result = columns
+        result.insert(column, at: 1)
+        return result
+    }
+
+    /// 列を1つ消す。2列より少なくはしない。
+    static func removing(at index: Int, from columns: [WordListColumn]) -> [WordListColumn] {
+        guard columns.count > 2, columns.indices.contains(index) else { return columns }
+        var result = columns
+        result.remove(at: index)
+        return result
+    }
+
+    /// 全部の列を1つずつ左へずらし、左端を右端へ回す。2列なら左右の入れ替えと同じ。
+    static func rotatedLeft(_ columns: [WordListColumn]) -> [WordListColumn] {
+        guard let first = columns.first else { return columns }
+        return Array(columns.dropFirst()) + [first]
     }
 }

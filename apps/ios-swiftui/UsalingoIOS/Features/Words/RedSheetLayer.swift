@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// 単語一覧の上に1枚だけ重ねる赤シート。一覧のスクロールとは独立していて、答えを出しても動かない。
-/// 右半分を覆う不透明な板で、つまみは連続値で動き、空レコードも同じ量だけ動く。
+/// 右端の列を覆う不透明な板で、上のつまみは連続値で動き、空レコードも同じ量だけ動く。
+/// 3列のときは左端にもつまみを出し、横幅を列の境目ごとに切り替える（途中では止めない）。
 /// 紙の赤シートのように、隠す行より少し下・区切り線より少し左へずらして重ねる。
 struct RedSheetLayer: View {
     /// 隠す行の上端から下げる量。
@@ -14,7 +15,12 @@ struct RedSheetLayer: View {
     let availableHeight: CGFloat
     let minimumTopRatio: CGFloat
     let maximumTopRatio: CGFloat
+    /// 覆っている列の数。右端から数える。
+    @Binding var coveredColumns: Int
+    let maximumCoveredColumns: Int
+    let columnWidth: CGFloat
     @State private var dragStartTop: CGFloat?
+    @State private var dragStartColumns: Int?
 
     private var restingTop: CGFloat {
         RedSheetPosition.top(
@@ -70,12 +76,64 @@ struct RedSheetLayer: View {
                 }
                 .offset(y: restingTop + Self.topOffset)
                 .backSwipeProtectedRegion()
+
+            if maximumCoveredColumns > 1 {
+                widthHandle
+            }
         }
         .clipped()
     }
 }
 
+extension RedSheetLayer {
+    /// 左端の縦のつまみ。横に引くと、半列を越えたところで隣の境目へ切り替わる。
+    private var widthHandle: some View {
+        Capsule()
+            .fill(.white)
+            .frame(width: 5, height: 40)
+            .frame(width: 44, height: 64)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0, coordinateSpace: .named("wordListViewport"))
+                    .onChanged { value in
+                        if dragStartColumns == nil { dragStartColumns = coveredColumns }
+                        guard let dragStartColumns else { return }
+                        let next = RedSheetPosition.coveredColumns(
+                            start: dragStartColumns,
+                            translation: value.translation.width,
+                            columnWidth: columnWidth,
+                            maximum: maximumCoveredColumns
+                        )
+                        if next != coveredColumns { coveredColumns = next }
+                    }
+                    .onEnded { _ in
+                        dragStartColumns = nil
+                    }
+            )
+            .accessibilityLabel("赤シートの幅")
+            .accessibilityValue("\(coveredColumns)列")
+            .accessibilityAdjustableAction { direction in
+                switch direction {
+                case .increment:
+                    coveredColumns = min(maximumCoveredColumns, coveredColumns + 1)
+                case .decrement:
+                    coveredColumns = max(1, coveredColumns - 1)
+                @unknown default: break
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .padding(.top, restingTop + Self.topOffset)
+            .backSwipeProtectedRegion()
+    }
+}
+
 enum RedSheetPosition {
+    /// 横に引いた量から覆う列数を決める。左へ引くほど広がり、1列から `maximum` 列の間に収める。
+    static func coveredColumns(start: Int, translation: CGFloat, columnWidth: CGFloat, maximum: Int) -> Int {
+        let step = Int((-translation / max(1, columnWidth)).rounded())
+        return min(maximum, max(1, start + step))
+    }
+
     static func top(availableHeight: CGFloat, ratio: CGFloat) -> CGFloat {
         max(0, availableHeight) * ratio
     }

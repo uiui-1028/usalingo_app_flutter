@@ -14,9 +14,12 @@ struct WordListView: View {
     @State private var isRedSheetEnabled = false
     @AppStorage(WordListColumn.leftStorageKey) private var leftColumn: WordListColumn = .word
     @AppStorage(WordListColumn.rightStorageKey) private var rightColumn: WordListColumn = .meaning
+    @AppStorage(WordListColumn.middleStorageKey) private var middleColumn: WordListColumn?
     /// 上のパネル（と端末上端の余白）のぶん、一覧の先頭を下げる量。
     @State private var headerClearance: CGFloat = 0
     @State private var redSheetTopRatio = Self.initialRedSheetTopRatio
+    /// 赤シートが右端から覆う列の数。オンにするたびに1列へ戻す。
+    @State private var redSheetCoveredColumns = 1
     @State private var rowFrames: [Int: CGRect] = [:]
     @State private var lastRowHeight: CGFloat = 80
     @StateObject private var check = RedSheetCheckModel()
@@ -70,6 +73,7 @@ struct WordListView: View {
         .onChange(of: isRedSheetEnabled) { _, enabled in
             if enabled {
                 redSheetTopRatio = Self.initialRedSheetTopRatio
+                redSheetCoveredColumns = 1
                 startCheck()
             } else {
                 check.reset()
@@ -134,22 +138,28 @@ struct WordListView: View {
 
                 if isRedSheetEnabled && viewModel.selectedDisplayMode == .list
                     && !displayedWords.isEmpty && !viewModel.isLoading && !check.isComplete {
+                    let columnWidth = proxy.size.width / CGFloat(columns.count)
                     RedSheetLayer(
                         topRatio: $redSheetTopRatio,
                         availableHeight: proxy.size.height,
                         minimumTopRatio: Self.minimumRedSheetTopRatio,
-                        maximumTopRatio: Self.maximumRedSheetTopRatio
+                        maximumTopRatio: Self.maximumRedSheetTopRatio,
+                        coveredColumns: $redSheetCoveredColumns,
+                        maximumCoveredColumns: maximumRedSheetColumns,
+                        columnWidth: columnWidth
                     )
-                    .frame(width: proxy.size.width / 2 + RedSheetLayer.leadingOverlap, height: proxy.size.height)
+                    .frame(
+                        width: columnWidth * CGFloat(effectiveRedSheetColumns) + RedSheetLayer.leadingOverlap,
+                        height: proxy.size.height
+                    )
+                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: effectiveRedSheetColumns)
                     .zIndex(1)
                 }
 
                 if !sheetOnly {
                     WordListColumnHeader(
                         progress: progress(viewportHeight: proxy.size.height),
-                        columns: viewModel.selectedDisplayMode == .list
-                            ? (left: $leftColumn, right: $rightColumn)
-                            : nil
+                        columns: viewModel.selectedDisplayMode == .list ? columnsBinding : nil
                     )
                     .padding(.horizontal, WireMetrics.screenPadding)
                     .padding(.top, topInset + WireMetrics.spacingXS)
@@ -269,7 +279,9 @@ struct WordListView: View {
                                 reservesCheckResultSpace: check.isStarted,
                                 isCheckTarget: check.current?.id == word.id,
                                 leftColumn: leftColumn,
-                                rightColumn: rightColumn
+                                middleColumn: middleColumn,
+                                rightColumn: rightColumn,
+                                hidesMiddleFromAccessibility: effectiveRedSheetColumns > 1 && answerIsHidden(at: index)
                             )
                                 .cardTapTarget(radius: 0) {
                                     if check.isStarted {
@@ -324,6 +336,29 @@ struct WordListView: View {
     }
 
     private var displayedWords: [WordCard] { check.isStarted ? check.words : viewModel.filteredWords }
+
+    /// 左・（真ん中）・右の列。端末には3つのキーで覚えておき、真ん中が無ければ2列。
+    private var columns: [WordListColumn] {
+        [leftColumn] + (middleColumn.map { [$0] } ?? []) + [rightColumn]
+    }
+
+    private var columnsBinding: Binding<[WordListColumn]> {
+        Binding(
+            get: { columns },
+            set: { newValue in
+                guard let first = newValue.first, let last = newValue.last, newValue.count >= 2 else { return }
+                leftColumn = first
+                rightColumn = last
+                middleColumn = newValue.count == 3 ? newValue[1] : nil
+            }
+        )
+    }
+
+    /// 左端の列は常に見せるので、覆えるのは列数より1つ少ない数まで。
+    private var maximumRedSheetColumns: Int { columns.count - 1 }
+
+    /// 3列から2列に戻したときも、覆う列が左端まで届かないようにする。
+    private var effectiveRedSheetColumns: Int { min(redSheetCoveredColumns, maximumRedSheetColumns) }
 
     /// 上のパネルの進み具合。赤シートのチェック中は判定した数、リストはパネルのすぐ下の行、
     /// カードは画面に見えている最後のカードの位置で測る。
@@ -389,13 +424,13 @@ struct WordListView: View {
     private var redSheetActionBar: some View {
         HStack(spacing: WireMetrics.spacingS) {
             Button {
-                (leftColumn, rightColumn) = (rightColumn, leftColumn)
+                columnsBinding.wrappedValue = WordListColumn.rotatedLeft(columns)
             } label: {
                 Image(systemName: "arrow.left.arrow.right")
             }
             .buttonStyle(.glassBarIcon(diameter: 48))
-            .accessibilityLabel("左右の列を入れ替え")
-            .accessibilityValue("左 \(leftColumn.title)、右 \(rightColumn.title)")
+            .accessibilityLabel(columns.count == 3 ? "列を左へ回す" : "左右の列を入れ替え")
+            .accessibilityValue(columns.map(\.title).joined(separator: "、"))
 
             Button {
                 taggingWord = check.current
