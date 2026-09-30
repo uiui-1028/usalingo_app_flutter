@@ -304,3 +304,86 @@ extension View {
             .glassBarSurface(in: Capsule())
     }
 }
+
+/// 単語リストの上端に浮かべるガラスのパネル。進み具合のバーと、左右の列を選ぶプルダウン。
+/// カード表示では列が無いので、`columns` を nil にしてバーだけ出す。
+struct WordListColumnHeader: View {
+    /// 0...1 の進み具合。
+    let progress: Double
+    var columns: (left: Binding<WordListColumn>, right: Binding<WordListColumn>)?
+
+    var body: some View {
+        VStack(spacing: WireMetrics.spacingS) {
+            WordListProgressBar(progress: progress)
+
+            if let columns {
+                HStack(spacing: WireMetrics.spacingS) {
+                    columnMenu(columns.left, onLeft: true, other: columns.right)
+                    columnMenu(columns.right, onLeft: false, other: columns.left)
+                }
+            }
+        }
+        .padding(WireMetrics.spacingM)
+        .glassBarSurface(in: RoundedRectangle(cornerRadius: WireMetrics.radiusLarge, style: .continuous))
+    }
+
+    private func columnMenu(
+        _ selection: Binding<WordListColumn>,
+        onLeft: Bool,
+        other: Binding<WordListColumn>
+    ) -> some View {
+        Menu {
+            ForEach(WordListColumn.allCases) { column in
+                Button {
+                    let left = onLeft ? selection.wrappedValue : other.wrappedValue
+                    let right = onLeft ? other.wrappedValue : selection.wrappedValue
+                    let chosen = WordListColumn.choosing(column, onLeft: onLeft, left: left, right: right)
+                    selection.wrappedValue = onLeft ? chosen.left : chosen.right
+                    other.wrappedValue = onLeft ? chosen.right : chosen.left
+                } label: {
+                    if selection.wrappedValue == column {
+                        Label(column.title, systemImage: "checkmark")
+                    } else {
+                        Text(column.title)
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: WireMetrics.spacingXS) {
+                Text(selection.wrappedValue.title)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                Image(systemName: "chevron.down")
+                    .font(.caption.weight(.semibold))
+                    .accessibilityHidden(true)
+            }
+            .wireFont(.label, color: .primary)
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .glassBarSelection(true, in: Capsule())
+            .contentShape(Capsule())
+        }
+        .accessibilityLabel(onLeft ? "左の列" : "右の列")
+        .accessibilityValue(selection.wrappedValue.title)
+    }
+}
+
+/// 上のパネルの進み具合。色相を使わず、墨の濃淡だけで示す。
+struct WordListProgressBar: View {
+    let progress: Double
+
+    var body: some View {
+        GeometryReader { proxy in
+            Capsule()
+                .fill(WireColor.ink.opacity(0.12))
+                .overlay(alignment: .leading) {
+                    Capsule()
+                        .fill(WireColor.ink)
+                        .frame(width: proxy.size.width * min(1, max(0, progress)))
+                }
+        }
+        .frame(height: 8)
+        .accessibilityElement()
+        .accessibilityLabel("進み具合")
+        .accessibilityValue("\(Int((min(1, max(0, progress)) * 100).rounded()))パーセント")
+    }
+}

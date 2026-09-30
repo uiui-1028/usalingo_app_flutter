@@ -187,3 +187,57 @@ enum WordListDisplayMode: String, CaseIterable, Identifiable {
         }
     }
 }
+
+/// 単語リストの左右の列に出す項目。上のパネルのプルダウンで選び、端末に覚えておく。
+enum WordListColumn: String, CaseIterable, Identifiable {
+    case word
+    case meaning
+    case partOfSpeech
+    case sentenceEnglish
+    case sentenceJapanese
+    case synonyms
+    case etymology
+
+    static let leftStorageKey = "wordList.leftColumn"
+    static let rightStorageKey = "wordList.rightColumn"
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .word: "英単語"
+        case .meaning: "意味"
+        case .partOfSpeech: "品詞"
+        case .sentenceEnglish: "例文"
+        case .sentenceJapanese: "例文の和訳"
+        case .synonyms: "類義語"
+        case .etymology: "語源"
+        }
+    }
+
+    /// データが無い単語では空文字を返す。
+    func value(of word: WordCard) -> String {
+        switch self {
+        case .word: word.text
+        case .meaning: word.meaning
+        case .partOfSpeech: word.partsOfSpeech.joined(separator: "・")
+        case .sentenceEnglish: word.sentenceEnglish ?? ""
+        case .sentenceJapanese: word.sentenceJapanese ?? ""
+        case .synonyms: word.synonyms.map(\.word).joined(separator: ", ")
+        case .etymology: word.etymology ?? ""
+        }
+    }
+
+    /// 片側で選んだ項目が反対側と同じなら、反対側には元の項目を回して同じ列が2つ並ばないようにする。
+    static func choosing(
+        _ column: WordListColumn,
+        onLeft: Bool,
+        left: WordListColumn,
+        right: WordListColumn
+    ) -> (left: WordListColumn, right: WordListColumn) {
+        if onLeft {
+            return (column, column == right ? left : right)
+        }
+        return (column == left ? right : left, column)
+    }
+}

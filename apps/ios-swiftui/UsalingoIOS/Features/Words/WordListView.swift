@@ -12,7 +12,10 @@ struct WordListView: View {
     private static let minimumRedSheetTopRatio: CGFloat = 0.30
     private static let maximumRedSheetTopRatio: CGFloat = 0.80
     @State private var isRedSheetEnabled = false
-    @State private var isLanguageSwapped = false
+    @AppStorage(WordListColumn.leftStorageKey) private var leftColumn: WordListColumn = .word
+    @AppStorage(WordListColumn.rightStorageKey) private var rightColumn: WordListColumn = .meaning
+    /// 上のパネル（と端末上端の余白）のぶん、一覧の先頭を下げる量。
+    @State private var headerClearance: CGFloat = 0
     @State private var redSheetTopRatio = Self.initialRedSheetTopRatio
     @State private var rowFrames: [Int: CGRect] = [:]
     @State private var lastRowHeight: CGFloat = 80
@@ -43,30 +46,17 @@ struct WordListView: View {
         ))
     }
 
-    /// 単語一覧のシートだけを画面いっぱいに置く。
+    /// 単語一覧を端末の上端から下端まで囲いなしで置く。一覧は上のパネルの裏を通って上端まで流れる。
     /// 背面のデッキ選択バナーは外してある（復活させるならコミット履歴から戻す）。
     var body: some View {
         GeometryReader { proxy in
             if sheetOnly {
-                sheet(bottomInset: 0)
+                sheet(topInset: 0, bottomInset: 0)
             } else {
                 let insets = proxy.safeAreaInsets
-                // デッキ選択バナーは一旦外したので、シートは画面いっぱいに広げる。
-                let sheetHeight = proxy.size.height + insets.bottom
-
-                ZStack(alignment: .top) {
-                    // シートより1段退いた面。これで前後関係を作る。
-                    WireColor.scrim
-                        .ignoresSafeArea()
-
-                    VStack(spacing: 0) {
-                        Spacer(minLength: 0)
-                        sheet(bottomInset: insets.bottom)
-                            .frame(height: sheetHeight)
-                    }
-                    .ignoresSafeArea(edges: .bottom)
-                }
-                .animation(reduceMotion ? nil : .spring(response: 0.36, dampingFraction: 0.88), value: isRedSheetEnabled)
+                sheet(topInset: insets.top, bottomInset: insets.bottom)
+                    .ignoresSafeArea()
+                    .animation(reduceMotion ? nil : .spring(response: 0.36, dampingFraction: 0.88), value: isRedSheetEnabled)
             }
         }
         // 操作はすべてシートの中の浮動バーに集めたので、上のヘッダーごと消す。
@@ -79,7 +69,6 @@ struct WordListView: View {
         }
         .onChange(of: isRedSheetEnabled) { _, enabled in
             if enabled {
-                isLanguageSwapped = false
                 redSheetTopRatio = Self.initialRedSheetTopRatio
                 startCheck()
             } else {
@@ -125,9 +114,9 @@ struct WordListView: View {
         }
     }
 
-    /// 前面のシート。高さは固定で、中身だけが縦に流れる。
-    /// スクロールした中身はシートの上端まで届き、そこで切り取られる。
-    private func sheet(bottomInset: CGFloat) -> some View {
+    /// 単語一覧の面。高さは固定で、中身だけが縦に流れる。
+    /// 詳細ページへ組み込むとき（`sheetOnly`）だけ、上端を角丸の枠で切り取る。
+    private func sheet(topInset: CGFloat, bottomInset: CGFloat) -> some View {
         GeometryReader { proxy in
             // 一覧のレイヤーと赤シートのレイヤーを分ける。赤シートは一覧と一緒にスクロールしない。
             ZStack(alignment: .topTrailing) {
@@ -154,8 +143,30 @@ struct WordListView: View {
                     .frame(width: proxy.size.width / 2, height: proxy.size.height)
                     .zIndex(1)
                 }
+
+                if !sheetOnly {
+                    WordListColumnHeader(
+                        progress: progress(viewportHeight: proxy.size.height),
+                        columns: viewModel.selectedDisplayMode == .list
+                            ? (left: $leftColumn, right: $rightColumn)
+                            : nil
+                    )
+                    .padding(.horizontal, WireMetrics.screenPadding)
+                    .padding(.top, topInset + WireMetrics.spacingXS)
+                    .background {
+                        GeometryReader { header in
+                            Color.clear.preference(
+                                key: WordListHeaderHeightKey.self,
+                                value: header.size.height + WireMetrics.spacingS
+                            )
+                        }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .zIndex(2)
+                }
             }
             .coordinateSpace(name: "wordListViewport")
+            .onPreferenceChange(WordListHeaderHeightKey.self) { headerClearance = $0 }
             .onPreferenceChange(WordListRowFramesKey.self) { frames in
                 rowFrames = frames
                 if let id = displayedWords.last?.id, let height = frames[id]?.height {
@@ -165,11 +176,13 @@ struct WordListView: View {
             .onChange(of: displayedWords.last?.id) { _, _ in lastRowHeight = 80 }
         }
             .background(WireColor.surface)
-            .clipShape(sheetShape)
-            .overlay(
-                sheetShape
-                    .strokeBorder(WireColor.ink, lineWidth: WireMetrics.strokeBase)
-            )
+            .clipShape(sheetOnly ? AnyShape(sheetShape) : AnyShape(Rectangle()))
+            .overlay {
+                if sheetOnly {
+                    sheetShape
+                        .strokeBorder(WireColor.ink, lineWidth: WireMetrics.strokeBase)
+                }
+            }
             // 左のバーに絞り込み・並べ替え・検索、右のバーに表示切り替えを収める。
             // 赤シート中は左を赤シートボタンだけに畳み、右に赤シート専用のバーを出す。
             // 横に触ることが多いので、ここから始めたスワイプでは戻さない。
@@ -240,12 +253,13 @@ struct WordListView: View {
                             ForEach(displayedWords) { word in
                                 WordLibraryCard(word: word)
                                     .cardTapTarget { selectedWord = word }
+                                    .reportsWordListFrame(id: word.id)
                             }
                         }
                         .padding(WireMetrics.screenPadding)
                     } else {
                         if isRedSheetEnabled && check.isStarted {
-                            RedSheetEmptyRecords(height: redSheetTop(in: viewportHeight))
+                            RedSheetEmptyRecords(height: max(0, redSheetTop(in: viewportHeight) - headerClearance))
                         }
                         ForEach(Array(displayedWords.enumerated()), id: \.element.id) { index, word in
                             WordRow(
@@ -255,7 +269,8 @@ struct WordListView: View {
                                 checkResult: check.answers[word.id],
                                 reservesCheckResultSpace: check.isStarted,
                                 isCheckTarget: check.current?.id == word.id,
-                                isLanguageSwapped: isRedSheetEnabled && isLanguageSwapped
+                                leftColumn: leftColumn,
+                                rightColumn: rightColumn
                             )
                                 .cardTapTarget(radius: 0) {
                                     if check.isStarted {
@@ -265,29 +280,27 @@ struct WordListView: View {
                                     }
                                 }
                                 .id(word.id)
-                                .background {
-                                    GeometryReader { row in
-                                        Color.clear.preference(
-                                            key: WordListRowFramesKey.self,
-                                            value: [word.id: row.frame(in: .named("wordListViewport"))]
-                                        )
-                                    }
-                                }
+                                .reportsWordListFrame(id: word.id)
                         }
                     }
                 }
                 .scrollTargetLayout(isEnabled: viewModel.selectedDisplayMode == .list)
+                // 上のパネルの下から始める。スクロールするとパネルの裏へ入る。
+                .padding(.top, headerClearance)
                 // 最終行も上端へ揃えられる余白。カード表示は従来どおりの余白。
                 .padding(.bottom, viewModel.selectedDisplayMode == .list
                     ? WordListRowSnapping.bottomPadding(
-                        viewportHeight: viewportHeight,
+                        viewportHeight: viewportHeight - headerClearance,
                         lastRowHeight: lastRowHeight
                     )
                     : bottomBarClearance + bottomInset)
             }
             .scrollIndicators(.hidden)
             .scrollDisabled(isRedSheetEnabled)
-            .scrollTargetBehavior(WordListRowScrollBehavior(isEnabled: viewModel.selectedDisplayMode == .list))
+            .scrollTargetBehavior(WordListRowScrollBehavior(
+                isEnabled: viewModel.selectedDisplayMode == .list,
+                topInset: headerClearance
+            ))
             .onChange(of: check.isAnswerVisible) { _, visible in
                 guard visible, let id = check.current?.id else { return }
                 let rowHeight = rowFrames[id]?.height ?? lastRowHeight
@@ -312,6 +325,23 @@ struct WordListView: View {
     }
 
     private var displayedWords: [WordCard] { check.isStarted ? check.words : viewModel.filteredWords }
+
+    /// 上のパネルの進み具合。赤シートのチェック中は判定した数、リストはパネルのすぐ下の行、
+    /// カードは画面に見えている最後のカードの位置で測る。
+    private func progress(viewportHeight: CGFloat) -> Double {
+        let count = displayedWords.count
+        guard count > 0 else { return 0 }
+        if isRedSheetEnabled && check.isStarted {
+            return Double(check.index) / Double(count)
+        }
+        let visible = displayedWords.indices.filter { index in
+            guard let frame = rowFrames[displayedWords[index].id] else { return false }
+            return frame.maxY > headerClearance + 1 && frame.minY < viewportHeight
+        }
+        guard let first = visible.first, let last = visible.last else { return 0 }
+        let position = viewModel.selectedDisplayMode == .cards ? last : first
+        return Double(position + 1) / Double(count)
+    }
     private func redSheetTop(in viewportHeight: CGFloat) -> CGFloat {
         RedSheetPosition.top(availableHeight: viewportHeight, ratio: redSheetTopRatio)
     }
@@ -360,15 +390,13 @@ struct WordListView: View {
     private var redSheetActionBar: some View {
         HStack(spacing: WireMetrics.spacingS) {
             Button {
-                isLanguageSwapped.toggle()
+                (leftColumn, rightColumn) = (rightColumn, leftColumn)
             } label: {
                 Image(systemName: "arrow.left.arrow.right")
             }
-            .buttonStyle(.glassBarIcon(diameter: 48, isSelected: isLanguageSwapped))
-            .disabled(check.current == nil)
-            .accessibilityLabel("日英変換")
-            .accessibilityValue(isLanguageSwapped ? "日本語から英語" : "英語から日本語")
-            .accessibilityHint("タップすると左右の言語を入れ替えます")
+            .buttonStyle(.glassBarIcon(diameter: 48))
+            .accessibilityLabel("左右の列を入れ替え")
+            .accessibilityValue("左 \(leftColumn.title)、右 \(rightColumn.title)")
 
             Button {
                 taggingWord = check.current
@@ -406,6 +434,27 @@ private struct WordListBarHeightKey: PreferenceKey {
     }
 }
 
+private struct WordListHeaderHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+private extension View {
+    /// 一覧の行・カードの位置を、上のパネルの進み具合と赤シートの位置合わせに渡す。
+    func reportsWordListFrame(id: Int) -> some View {
+        background {
+            GeometryReader { item in
+                Color.clear.preference(
+                    key: WordListRowFramesKey.self,
+                    value: [id: item.frame(in: .named("wordListViewport"))]
+                )
+            }
+        }
+    }
+}
+
 private struct WordListRowFramesKey: PreferenceKey {
     static var defaultValue: [Int: CGRect] = [:]
     static func reduce(value: inout [Int: CGRect], nextValue: () -> [Int: CGRect]) {
@@ -415,11 +464,14 @@ private struct WordListRowFramesKey: PreferenceKey {
 
 private struct WordListRowScrollBehavior: ScrollTargetBehavior {
     let isEnabled: Bool
+    /// 上のパネルの高さ。行の先頭はパネルの裏ではなく、そのすぐ下に止める。
+    var topInset: CGFloat = 0
 
     func updateTarget(_ target: inout ScrollTarget, context: TargetContext) {
         guard isEnabled else { return }
         // 指追従と減速は標準のまま、停止位置だけ各行の先頭に合わせる。
         ViewAlignedScrollTargetBehavior(limitBehavior: .never).updateTarget(&target, context: context)
+        target.rect.origin.y = max(0, target.rect.origin.y - topInset)
     }
 }
 
