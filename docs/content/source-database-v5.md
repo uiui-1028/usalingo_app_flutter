@@ -19,6 +19,7 @@ Google Spreadsheet（V5の8シート）
 [教材の正本と単語リスト](../decisions/content-source-and-word-list-20260907.md) にあります。
 AIでテキストを作り、受け取り用シートを経て原本へ入れる方針は
 [英単語のテキストをAIで作り、受け取り用シートへ送る](../decisions/text-generation-series-lists-20260930.md) にあります。
+生成データの確かめ方は [AIが作った教材データを確かめる手順](../operations/check-generated-content.md) にあります。
 
 Ankiは退役しました。1000語ぶんの取り出しは人が手で1回だけ行い、以後は使いません。
 [`anki-data-model.md`](../architecture/anki-data-model.md) は残りますが、あれはNote・Card・Deckと
