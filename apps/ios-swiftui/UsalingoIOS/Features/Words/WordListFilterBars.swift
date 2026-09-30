@@ -1,31 +1,55 @@
 import SwiftUI
 
-/// 表示切り替え（リスト / カード）。操作バーの横に、もう1本の小さなバーとして置く。
-/// 選択中のアイコンを入口にして、メニューで表示形式を選ぶ。
-struct WordListDisplayModeBar: View {
+/// 表示切り替え（リスト / カード）。2種類しかないので、押すたびにもう一方へ切り替える。
+/// アイコンは今の表示を示す。
+struct WordListDisplayModeToggle: View {
     @Binding var selectedMode: WordListDisplayMode
 
     var body: some View {
-        Menu {
-            ForEach(WordListDisplayMode.allCases) { mode in
-                Button {
-                    selectedMode = mode
-                } label: {
-                    Label(mode.title, systemImage: selectedMode == mode ? "checkmark" : mode.symbol)
-                }
-            }
+        Button {
+            selectedMode = selectedMode == .list ? .cards : .list
         } label: {
             WordListActionBarIcon(symbol: selectedMode.symbol, isActive: false)
         }
+        .buttonStyle(.plain)
         .accessibilityLabel("表示切り替え")
         .accessibilityValue(selectedMode.title)
+    }
+}
+
+/// 赤シートのオン・オフ。右に1つだけ置く小さなバーで、オンにしても形は変わらない。
+struct WordListRedSheetBar: View {
+    @Binding var isRedSheetEnabled: Bool
+    @Binding var selectedDisplayMode: WordListDisplayMode
+    let canToggleRedSheet: Bool
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Button {
+            if !isRedSheetEnabled { selectedDisplayMode = .list }
+            withAnimation(reduceMotion ? nil : .spring(response: 0.36, dampingFraction: 0.88)) {
+                isRedSheetEnabled.toggle()
+            }
+        } label: {
+            Image(systemName: "rectangle.fill")
+                .foregroundStyle(.red)
+                .frame(width: 48, height: 48)
+                .glassBarSelection(isRedSheetEnabled, in: Capsule())
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(!canToggleRedSheet)
+        .accessibilityLabel("赤シート")
+        .accessibilityValue(isRedSheetEnabled ? "オン" : "オフ")
+        .accessibilityHint("意味欄を隠すシートを切り替えます")
         .wordListBarChrome()
     }
 }
 
-/// 画面下端に浮かべる2本のバー。左が絞り込み・並べ替え・検索、右が表示切り替え。
+/// 画面下端に浮かべる2本のバー。左が絞り込み・並べ替え・検索・表示切り替え、右が赤シート。
 /// 検索を開いている間は、左のバーが横いっぱいに広がるので右のバーは引っ込める。
-/// 赤シート中は左のバーを赤シートボタンだけに畳み、右に赤シート専用のバーを出す。
+/// 赤シート中は、左のバーの中身を赤シート専用の操作に入れ替える。右のバーはそのまま。
 struct WordListBottomBars<RedSheetActions: View>: View {
     let tags: [String]
     @Binding var selectedTag: String?
@@ -41,48 +65,57 @@ struct WordListBottomBars<RedSheetActions: View>: View {
     @State private var isSearchExpanded = false
 
     var body: some View {
+        // 左のバーは左端、右のバーは右端に留める。中身が変わっても、真ん中へ寄せ直さない。
         ViewThatFits(in: .horizontal) {
             HStack(spacing: WireMetrics.spacingS) {
                 actionBar
+                Spacer(minLength: 0)
                 trailingBar
             }
-            VStack(spacing: WireMetrics.spacingS) {
+            VStack(alignment: .leading, spacing: WireMetrics.spacingS) {
                 trailingBar
+                    .frame(maxWidth: .infinity, alignment: .trailing)
                 actionBar
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, WireMetrics.screenPadding)
         .padding(.bottom, WireMetrics.spacingXL)
         .animation(.spring(response: 0.28, dampingFraction: 0.86), value: isSearchExpanded)
     }
 
-    private var actionBar: some View {
-        WordListActionBar(
-            tags: tags,
-            selectedTag: $selectedTag,
-            selectedStatusFilter: $selectedStatusFilter,
-            selectedDueFilter: $selectedDueFilter,
-            selectedSort: $selectedSort,
-            searchText: $searchText,
-            isSearchExpanded: $isSearchExpanded,
-            isRedSheetEnabled: $isRedSheetEnabled,
-            selectedDisplayMode: $selectedDisplayMode,
-            canToggleRedSheet: canToggleRedSheet
-        )
+    @ViewBuilder private var actionBar: some View {
+        if isRedSheetEnabled {
+            redSheetActions
+                .transition(.opacity)
+        } else {
+            WordListActionBar(
+                tags: tags,
+                selectedTag: $selectedTag,
+                selectedStatusFilter: $selectedStatusFilter,
+                selectedDueFilter: $selectedDueFilter,
+                selectedSort: $selectedSort,
+                searchText: $searchText,
+                isSearchExpanded: $isSearchExpanded,
+                selectedDisplayMode: $selectedDisplayMode
+            )
+            .transition(.opacity)
+        }
     }
 
     @ViewBuilder private var trailingBar: some View {
-        if isRedSheetEnabled {
-            redSheetActions
-                .transition(.move(edge: .trailing).combined(with: .opacity))
-        } else if !isSearchExpanded {
-            WordListDisplayModeBar(selectedMode: $selectedDisplayMode)
+        if !isSearchExpanded {
+            WordListRedSheetBar(
+                isRedSheetEnabled: $isRedSheetEnabled,
+                selectedDisplayMode: $selectedDisplayMode,
+                canToggleRedSheet: canToggleRedSheet
+            )
         }
     }
 
 }
 
-/// 絞り込み・並べ替え・検索をひとまとめにした、画面下端の浮動バー。
+/// 絞り込み・並べ替え・検索・表示切り替えをひとまとめにした、画面下端の浮動バー。
 /// シェルのタブバーと同じ形・同じ位置に置き、検索は押した時だけバーの中を広げる。
 struct WordListActionBar: View {
     let tags: [String]
@@ -92,16 +125,13 @@ struct WordListActionBar: View {
     @Binding var selectedSort: WordSortOption
     @Binding var searchText: String
     @Binding var isSearchExpanded: Bool
-    @Binding var isRedSheetEnabled: Bool
     @Binding var selectedDisplayMode: WordListDisplayMode
-    let canToggleRedSheet: Bool
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @FocusState private var isSearchFocused: Bool
 
     var body: some View {
         HStack(spacing: WireMetrics.spacingS) {
-            if !isSearchExpanded && !isRedSheetEnabled {
+            if !isSearchExpanded {
                 WordListFilterMenu(
                     tags: tags,
                     selectedTag: $selectedTag,
@@ -112,28 +142,10 @@ struct WordListActionBar: View {
                 WordListSortMenu(selectedSort: $selectedSort)
             }
 
-            if !isSearchExpanded {
-                Button {
-                    if !isRedSheetEnabled { selectedDisplayMode = .list }
-                    withAnimation(reduceMotion ? nil : .spring(response: 0.36, dampingFraction: 0.88)) {
-                        isRedSheetEnabled.toggle()
-                    }
-                } label: {
-                    Image(systemName: "rectangle.fill")
-                        .foregroundStyle(.red)
-                        .frame(width: 48, height: 48)
-                        .glassBarSelection(isRedSheetEnabled, in: Capsule())
-                        .contentShape(Capsule())
-                }
-                .buttonStyle(.plain)
-                .disabled(!canToggleRedSheet)
-                .accessibilityLabel("赤シート")
-                .accessibilityValue(isRedSheetEnabled ? "オン" : "オフ")
-                .accessibilityHint("意味欄を隠すシートを切り替えます")
-            }
+            searchControl
 
-            if !isRedSheetEnabled {
-                searchControl
+            if !isSearchExpanded {
+                WordListDisplayModeToggle(selectedMode: $selectedDisplayMode)
             }
         }
         .wordListBarChrome()
