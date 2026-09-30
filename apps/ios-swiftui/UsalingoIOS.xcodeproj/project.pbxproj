@@ -25,6 +25,7 @@
 		A1000000000000000000C102 /* Features/Study/FiveChoiceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000C102 /* Features/Study/FiveChoiceView.swift */; };
 		A1000000000000000000A103 /* Features/Study/RadioQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000A103 /* Features/Study/RadioQueue.swift */; };
 		A1000000000000000000A104 /* Features/Study/AudioRadioView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000A104 /* Features/Study/AudioRadioView.swift */; };
+		A1000000000000000000A106 /* Features/Study/AudioCarouselMotion.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000A106 /* Features/Study/AudioCarouselMotion.swift */; };
 		A1000000000000000000A105 /* Services/RadioPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000A105 /* Services/RadioPlayer.swift */; };
 		B1000000000000000000A201 /* MatchingGameTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000000000000000000A201 /* MatchingGameTests.swift */; };
 		B1000000000000000000C201 /* FiveChoiceGameTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000000000000000000C201 /* FiveChoiceGameTests.swift */; };
@@ -133,6 +134,7 @@
 		A2000000000000000000C102 /* Features/Study/FiveChoiceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Study/FiveChoiceView.swift; sourceTree = "<group>"; };
 		A2000000000000000000A103 /* Features/Study/RadioQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Study/RadioQueue.swift; sourceTree = "<group>"; };
 		A2000000000000000000A104 /* Features/Study/AudioRadioView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Study/AudioRadioView.swift; sourceTree = "<group>"; };
+		A2000000000000000000A106 /* Features/Study/AudioCarouselMotion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Study/AudioCarouselMotion.swift; sourceTree = "<group>"; };
 		A2000000000000000000A105 /* Services/RadioPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/RadioPlayer.swift; sourceTree = "<group>"; };
 		B2000000000000000000A201 /* MatchingGameTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatchingGameTests.swift; sourceTree = "<group>"; };
 		B2000000000000000000C201 /* FiveChoiceGameTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FiveChoiceGameTests.swift; sourceTree = "<group>"; };
@@ -292,6 +294,7 @@
 				A2000000000000000000C102 /* Features/Study/FiveChoiceView.swift */,
 				A2000000000000000000A103 /* Features/Study/RadioQueue.swift */,
 				A2000000000000000000A104 /* Features/Study/AudioRadioView.swift */,
+				A2000000000000000000A106 /* Features/Study/AudioCarouselMotion.swift */,
 				A2000000000000000000A105 /* Services/RadioPlayer.swift */,
 				A20000000000000000000013 /* Features/Shell/AppShellView.swift */,
 				A20000000000000000000014 /* Features/Learning/LearningDashboardView.swift */,
@@ -499,6 +502,7 @@
 				A1000000000000000000C102 /* Features/Study/FiveChoiceView.swift in Sources */,
 				A1000000000000000000A103 /* Features/Study/RadioQueue.swift in Sources */,
 				A1000000000000000000A104 /* Features/Study/AudioRadioView.swift in Sources */,
+				A1000000000000000000A106 /* Features/Study/AudioCarouselMotion.swift in Sources */,
 				A1000000000000000000A105 /* Services/RadioPlayer.swift in Sources */,
 				A10000000000000000000FA1 /* Features/Study/WordCardContent.swift in Sources */,
 				A10000000000000000000013 /* Features/Shell/AppShellView.swift in Sources */,
