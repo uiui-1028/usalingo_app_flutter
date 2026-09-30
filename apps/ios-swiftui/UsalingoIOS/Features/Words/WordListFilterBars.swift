@@ -65,16 +65,20 @@ struct WordListBottomBars<RedSheetActions: View>: View {
     @State private var isSearchExpanded = false
 
     var body: some View {
+        // 左のバーは左端、右のバーは右端に留める。中身が変わっても、真ん中へ寄せ直さない。
         ViewThatFits(in: .horizontal) {
             HStack(spacing: WireMetrics.spacingS) {
                 actionBar
+                Spacer(minLength: 0)
                 trailingBar
             }
-            VStack(spacing: WireMetrics.spacingS) {
+            VStack(alignment: .leading, spacing: WireMetrics.spacingS) {
                 trailingBar
+                    .frame(maxWidth: .infinity, alignment: .trailing)
                 actionBar
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, WireMetrics.screenPadding)
         .padding(.bottom, WireMetrics.spacingXL)
         .animation(.spring(response: 0.28, dampingFraction: 0.86), value: isSearchExpanded)
