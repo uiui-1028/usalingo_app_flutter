@@ -23,6 +23,7 @@ struct WordListView: View {
     @StateObject private var viewModel: WordListViewModel
     @State private var selectedWord: WordCard?
     @State private var taggingWord: WordCard?
+    @State private var editingWord: WordCard?
 
     init(
         deck: Deck? = nil,
@@ -89,6 +90,13 @@ struct WordListView: View {
             WordDetailSheet(word: word, words: viewModel.filteredWords) { savedWord in
                 _ = viewModel.replaceWord(savedWord)
             }
+        }
+        .sheet(item: $editingWord) { word in
+            WordEditSheet(word: word) { savedWord in
+                _ = viewModel.replaceWord(savedWord)
+                check.replaceWord(savedWord)
+            }
+            .presentationDetents([.large])
         }
         .sheet(item: $taggingWord) { word in
             TagSheet(word: word) { savedWord in
@@ -163,22 +171,23 @@ struct WordListView: View {
                     .strokeBorder(WireColor.ink, lineWidth: WireMetrics.strokeBase)
             )
             // 左のバーに絞り込み・並べ替え・検索、右のバーに表示切り替えを収める。
+            // 赤シート中は左を赤シートボタンだけに畳み、右に赤シート専用のバーを出す。
             // 横に触ることが多いので、ここから始めたスワイプでは戻さない。
             .overlay(alignment: .bottom) {
-                Group {
-                    if isRedSheetEnabled {
-                        redSheetControls
-                    } else {
-                        WordListBottomBars(
-                            tags: viewModel.availableTags,
-                            selectedTag: $viewModel.selectedTagFilter,
-                            selectedStatusFilter: $viewModel.selectedStatusFilter,
-                            selectedDueFilter: $viewModel.selectedDueFilter,
-                            selectedSort: $viewModel.selectedSort,
-                            searchText: $viewModel.searchText,
-                            selectedDisplayMode: $viewModel.selectedDisplayMode,
-                            isRedSheetEnabled: $isRedSheetEnabled
-                        )
+                VStack(spacing: 10) {
+                    if isRedSheetEnabled { redSheetSaveStatus }
+                    WordListBottomBars(
+                        tags: viewModel.availableTags,
+                        selectedTag: $viewModel.selectedTagFilter,
+                        selectedStatusFilter: $viewModel.selectedStatusFilter,
+                        selectedDueFilter: $viewModel.selectedDueFilter,
+                        selectedSort: $viewModel.selectedSort,
+                        searchText: $viewModel.searchText,
+                        selectedDisplayMode: $viewModel.selectedDisplayMode,
+                        isRedSheetEnabled: $isRedSheetEnabled,
+                        canToggleRedSheet: check.canLeave
+                    ) {
+                        redSheetActionBar
                     }
                 }
                 .background {
@@ -332,13 +341,6 @@ struct WordListView: View {
         }
     }
 
-    private var redSheetControls: some View {
-        VStack(spacing: 10) {
-            redSheetSaveStatus
-            redSheetToolbar
-        }
-    }
-
     @ViewBuilder
     private var redSheetSaveStatus: some View {
         if let error = check.errorMessage {
@@ -354,24 +356,15 @@ struct WordListView: View {
         }
     }
 
-    private var redSheetToolbar: some View {
+    /// 赤シート中だけ出す、いまの1語への操作。カードモードと同じガラスのボタン。
+    private var redSheetActionBar: some View {
         HStack(spacing: WireMetrics.spacingS) {
-            Button(action: endRedSheet) {
-                Image(systemName: "rectangle.fill")
-                    .foregroundStyle(.white)
-            }
-            .buttonStyle(.wireIcon(diameter: 40, isSelected: true, invertsWhenSelected: true))
-            .disabled(!check.canLeave)
-            .accessibilityLabel("赤シート")
-            .accessibilityValue("オン")
-            .accessibilityHint("赤シートを終了します")
-
             Button {
                 isLanguageSwapped.toggle()
             } label: {
                 Image(systemName: "arrow.left.arrow.right")
             }
-            .buttonStyle(.wireIcon(diameter: 40))
+            .buttonStyle(.glassBarIcon(diameter: 48, isSelected: isLanguageSwapped))
             .disabled(check.current == nil)
             .accessibilityLabel("日英変換")
             .accessibilityValue(isLanguageSwapped ? "日本語から英語" : "英語から日本語")
@@ -382,20 +375,20 @@ struct WordListView: View {
             } label: {
                 Image(systemName: "tag")
             }
-            .buttonStyle(.wireIcon(diameter: 40))
+            .buttonStyle(.glassBarIcon(diameter: 48))
             .disabled(check.current == nil)
             .accessibilityLabel("タグ")
-        }
-        .padding(.horizontal, WireMetrics.spacingM)
-        .padding(.vertical, WireMetrics.spacingM)
-        .outlineSurface(radius: WireMetrics.radiusLarge, shadow: .card)
-    }
 
-    private func endRedSheet() {
-        guard check.canLeave else { return }
-        withAnimation(reduceMotion ? nil : .spring(response: 0.36, dampingFraction: 0.88)) {
-            isRedSheetEnabled = false
+            Button {
+                editingWord = check.current
+            } label: {
+                Image(systemName: "square.and.pencil")
+            }
+            .buttonStyle(.glassBarIcon(diameter: 48))
+            .disabled(check.current == nil)
+            .accessibilityLabel("単語を編集")
         }
+        .wordListBarChrome()
     }
 
     private var cardColumns: [GridItem] {
