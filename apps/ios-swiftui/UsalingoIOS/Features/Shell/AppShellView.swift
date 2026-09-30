@@ -149,11 +149,12 @@ struct AppShellView: View {
     }
 
     private func finishPlayStyleDrag(_ value: DragGesture.Value) {
-        let barBounds = playStyleFrames.values.reduce(CGRect.null) { $0.union($1) }
-        let destination = value.location
-        let nextStyle: DeckPlayStyle? = barBounds.contains(destination)
-            ? playStyleFrames.min { abs($0.value.midX - destination.x) < abs($1.value.midX - destination.x) }?.key
-            : nil
+        // 指がバーの上下にはみ出しても、横位置だけで最寄りのアイコンを選ぶ。
+        // 左右の端を越えた場合も、最寄りは端のアイコンになる。
+        let destinationX = value.location.x
+        let nextStyle = playStyleFrames.min {
+            abs($0.value.midX - destinationX) < abs($1.value.midX - destinationX)
+        }?.key
 
         withAnimation(reduceMotion ? nil : .spring(response: 0.26, dampingFraction: 0.82)) {
             playStyleDragOffset = 0
