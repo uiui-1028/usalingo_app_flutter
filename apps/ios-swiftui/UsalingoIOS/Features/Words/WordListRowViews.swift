@@ -63,7 +63,13 @@ struct WordRow: View {
     var reservesCheckResultSpace = false
     var isCheckTarget = false
     var leftColumn: WordListColumn = .word
+    /// 3列にしたときだけ入る、左右の間の列。
+    var middleColumn: WordListColumn? = nil
     var rightColumn: WordListColumn = .meaning
+    /// 赤シートが真ん中の列まで覆っているとき。
+    var hidesMiddleFromAccessibility = false
+
+    private var columnCount: Int { middleColumn == nil ? 2 : 3 }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -72,7 +78,20 @@ struct WordRow: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 20)
                 .frame(maxHeight: .infinity, alignment: .leading)
-                .containerRelativeFrame(.horizontal, count: 2, spacing: 0)
+                .containerRelativeFrame(.horizontal, count: columnCount, spacing: 0)
+
+            if let middleColumn {
+                columnText(middleColumn, font: .body, color: .primary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 20)
+                    .frame(maxHeight: .infinity, alignment: .leading)
+                    .containerRelativeFrame(.horizontal, count: columnCount, spacing: 0)
+                    .overlay(alignment: .leading) {
+                        Rectangle().fill(WireColor.ink.opacity(0.12)).frame(width: 1)
+                    }
+                    .accessibilityHidden(hidesMiddleFromAccessibility)
+            }
 
             columnText(rightColumn, font: .body, color: Color(red: 0.65, green: 0.09, blue: 0.1))
                 .fixedSize(horizontal: false, vertical: true)
@@ -80,7 +99,7 @@ struct WordRow: View {
                 .padding(.trailing, reservesCheckResultSpace || checkResult != nil ? 42 : 14)
                 .padding(.vertical, 20)
                 .frame(maxHeight: .infinity, alignment: .leading)
-            .containerRelativeFrame(.horizontal, count: 2, spacing: 0)
+                .containerRelativeFrame(.horizontal, count: columnCount, spacing: 0)
                 .overlay(alignment: .leading) {
                     Rectangle().fill(WireColor.ink.opacity(0.12)).frame(width: 1)
                 }

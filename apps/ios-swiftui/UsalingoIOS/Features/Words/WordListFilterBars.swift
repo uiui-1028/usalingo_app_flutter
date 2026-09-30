@@ -305,21 +305,26 @@ extension View {
     }
 }
 
-/// 単語リストの上端に浮かべるガラスのパネル。進み具合のバーと、左右の列を選ぶプルダウン。
-/// カード表示では列が無いので、`columns` を nil にしてバーだけ出す。
+/// 単語リストの上端に浮かべるガラスのパネル。進み具合のバーと、列を選ぶプルダウン。
+/// 2列のときは吹き出しの間に＋を置き、真ん中に3列目を足せる。カード表示では列が無いので、`columns` を nil にしてバーだけ出す。
 struct WordListColumnHeader: View {
     /// 0...1 の進み具合。
     let progress: Double
-    var columns: (left: Binding<WordListColumn>, right: Binding<WordListColumn>)?
+    var columns: Binding<[WordListColumn]>?
 
     var body: some View {
         VStack(spacing: WireMetrics.spacingS) {
             WordListProgressBar(progress: progress)
 
             if let columns {
-                HStack(spacing: WireMetrics.spacingS) {
-                    columnMenu(columns.left, onLeft: true, other: columns.right)
-                    columnMenu(columns.right, onLeft: false, other: columns.left)
+                HStack(alignment: .top, spacing: WireMetrics.spacingS) {
+                    columnMenu(columns, at: 0)
+                    if columns.wrappedValue.count < WordListColumn.maximumCount {
+                        addColumnMenu(columns)
+                    }
+                    ForEach(1..<columns.wrappedValue.count, id: \.self) { index in
+                        columnMenu(columns, at: index)
+                    }
                 }
                 // 矢印はパネルの下の余白へはみ出させ、パネルの高さを変えない。
                 .padding(.bottom, -SpeechBubbleShape.arrowHeight)
@@ -329,29 +334,28 @@ struct WordListColumnHeader: View {
         .glassBarSurface(in: RoundedRectangle(cornerRadius: WireMetrics.radiusLarge, style: .continuous))
     }
 
-    private func columnMenu(
-        _ selection: Binding<WordListColumn>,
-        onLeft: Bool,
-        other: Binding<WordListColumn>
-    ) -> some View {
-        Menu {
+    private func columnMenu(_ columns: Binding<[WordListColumn]>, at index: Int) -> some View {
+        let current = columns.wrappedValue[index]
+        return Menu {
             ForEach(WordListColumn.allCases) { column in
                 Button {
-                    let left = onLeft ? selection.wrappedValue : other.wrappedValue
-                    let right = onLeft ? other.wrappedValue : selection.wrappedValue
-                    let chosen = WordListColumn.choosing(column, onLeft: onLeft, left: left, right: right)
-                    selection.wrappedValue = onLeft ? chosen.left : chosen.right
-                    other.wrappedValue = onLeft ? chosen.right : chosen.left
+                    columns.wrappedValue = WordListColumn.choosing(column, at: index, in: columns.wrappedValue)
                 } label: {
-                    if selection.wrappedValue == column {
+                    if current == column {
                         Label(column.title, systemImage: "checkmark")
                     } else {
                         Text(column.title)
                     }
                 }
             }
+            if columns.wrappedValue.count == WordListColumn.maximumCount {
+                Divider()
+                Button("列を削除", systemImage: "trash", role: .destructive) {
+                    columns.wrappedValue = WordListColumn.removing(at: index, from: columns.wrappedValue)
+                }
+            }
         } label: {
-            Text(selection.wrappedValue.title)
+            Text(current.title)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
                 .wireFont(.label, color: .primary)
@@ -360,8 +364,32 @@ struct WordListColumnHeader: View {
                 .glassBarSelection(true, in: SpeechBubbleShape())
                 .contentShape(SpeechBubbleShape())
         }
-        .accessibilityLabel(onLeft ? "左の列" : "右の列")
-        .accessibilityValue(selection.wrappedValue.title)
+        .accessibilityLabel(Self.positionTitle(index: index, count: columns.wrappedValue.count))
+        .accessibilityValue(current.title)
+    }
+
+    /// まだ出していない項目だけを並べ、選ぶと真ん中に3列目として足す。
+    private func addColumnMenu(_ columns: Binding<[WordListColumn]>) -> some View {
+        Menu {
+            ForEach(WordListColumn.allCases.filter { !columns.wrappedValue.contains($0) }) { column in
+                Button(column.title) {
+                    columns.wrappedValue = WordListColumn.adding(column, to: columns.wrappedValue)
+                }
+            }
+        } label: {
+            Image(systemName: "plus")
+                .font(.body.weight(.bold))
+                .foregroundStyle(.primary)
+                .frame(width: 44, height: 44)
+                .glassBarSelection(true, in: Circle())
+                .contentShape(Circle())
+        }
+        .accessibilityLabel("列を追加")
+    }
+
+    private static func positionTitle(index: Int, count: Int) -> String {
+        if index == 0 { return "左の列" }
+        return index == count - 1 ? "右の列" : "真ん中の列"
     }
 }
 
