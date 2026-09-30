@@ -69,7 +69,6 @@ struct WordRow: View {
         HStack(spacing: 0) {
             columnText(leftColumn, font: .titleS, color: .primary)
                 .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 20)
                 .frame(maxHeight: .infinity, alignment: .leading)
@@ -112,14 +111,18 @@ struct WordRow: View {
     }
 
     /// データが無い項目は、空欄だと列ずれに見えるので「—」を薄く出す。
-    @ViewBuilder
+    /// 揃え方は項目ごとに決まっていて、左右どちらの列に置いても同じ。
     private func columnText(_ column: WordListColumn, font: WireFont, color: Color) -> some View {
         let value = column.value(of: word)
-        if value.isEmpty {
-            Text("—").wireFont(font, color: .secondary)
-        } else {
-            Text(value).wireFont(font, color: color)
+        return Group {
+            if value.isEmpty {
+                Text("—").wireFont(font, color: .secondary)
+            } else {
+                Text(value).wireFont(font, color: color)
+            }
         }
+        .multilineTextAlignment(column.isCentered ? .center : .leading)
+        .frame(maxWidth: .infinity, alignment: column.isCentered ? .center : .leading)
     }
 }
 

@@ -215,6 +215,14 @@ enum WordListColumn: String, CaseIterable, Identifiable {
         }
     }
 
+    /// 短い語句は中央、文章は読みやすいよう左に揃える。
+    var isCentered: Bool {
+        switch self {
+        case .word, .meaning, .partOfSpeech, .synonyms: true
+        case .sentenceEnglish, .sentenceJapanese, .etymology: false
+        }
+    }
+
     /// データが無い単語では空文字を返す。
     func value(of word: WordCard) -> String {
         switch self {
