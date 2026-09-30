@@ -193,8 +193,8 @@ struct WordListView: View {
                         .strokeBorder(WireColor.ink, lineWidth: WireMetrics.strokeBase)
                 }
             }
-            // 左のバーに絞り込み・並べ替え・検索、右のバーに表示切り替えを収める。
-            // 赤シート中は左を赤シートボタンだけに畳み、右に赤シート専用のバーを出す。
+            // 左のバーに絞り込み・並べ替え・検索・表示切り替え、右のバーに赤シートを収める。
+            // 赤シート中は左のバーの中身を赤シート専用の操作に入れ替える。
             // 横に触ることが多いので、ここから始めたスワイプでは戻さない。
             .overlay(alignment: .bottom) {
                 VStack(spacing: 10) {
@@ -420,7 +420,7 @@ struct WordListView: View {
         }
     }
 
-    /// 赤シート中だけ出す、いまの1語への操作。カードモードと同じガラスのボタン。
+    /// 赤シート中だけ左のバーに出す、いまの1語への操作。カードモードと同じガラスのボタン。
     private var redSheetActionBar: some View {
         HStack(spacing: WireMetrics.spacingS) {
             Button {
