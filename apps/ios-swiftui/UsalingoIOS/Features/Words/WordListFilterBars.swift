@@ -321,6 +321,8 @@ struct WordListColumnHeader: View {
                     columnMenu(columns.left, onLeft: true, other: columns.right)
                     columnMenu(columns.right, onLeft: false, other: columns.left)
                 }
+                // 矢印はパネルの下の余白へはみ出させ、パネルの高さを変えない。
+                .padding(.bottom, -SpeechBubbleShape.arrowHeight)
             }
         }
         .padding(WireMetrics.spacingM)
@@ -349,21 +351,39 @@ struct WordListColumnHeader: View {
                 }
             }
         } label: {
-            HStack(spacing: WireMetrics.spacingXS) {
-                Text(selection.wrappedValue.title)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                Image(systemName: "chevron.down")
-                    .font(.caption.weight(.semibold))
-                    .accessibilityHidden(true)
-            }
-            .wireFont(.label, color: .primary)
-            .frame(maxWidth: .infinity, minHeight: 44)
-            .glassBarSelection(true, in: Capsule())
-            .contentShape(Capsule())
+            Text(selection.wrappedValue.title)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .wireFont(.label, color: .primary)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .padding(.bottom, SpeechBubbleShape.arrowHeight)
+                .glassBarSelection(true, in: SpeechBubbleShape())
+                .contentShape(SpeechBubbleShape())
         }
         .accessibilityLabel(onLeft ? "左の列" : "右の列")
         .accessibilityValue(selection.wrappedValue.title)
+    }
+}
+
+/// 列ボタンの吹き出しの形。丸いブロックの下の真ん中から、先の丸い矢印で下の列を指す。
+/// 半透明で塗るので、ブロックと矢印を1つの形にまとめて重なりが濃くならないようにする。
+struct SpeechBubbleShape: Shape {
+    static let arrowWidth: CGFloat = 22
+    static let arrowHeight: CGFloat = 8
+    private static let tipRadius: CGFloat = 3
+
+    func path(in rect: CGRect) -> Path {
+        let bubble = CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: rect.height - Self.arrowHeight)
+        // 付け根をブロックへ少し埋めて、継ぎ目が出ないようにする。
+        let baseY = bubble.maxY - 1
+        let left = CGPoint(x: bubble.midX - Self.arrowWidth / 2, y: baseY)
+        let right = CGPoint(x: bubble.midX + Self.arrowWidth / 2, y: baseY)
+        var arrow = Path()
+        arrow.move(to: left)
+        arrow.addArc(tangent1End: CGPoint(x: bubble.midX, y: rect.maxY), tangent2End: right, radius: Self.tipRadius)
+        arrow.addLine(to: right)
+        arrow.closeSubpath()
+        return Capsule().path(in: bubble).union(arrow)
     }
 }
 
