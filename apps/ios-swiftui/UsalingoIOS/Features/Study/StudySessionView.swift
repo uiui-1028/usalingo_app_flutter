@@ -14,7 +14,9 @@ struct StudySessionView: View {
     @State private var loadErrorMessage: String?
     @State private var saveErrorMessage: String?
     @State private var dragOffset = CGSize.zero
-    @State private var hasCrossedRevealThreshold = false
+    @State private var isTouchingCard = false
+    /// 今回のタッチで回答を出したか。指を離したときのタップで裏返さないために使う。
+    @State private var didRevealOnTouch = false
     @State private var hasCrossedCommitThreshold = false
     @State private var showAnswer = false
     @State private var isFlipped = false
@@ -131,31 +133,29 @@ struct StudySessionView: View {
                 .rotationEffect(.degrees(Double(dragOffset.width / 24)))
                 // 裏面の ScrollView に横方向のドラッグを食われないよう、同時認識にする。
                 // どちらの操作かは動き出しの向きで決め、決めた後は最後まで変えない。
-                // 横方向は開示ラインで裏面を出し、指を離さずそのまま確定ラインまで
-                // 続ければ、1回のスワイプで回答まで済ませられる。
+                // 指が触れた瞬間に回答を出し、そのまま確定ラインまで滑らせれば、
+                // 1回のスワイプで回答まで済ませられる。
                 .simultaneousGesture(
-                    DragGesture()
+                    DragGesture(minimumDistance: 0)
                         .onChanged { value in
+                            if !isTouchingCard {
+                                isTouchingCard = true
+                                didRevealOnTouch = !showAnswer
+                                if !showAnswer {
+                                    HapticFeedbackService.swipeThresholdCrossed()
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        showAnswer = true
+                                    }
+                                }
+                            }
+
                             if dragAxis == nil {
                                 dragAxis = DragAxis(translation: value.translation)
                             }
 
                             guard dragAxis == .horizontal else { return }
                             dragOffset = value.translation
-                            let distance = abs(value.translation.width)
-
-                            let reachedReveal = distance > SwipeThreshold.reveal
-                            if reachedReveal && !hasCrossedRevealThreshold {
-                                HapticFeedbackService.swipeThresholdCrossed()
-                                if !showAnswer {
-                                    withAnimation(.easeInOut(duration: 0.2)) {
-                                        showAnswer = true
-                                    }
-                                }
-                            }
-                            hasCrossedRevealThreshold = reachedReveal
-
-                            let reachedCommit = distance > SwipeThreshold.commit
+                            let reachedCommit = abs(value.translation.width) > SwipeThreshold.commit
                             if reachedCommit && !hasCrossedCommitThreshold {
                                 HapticFeedbackService.swipeThresholdCrossed()
                             }
@@ -164,7 +164,7 @@ struct StudySessionView: View {
                         .onEnded { value in
                             let axis = dragAxis
                             dragAxis = nil
-                            hasCrossedRevealThreshold = false
+                            isTouchingCard = false
                             hasCrossedCommitThreshold = false
                             guard axis == .horizontal else { return }
                             if value.translation.width > SwipeThreshold.commit {
@@ -172,7 +172,7 @@ struct StudySessionView: View {
                             } else if value.translation.width < -SwipeThreshold.commit {
                                 swipe(isCorrect: false)
                             } else {
-                                // 開示ラインを越えて出した裏面は、ここで隠し直さない。
+                                // タッチで出した回答は、ここで隠し直さない。
                                 withAnimation(.spring(response: 0.3, dampingFraction: 0.78)) {
                                     dragOffset = .zero
                                 }
@@ -180,7 +180,12 @@ struct StudySessionView: View {
                         }
                 )
                 .onTapGesture {
-                    advanceCardFace()
+                    // タッチで回答を出した直後のタップは、表示だけで止める。
+                    if didRevealOnTouch {
+                        didRevealOnTouch = false
+                    } else {
+                        advanceCardFace()
+                    }
                 }
 
             // 見送ったカードは独立した層で飛ばす。トップカードの入れ替えはこの演出を
@@ -545,10 +550,8 @@ struct StudyAnswerActionBar<Toolbar: View>: View {
     }
 }
 
-/// 横スワイプの目盛りは2段。開示ラインで裏面を出し、指はそのまま。確定ラインまで
-/// 滑らせて離したときだけ正誤として保存する。
+/// 回答は指が触れた瞬間に出す。確定ラインまで滑らせて離したときだけ正誤として保存する。
 private enum SwipeThreshold {
-    static let reveal: CGFloat = 30
     static let commit: CGFloat = 100
 }
 
