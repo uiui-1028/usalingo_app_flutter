@@ -103,6 +103,23 @@ final class AuthTransportTests: XCTestCase {
         XCTAssertEqual(transport.requests.first?.httpMethod, "POST")
     }
 
+    func testAuthenticateDoesNotSaveSessionUntilAdopted() async throws {
+        let transport = StubNetworkSession(
+            data: Data("""
+            {"access_token":"test-access","refresh_token":"test-refresh","expires_at":123,"user":{"id":"user-1","email":"learner@example.com"}}
+            """.utf8),
+            statusCode: 200
+        )
+        let store = FakeSessionStore()
+        let service = AuthService(sessionStore: store, client: FakeAuthSupabaseClient(), session: transport)
+
+        let result = try await service.authenticate(email: "learner@example.com", password: "not-a-secret")
+        XCTAssertNil(store.savedSession, "ゲストの同意を得るまでは端末へ保存しない")
+
+        try service.adopt(result)
+        XCTAssertEqual(store.savedSession?.accessToken, "test-access")
+    }
+
     func testSignInTreatsMissingSessionAsEmailConfirmationRequired() async {
         let service = AuthService(
             sessionStore: FakeSessionStore(),

@@ -14,6 +14,8 @@ struct AuthView: View {
     /// 打ち間違いの候補を一度見せたアドレス。同じアドレスでもう一度押されたら、そのまま進める。
     @State private var acknowledgedTypoEmail: String?
     @FocusState private var isEmailFocused: Bool
+    /// Create Account で登録済みのアカウントに入れたとき、ゲストの同意を待っている間だけ持つ。
+    @State private var existingAccountSession: AuthSession?
 
     private let authService = AuthService()
 
@@ -28,6 +30,19 @@ struct AuthView: View {
             .scrollBounceBehavior(.basedOnSize)
         }
         .background(WireColor.background)
+        .confirmationDialog(
+            "ゲストの学習記録が消えます",
+            isPresented: Binding(
+                get: { existingAccountSession != nil },
+                set: { if !$0 { existingAccountSession = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("サインインする", role: .destructive) { adoptExistingAccount() }
+            Button("やめる", role: .cancel) { existingAccountSession = nil }
+        } message: {
+            Text("このメールアドレスは登録済みです。サインインすると、ゲストで学習した記録はこのアカウントへ引き継がれません。")
+        }
     }
 
     private var content: some View {
@@ -106,7 +121,8 @@ struct AuthView: View {
     /// いまの学習記録がどう扱われるかの説明。匿名アカウントかどうかで変わる。
     private var handoffNotice: String {
         appState.isGuest
-            ? "Create Account や Sign In のあとも、この端末の学習記録はそのまま使えます。"
+            ? "Create Account で新しく登録すると、この端末の学習記録はそのまま使えます。"
+                + "登録済みのアカウントにサインインすると、ゲストの記録は引き継がれません。"
             : "すでに登録済みのアカウントです。"
     }
 
@@ -198,7 +214,15 @@ struct AuthView: View {
         guard let email = preparedEmail() else { return }
         isLoading = true
         do {
-            if signUp {
+            if signUp, let session = try await existingAccount(email: email) {
+                // 登録済みでパスワードも合っている。作り直さずにサインインする。
+                if appState.isGuest {
+                    existingAccountSession = session
+                } else {
+                    try authService.adopt(session)
+                    appState.setSession(session)
+                }
+            } else if signUp {
                 if appState.isGuest {
                     // いまの匿名アカウントを育てる。端末の学習記録はそのまま残る。
                     try await appState.linkAnonymousAccount(email: email, password: password)
@@ -224,6 +248,28 @@ struct AuthView: View {
             isLocalMessageError = true
         }
         isLoading = false
+    }
+
+    /// 入力したメールとパスワードで入れるかを、保存せずに確かめる。
+    /// 入れなければ nil を返し、そのまま新規作成へ進める。通信の失敗などはそのまま知らせる。
+    private func existingAccount(email: String) async throws -> AuthSession? {
+        do {
+            return try await authService.authenticate(email: email, password: password)
+        } catch AuthError.invalidCredentials {
+            return nil
+        }
+    }
+
+    private func adoptExistingAccount() {
+        guard let session = existingAccountSession else { return }
+        existingAccountSession = nil
+        do {
+            try authService.adopt(session)
+            appState.setSession(session)
+        } catch {
+            message = UserFacingError.message(for: error)
+            isLocalMessageError = true
+        }
     }
 
     private func requestRecovery() async {
