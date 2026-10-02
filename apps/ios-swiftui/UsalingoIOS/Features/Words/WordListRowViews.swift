@@ -109,7 +109,14 @@ struct WordRow: View {
                         Image(systemName: checkResult ? "checkmark.circle.fill" : "xmark.circle.fill")
                             .font(.system(size: 25, weight: .semibold))
                             .symbolRenderingMode(.palette)
-                            .foregroundStyle(.white, checkResult ? Color.black : Color.red)
+                            .foregroundStyle(
+                                checkResult ? WireColor.answerIncorrect : WireColor.surface,
+                                checkResult ? WireColor.answerCorrect : WireColor.answerIncorrect
+                            )
+                            .overlay {
+                                Circle().strokeBorder(WireColor.answerIncorrect, lineWidth: 1)
+                                    .accessibilityHidden(true)
+                            }
                             .padding(.trailing, 10)
                             .accessibilityLabel(checkResult ? "わかる" : "わからない")
                     }

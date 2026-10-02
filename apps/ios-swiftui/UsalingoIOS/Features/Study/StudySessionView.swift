@@ -132,6 +132,7 @@ struct StudySessionView: View {
 
             StudyCardView(card: cards[index], showAnswer: showAnswer, isFlipped: isFlipped)
                 .id(cards[index].id)
+                .swipeAnswerTint(horizontalOffset: dragOffset.width)
                 .zIndex(1)
                 .backSwipeProtectedRegion()
                 .offset(dragOffset)
@@ -518,6 +519,9 @@ struct StudyAnswerActionBar<Toolbar: View>: View {
         HStack(spacing: WireMetrics.spacingS) {
             Button(action: onIncorrect) {
                 Image(systemName: "xmark")
+                    .foregroundStyle(WireColor.surface)
+                    .frame(width: 52, height: 52)
+                    .background(Circle().fill(WireColor.answerIncorrect))
             }
             .buttonStyle(.glassBarIcon(diameter: 52))
             .glassBarSurface(in: Circle())
@@ -528,6 +532,9 @@ struct StudyAnswerActionBar<Toolbar: View>: View {
 
             Button(action: onCorrect) {
                 Image(systemName: correctSymbol)
+                    .foregroundStyle(WireColor.answerIncorrect)
+                    .frame(width: 52, height: 52)
+                    .background(Circle().fill(WireColor.answerCorrect))
             }
             .buttonStyle(.glassBarIcon(diameter: 52, isSelected: true))
             .glassBarSurface(in: Circle())
@@ -579,6 +586,7 @@ private struct FlyawayCardView: View {
     var body: some View {
         let current = offset ?? item.start
         StudyCardView(card: item.card, showAnswer: item.showAnswer, isFlipped: item.isFlipped)
+            .swipeAnswerTint(horizontalOffset: current.width)
             .offset(current)
             .rotationEffect(.degrees(Double(current.width / 24)))
             .opacity(offset == nil ? 1 : 0)
@@ -677,6 +685,28 @@ private struct CompletionMetric: View {
         .frame(maxWidth: .infinity)
         .padding(WireMetrics.spacingM)
         .outlineSurface(radius: WireMetrics.radiusCard, shadow: .card)
+    }
+}
+
+private extension View {
+    /// 3乗カーブで後半ほど濃くなる判定パネル。確定ラインで85%、指を戻すと消える。
+    func swipeAnswerTint(horizontalOffset: CGFloat) -> some View {
+        let progress = min(abs(horizontalOffset) / SwipeThreshold.commit, 1)
+        let isCorrect = horizontalOffset >= 0
+        let color = isCorrect ? WireColor.answerCorrect : WireColor.answerIncorrect
+        return overlay {
+            ZStack {
+                RoundedRectangle(cornerRadius: WireMetrics.radiusCard, style: .continuous)
+                    .fill(color.opacity(0.85))
+                Image(systemName: isCorrect ? "circle" : "xmark")
+                    .font(.system(size: 83.2, weight: .semibold))
+                    .foregroundStyle(WireColor.surface)
+            }
+            .opacity(Double(progress * progress * progress))
+            .allowsHitTesting(false)
+            // ponytail: 判定パネルは装飾。VoiceOverの詳細対応は後日まとめて行う。
+            .accessibilityHidden(true)
+        }
     }
 }
 
