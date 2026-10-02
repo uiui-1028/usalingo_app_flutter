@@ -125,17 +125,16 @@ struct FiveChoiceView: View {
         let isWrong = game.isRevealed && index == game.selectedIndex && !isCorrect
         let status = isCorrect ? "正解" : (isWrong ? "不正解" : "")
         // 正誤だけに色を添え、色を見分けなくても記号と文言で判断できるようにする。
-        let color: Color = isCorrect ? Color(red: 0.08, green: 0.38, blue: 0.19)
-            : (isWrong ? Color(red: 0.65, green: 0.12, blue: 0.12) : WireColor.ink)
+        let color: Color = isCorrect ? WireColor.answerCorrect : WireColor.answerIncorrect
 
         return VStack(spacing: WireMetrics.spacingXS) {
             VStack(spacing: WireMetrics.spacingXS) {
                 if !status.isEmpty {
                     Label(status, systemImage: isCorrect ? "checkmark.circle.fill" : "xmark.circle.fill")
-                        .wireFont(.caption, color: color)
+                        .wireFont(.caption, color: WireColor.answerIncorrect)
                 }
                 Text(card.meaning)
-                    .wireFont(.body, color: color)
+                    .wireFont(.body, color: WireColor.answerIncorrect)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .padding(WireMetrics.spacingM)

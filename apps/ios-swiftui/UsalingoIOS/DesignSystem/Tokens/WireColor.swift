@@ -2,10 +2,15 @@ import SwiftUI
 
 /// Outline Wireframe Design System — カラートークン（仕様書 Section 2.1）。
 ///
-/// 色相を持つ色は定義しない。強調は「線幅」と「黒ベタ反転」で行う。
+/// 基本は無彩色。学習の正誤だけ共通の回答色で示す。
 /// Dark mode は現時点で未定義のため、`Color(red:green:blue:)` の
 /// 固定 sRGB 値を使い、配色がカラースキームで反転しないようにしている。
 enum WireColor {
+    /// 学習の正解。文字には使わず、背景や記号に使う。`#FF5D97`
+    static let answerCorrect = Color(red: 1, green: 93.0 / 255.0, blue: 151.0 / 255.0)
+    /// 学習の不正解と回答ラベルの文字。`#393939`
+    static let answerIncorrect = Color(red: 57.0 / 255.0, green: 57.0 / 255.0, blue: 57.0 / 255.0)
+
     /// 全ての境界線・主要テキスト・Primary ボタン背景。`#1C1C1E`
     static let ink = Color(red: 28.0 / 255.0, green: 28.0 / 255.0, blue: 30.0 / 255.0)
     /// 部品の背景（原則すべてこれ）。`#FFFFFF`
