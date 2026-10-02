@@ -50,6 +50,9 @@ struct LearningDashboardView: View {
     @State private var movingDeck: Deck?
     @State private var isReordering = false
     @State private var folderPendingDeletion: LocalDeckFolder?
+    @State private var menuTarget: DeckMenuTarget?
+    /// メニューで選んだ操作。シートや確認を重ねないよう、メニューが閉じ切ってから行う。
+    @State private var pendingMenuAction: (() -> Void)?
     /// デッキごとの進み具合。カードを読み終えるまでは空のまま出す。
     @State private var summaries: [Int: DeckProgressSummary] = [:]
     /// デッキごとの表紙画像。選んだ1枚は `DeckCoverStore` が端末へ覚えている。
@@ -161,9 +164,17 @@ struct LearningDashboardView: View {
             },
             role: role(of:),
             onToggleFolder: toggleFolder,
-            menuItems: menuItems(for:)
+            onLongPress: presentMenu(for:cardFrame:)
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // 長押しメニューはタブバーまで覆うよう全画面に重ねる。下から出てくる動きは消し、中で薄く出す。
+        .fullScreenCover(item: $menuTarget, onDismiss: runPendingMenuAction) { target in
+            DeckActionMenuOverlay(target: target) { action in
+                pendingMenuAction = action
+                withoutAnimation { menuTarget = nil }
+            }
+            .presentationBackground(.clear)
+        }
         .alert("名前を変更", isPresented: Binding(
             get: { renamingDeck != nil },
             set: { if !$0 { renamingDeck = nil } }
@@ -256,6 +267,23 @@ struct LearningDashboardView: View {
                 expandedFolderIds.insert(folder.id)
             }
         }
+    }
+
+    private func presentMenu(for deck: Deck, cardFrame: CGRect) {
+        let target = DeckMenuTarget(deck: deck, cardFrame: cardFrame, items: menuItems(for: deck))
+        withoutAnimation { menuTarget = target }
+    }
+
+    private func runPendingMenuAction() {
+        let action = pendingMenuAction
+        pendingMenuAction = nil
+        action?()
+    }
+
+    private func withoutAnimation(_ change: () -> Void) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction, change)
     }
 
     /// 長押しメニュー。iOS の標準に合わせ、消す操作は最後に赤で置く。

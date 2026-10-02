@@ -90,13 +90,15 @@ struct DeckCarouselView: View {
     var role: (Deck) -> DeckCardRole = { _ in .deck }
     /// フォルダの「＋」。中のデッキを出し入れする。
     var onToggleFolder: (Deck) -> Void = { _ in }
-    /// 長押しメニューの中身。空なら長押ししても何も出さない。
-    let menuItems: (Deck) -> [DeckMenuItem]
+    /// 長押し。押したカードの画面上の位置を渡し、呼ぶ側が自前のメニューを重ねる。
+    let onLongPress: (Deck, CGRect) -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @StateObject private var motion = AudioCarouselMotion()
     /// 中央で止まっている枠。動いている途中は、指を離したあと止まるまで変えない。
     @State private var centerIndex = 0
+    /// カードごとの画面上の位置。書き換えても描き直さないよう、参照で持つ。
+    @State private var cardFrames = CardFrameBox()
 
     private var slots: [DeckSlot] { DeckSlot.slots(for: decks) }
 
@@ -218,13 +220,21 @@ struct DeckCarouselView: View {
         .outlineSurface(radius: WireMetrics.radiusCard, fill: BentoTone.l2.fill)
         .contentShape(Rectangle())
         .onTapGesture { isCenter ? onOpen(deck) : snap(to: index) }
-        .deckMenu(isEnabled: !menuItems(deck).isEmpty) { menu(for: deck) }
+        .onLongPressGesture(minimumDuration: 0.45) { presentMenu(for: deck) }
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { cardFrames.frames[deck.id] = $0 }
         .offset(x: cardRole == .child ? Metrics.childIndent / 2 : 0)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(cardRole.isFolder ? "フォルダ \(deck.deckName)" : deck.deckName)
         .accessibilityValue("\(progress.totalCount) 語のうち \(progress.masteredCount) 語を習得")
         .accessibilityHint("選んだ遊び方で開きます")
         .accessibilityAddTraits(.isButton)
+        // ponytail: 支援技術からは名前付きの操作でメニューを開くだけの最低限。作り込みは後でまとめて行う。
+        .accessibilityAction(named: "メニュー") { presentMenu(for: deck) }
+    }
+
+    private func presentMenu(for deck: Deck) {
+        HapticFeedbackService.swipeThresholdCrossed()
+        onLongPress(deck, cardFrames.frames[deck.id] ?? .zero)
     }
 
     /// 空き枠。どこにあってもタップでデッキライブラリを開く。
@@ -249,13 +259,6 @@ struct DeckCarouselView: View {
             .accessibilityLabel(edge == .top ? "先頭にデッキを追加" : "末尾にデッキを追加")
             .accessibilityHint("デッキライブラリを開きます")
             .accessibilityAddTraits(.isButton)
-    }
-
-    @ViewBuilder
-    private func menu(for deck: Deck) -> some View {
-        ForEach(menuItems(deck)) { item in
-            Button(item.title, systemImage: item.systemImage, role: item.role, action: item.action)
-        }
     }
 
     // MARK: - 動かす
@@ -399,17 +402,7 @@ struct DeckCoverImage: View {
     }
 }
 
-private extension View {
-    /// 中身があるときだけ長押しメニューを付ける。
-    @ViewBuilder
-    func deckMenu<Content: View>(
-        isEnabled: Bool,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        if isEnabled {
-            contextMenu { content() }
-        } else {
-            self
-        }
-    }
+/// カードの位置を覚えておく入れ物。指で回している間は毎フレーム変わるので、描き直しの引き金にしない。
+private final class CardFrameBox {
+    var frames: [Int: CGRect] = [:]
 }
