@@ -55,13 +55,9 @@ struct AudioRadioView: View {
             // 札は画面いっぱいに流すので、進み具合は安全域の上端に浮かべる。
             .overlay(alignment: .top) {
                 if !isLoading, loadErrorMessage == nil, player.playableCardCount > 0 {
-                    WordListProgressBar(
+                    StudyProgressPanel(
                         progress: Double(player.carouselIndex + 1) / Double(player.playableCardCount)
                     )
-                    .padding(WireMetrics.spacingM)
-                    .glassBarSurface(in: Capsule())
-                    .padding(.horizontal, WireMetrics.screenPadding)
-                    .padding(.top, WireMetrics.spacingS)
                 }
             }
             .zIndex(0)

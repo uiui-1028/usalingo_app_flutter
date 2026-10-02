@@ -7,8 +7,10 @@ import SwiftUI
 struct MatchingGameView: View {
     /// 揃った2枚を黒ベタで見せておく時間。この間に消えたと分かる。
     private static let matchFlashSeconds: Double = 0.45
-    /// 違った2枚を揺らす時間。
-    private static let shakeSeconds: Double = 0.3
+    /// 違った2枚を色で知らせておく時間。揃ったときの黒ベタと同じ長さにする。
+    private static let missFlashSeconds: Double = 0.45
+    /// 違った2枚の塗り。利用者の指定で `#FF5D97`（文字は白）。
+    private static let missFill = WireColor.answerCorrect
     private static let tileHeight: CGFloat = 56
 
     @Environment(\.dismiss) private var dismiss
@@ -23,16 +25,11 @@ struct MatchingGameView: View {
     @State private var answerQueue = StudyAnswerQueue()
     /// 揃ったばかりで黒ベタにしている札。
     @State private var flashingTileIds: Set<Int> = []
-    /// 違って揺らしている札。
-    @State private var shakingTileIds: Set<Int> = []
+    /// 違って色を変えている札。
+    @State private var missedTileIds: Set<Int> = []
 
     var body: some View {
         VStack(spacing: 0) {
-            if let game, !isLoading, loadErrorMessage == nil, game.pairCount > 0 {
-                WordListProgressBar(progress: Double(game.matchedPairCount) / Double(game.pairCount))
-                    .padding(.horizontal, WireMetrics.screenPadding)
-                    .padding(.top, WireMetrics.spacingS)
-            }
             ZStack {
                 if isLoading {
                     ProgressView()
@@ -61,6 +58,12 @@ struct MatchingGameView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // 進み具合は中身より1つ上の層に浮かべ、中身を押し下げない。
+            .overlay(alignment: .top) {
+                if let game, !isLoading, loadErrorMessage == nil, game.pairCount > 0 {
+                    StudyProgressPanel(progress: Double(game.matchedPairCount) / Double(game.pairCount))
+                }
+            }
 
             saveFailureBanner
             actionBar
@@ -138,8 +141,10 @@ struct MatchingGameView: View {
     private func tileView(_ tile: MatchingGame.Tile, in game: MatchingGame) -> some View {
         let isFlashing = flashingTileIds.contains(tile.id)
         let isSelected = game.selectedTileId == tile.id
+        let isMissed = missedTileIds.contains(tile.id)
         // 選んだ札と揃った札はどちらも黒ベタ反転にし、揃ったほうにだけチェックを足す。
-        let isInverted = isSelected || isFlashing
+        // 違った札は指定の色で塗り、文字を白にする。
+        let isInverted = isSelected || isFlashing || isMissed
 
         return Button {
             tap(tile)
@@ -160,7 +165,7 @@ struct MatchingGameView: View {
                 .outlineSurface(
                     radius: WireMetrics.radiusControl,
                     shadow: tile.isCleared && !isFlashing ? nil : .card,
-                    fill: isInverted ? WireColor.ink : WireColor.surface
+                    fill: isMissed ? Self.missFill : (isInverted ? WireColor.ink : WireColor.surface)
                 )
                 .contentShape(RoundedRectangle(cornerRadius: WireMetrics.radiusControl, style: .continuous))
         }
@@ -169,8 +174,7 @@ struct MatchingGameView: View {
         // 揃った札は消さずに薄く残す。並びが崩れず、どこまで進んだかも見える。
         .opacity(tile.isCleared && !isFlashing ? WireMetrics.disabledOpacity : 1)
         .scaleEffect(isSelected ? 1.03 : 1)
-        .modifier(ShakeEffect(shakes: shakingTileIds.contains(tile.id) ? 1 : 0))
-        .animation(.easeInOut(duration: Self.shakeSeconds), value: shakingTileIds)
+        .animation(.easeInOut(duration: 0.15), value: isMissed)
         .animation(.spring(response: 0.22, dampingFraction: 0.8), value: isSelected)
         .animation(.easeInOut(duration: 0.25), value: isFlashing)
         .accessibilityLabel(tile.text)
@@ -251,10 +255,10 @@ struct MatchingGameView: View {
             }
         case .mismatched(let tileIds):
             HapticFeedbackService.failure()
-            shakingTileIds.formUnion(tileIds)
+            missedTileIds.formUnion(tileIds)
             Task {
-                try? await Task.sleep(for: .seconds(Self.shakeSeconds))
-                shakingTileIds.subtract(tileIds)
+                try? await Task.sleep(for: .seconds(Self.missFlashSeconds))
+                missedTileIds.subtract(tileIds)
             }
         case .selected:
             HapticFeedbackService.tap()
@@ -278,23 +282,5 @@ struct MatchingGameView: View {
             loadErrorMessage = UserFacingError.message(for: error)
         }
         isLoading = false
-    }
-}
-
-/// 組が違ったときに札を短く左右へ揺らす。色相を使わずに「違う」と伝える。
-private struct ShakeEffect: GeometryEffect {
-    var travel: CGFloat = 7
-    var cycles: CGFloat = 3
-    var shakes: CGFloat
-
-    var animatableData: CGFloat {
-        get { shakes }
-        set { shakes = newValue }
-    }
-
-    func effectValue(size: CGSize) -> ProjectionTransform {
-        ProjectionTransform(
-            CGAffineTransform(translationX: travel * sin(shakes * .pi * cycles), y: 0)
-        )
     }
 }

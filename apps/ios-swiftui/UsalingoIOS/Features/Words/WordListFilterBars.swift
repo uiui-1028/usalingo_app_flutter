@@ -318,7 +318,7 @@ extension View {
 }
 
 /// 単語リストの上端に浮かべるガラスのパネル。進み具合のバーと、列を選ぶプルダウン。
-/// 左の列の右に×を置き、押すと列の追加か入れ替えを選べる。カード表示では列が無いので、`columns` を nil にしてバーだけ出す。
+/// 2列のときは左の列の右に×を置き、押すと列の追加か入れ替えを選べる。カード表示では列が無いので、`columns` を nil にしてバーだけ出す。
 struct WordListColumnHeader: View {
     /// 0...1 の進み具合。
     let progress: Double
@@ -331,7 +331,10 @@ struct WordListColumnHeader: View {
             if let columns {
                 HStack(alignment: .top, spacing: WireMetrics.spacingS) {
                     columnMenu(columns, at: 0)
-                    columnActionMenu(columns)
+                    // 3列にしたあとは、追加も入れ替えも出さない。
+                    if columns.wrappedValue.count < WordListColumn.maximumCount {
+                        columnActionMenu(columns)
+                    }
                     ForEach(1..<columns.wrappedValue.count, id: \.self) { index in
                         columnMenu(columns, at: index)
                     }
@@ -378,8 +381,8 @@ struct WordListColumnHeader: View {
         .accessibilityValue(current.title)
     }
 
-    /// 列の操作。「列を追加」はまだ出していない項目を真ん中に3列目として足し、
-    /// 「列の入れ替え」は左右（3列なら左へ1つずつ）回す。3列のときは追加だけ押せない。
+    /// 2列のときだけ出す列の操作。「列を追加」はまだ出していない項目を真ん中に3列目として足し、
+    /// 「列の入れ替え」は左右を入れ替える。
     private func columnActionMenu(_ columns: Binding<[WordListColumn]>) -> some View {
         Menu {
             Menu("列を追加", systemImage: "plus") {
@@ -389,7 +392,6 @@ struct WordListColumnHeader: View {
                     }
                 }
             }
-            .disabled(columns.wrappedValue.count >= WordListColumn.maximumCount)
 
             Button("列の入れ替え", systemImage: "arrow.left.arrow.right") {
                 columns.wrappedValue = WordListColumn.rotatedLeft(columns.wrappedValue)
@@ -454,3 +456,18 @@ struct WordListProgressBar: View {
         .accessibilityValue("\(Int((min(1, max(0, progress)) * 100).rounded()))パーセント")
     }
 }
+
+/// 学習画面の上端に浮かべる進み具合。単語リストの上のパネルと同じガラスの板に入れる。
+struct StudyProgressPanel: View {
+    /// 0...1 の進み具合。
+    let progress: Double
+
+    var body: some View {
+        WordListProgressBar(progress: progress)
+            .padding(WireMetrics.spacingM)
+            .glassBarSurface(in: RoundedRectangle(cornerRadius: WireMetrics.radiusLarge, style: .continuous))
+            .padding(.horizontal, WireMetrics.screenPadding)
+            .padding(.top, WireMetrics.spacingXS)
+    }
+}
+

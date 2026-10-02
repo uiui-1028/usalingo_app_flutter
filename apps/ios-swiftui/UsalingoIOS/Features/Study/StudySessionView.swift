@@ -39,11 +39,6 @@ struct StudySessionView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if !isLoading, loadErrorMessage == nil, !cards.isEmpty {
-                WordListProgressBar(progress: Double(index) / Double(cards.count))
-                    .padding(.horizontal, WireMetrics.screenPadding)
-                    .padding(.top, WireMetrics.spacingS)
-            }
             ZStack {
                 if isLoading {
                     ProgressView()
@@ -76,6 +71,12 @@ struct StudySessionView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // 進み具合は中身より1つ上の層に浮かべ、中身を押し下げない。
+            .overlay(alignment: .top) {
+                if !isLoading, loadErrorMessage == nil, !cards.isEmpty {
+                    StudyProgressPanel(progress: Double(index) / Double(cards.count))
+                }
+            }
 
             saveFailureBanner
             actionBar
