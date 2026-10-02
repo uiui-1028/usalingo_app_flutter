@@ -29,6 +29,11 @@ final class BackSwipeProtectedRegionView: UIView {}
 /// ナビゲーションバーを隠している画面は UIKit がこのジェスチャーを止めるため、
 /// ヘッダーを持たない画面（学習・単語リストなど）はこれを敷いて戻す。
 struct BackSwipeEnabler: UIViewRepresentable {
+    /// 画面いっぱいにドラッグを持つ画面（音声モードのカルーセルなど）で true にする。
+    /// 画面の中のジェスチャーは戻るが失敗してから動くので、縦のドラッグはそのまま、
+    /// 右向きのスワイプは戻るが先に取る。端以外から始めたタッチは戻るが受け取らないので待たせない。
+    var takesPriorityOverContent = false
+
     func makeCoordinator() -> Coordinator {
         Coordinator()
     }
@@ -44,6 +49,7 @@ struct BackSwipeEnabler: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: BackSwipeHostView, context: Context) {
+        context.coordinator.takesPriorityOverContent = takesPriorityOverContent
         context.coordinator.attach(from: uiView)
     }
 
@@ -56,6 +62,7 @@ struct BackSwipeEnabler: UIViewRepresentable {
         private weak var gesture: UIGestureRecognizer?
         private weak var originalDelegate: UIGestureRecognizerDelegate?
         private var originalIsEnabled = true
+        var takesPriorityOverContent = false
 
         func attach(from view: BackSwipeHostView?) {
             guard let view,
@@ -137,7 +144,10 @@ struct BackSwipeEnabler: UIViewRepresentable {
             _ gestureRecognizer: UIGestureRecognizer,
             shouldBeRequiredToFailBy otherGestureRecognizer: UIGestureRecognizer
         ) -> Bool {
-            originalDelegate?.gestureRecognizer?(
+            if takesPriorityOverContent, let hostView, otherGestureRecognizer.view?.window === hostView.window {
+                return true
+            }
+            return originalDelegate?.gestureRecognizer?(
                 gestureRecognizer,
                 shouldBeRequiredToFailBy: otherGestureRecognizer
             ) ?? false

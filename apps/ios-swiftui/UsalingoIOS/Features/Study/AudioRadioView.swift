@@ -67,12 +67,15 @@ struct AudioRadioView: View {
             .zIndex(0)
 
             actionBar
+                // スライダーを横に動かしても戻らないようにする。
+                .backSwipeProtectedRegion()
                 .zIndex(1)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(WireColor.background)
         .background {
-            BackSwipeEnabler()
+            // カルーセルのドラッグが画面全体を覆うので、戻るを先に判定させる。
+            BackSwipeEnabler(takesPriorityOverContent: true)
         }
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
