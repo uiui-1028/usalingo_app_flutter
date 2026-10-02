@@ -438,7 +438,8 @@ final class WordCardTests: XCTestCase {
     }
 
     @MainActor
-    func testRedSheetDisablesManualWordListScrolling() throws {
+    /// 赤シート中も指で一覧をスクロールできる（判定すると次の単語がシートの位置へ戻る）。
+    func testRedSheetKeepsManualWordListScrolling() throws {
         let words = (1...30).map { index in
             WordCard(id: index, text: "word \(index)", meaning: "意味", partOfSpeech: nil,
                      sentenceEnglish: nil, sentenceJapanese: nil, imageAssetPath: nil,
@@ -448,7 +449,7 @@ final class WordCardTests: XCTestCase {
             _ = try renderedWordList(words: words, displayMode: .list, width: width, redSheetEnabled: true) { root in
                 let scroll = try XCTUnwrap(self.descendants(of: root).compactMap { $0 as? UIScrollView }
                     .first { $0.contentSize.height > $0.bounds.height && $0.contentSize.height > 1500 })
-                XCTAssertFalse(scroll.isScrollEnabled)
+                XCTAssertTrue(scroll.isScrollEnabled)
             }
         }
     }
