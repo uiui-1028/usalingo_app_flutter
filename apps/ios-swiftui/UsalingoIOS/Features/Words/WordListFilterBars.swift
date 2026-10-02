@@ -318,7 +318,7 @@ extension View {
 }
 
 /// 単語リストの上端に浮かべるガラスのパネル。進み具合のバーと、列を選ぶプルダウン。
-/// 2列のときは吹き出しの間に＋を置き、真ん中に3列目を足せる。カード表示では列が無いので、`columns` を nil にしてバーだけ出す。
+/// 左の列の右に×を置き、押すと列の追加か入れ替えを選べる。カード表示では列が無いので、`columns` を nil にしてバーだけ出す。
 struct WordListColumnHeader: View {
     /// 0...1 の進み具合。
     let progress: Double
@@ -331,9 +331,7 @@ struct WordListColumnHeader: View {
             if let columns {
                 HStack(alignment: .top, spacing: WireMetrics.spacingS) {
                     columnMenu(columns, at: 0)
-                    if columns.wrappedValue.count < WordListColumn.maximumCount {
-                        addColumnMenu(columns)
-                    }
+                    columnActionMenu(columns)
                     ForEach(1..<columns.wrappedValue.count, id: \.self) { index in
                         columnMenu(columns, at: index)
                     }
@@ -380,23 +378,32 @@ struct WordListColumnHeader: View {
         .accessibilityValue(current.title)
     }
 
-    /// まだ出していない項目だけを並べ、選ぶと真ん中に3列目として足す。
-    private func addColumnMenu(_ columns: Binding<[WordListColumn]>) -> some View {
+    /// 列の操作。「列を追加」はまだ出していない項目を真ん中に3列目として足し、
+    /// 「列の入れ替え」は左右（3列なら左へ1つずつ）回す。3列のときは追加だけ押せない。
+    private func columnActionMenu(_ columns: Binding<[WordListColumn]>) -> some View {
         Menu {
-            ForEach(WordListColumn.allCases.filter { !columns.wrappedValue.contains($0) }) { column in
-                Button(column.title) {
-                    columns.wrappedValue = WordListColumn.adding(column, to: columns.wrappedValue)
+            Menu("列を追加", systemImage: "plus") {
+                ForEach(WordListColumn.allCases.filter { !columns.wrappedValue.contains($0) }) { column in
+                    Button(column.title) {
+                        columns.wrappedValue = WordListColumn.adding(column, to: columns.wrappedValue)
+                    }
                 }
             }
+            .disabled(columns.wrappedValue.count >= WordListColumn.maximumCount)
+
+            Button("列の入れ替え", systemImage: "arrow.left.arrow.right") {
+                columns.wrappedValue = WordListColumn.rotatedLeft(columns.wrappedValue)
+            }
         } label: {
-            Image(systemName: "plus")
+            Image(systemName: "xmark")
                 .font(.body.weight(.bold))
                 .foregroundStyle(.primary)
                 .frame(width: 44, height: 44)
                 .glassBarSelection(true, in: Circle())
                 .contentShape(Circle())
         }
-        .accessibilityLabel("列を追加")
+        .accessibilityLabel("列の操作")
+        .accessibilityValue(columns.wrappedValue.map(\.title).joined(separator: "、"))
     }
 
     private static func positionTitle(index: Int, count: Int) -> String {
