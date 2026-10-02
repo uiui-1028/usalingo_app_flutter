@@ -28,6 +28,11 @@ struct MatchingGameView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            if let game, !isLoading, loadErrorMessage == nil, game.pairCount > 0 {
+                WordListProgressBar(progress: Double(game.matchedPairCount) / Double(game.pairCount))
+                    .padding(.horizontal, WireMetrics.screenPadding)
+                    .padding(.top, WireMetrics.spacingS)
+            }
             ZStack {
                 if isLoading {
                     ProgressView()
@@ -229,6 +234,7 @@ struct MatchingGameView: View {
 
         switch result {
         case .matched(let cardId, let isCorrect, let tileIds):
+            HapticFeedbackService.success()
             if let card = wordsById[cardId] {
                 answerQueue.enqueue(cardIndex: cardId, card: card, isCorrect: isCorrect)
                 drainAnswerQueue()
@@ -244,12 +250,15 @@ struct MatchingGameView: View {
                 }
             }
         case .mismatched(let tileIds):
+            HapticFeedbackService.failure()
             shakingTileIds.formUnion(tileIds)
             Task {
                 try? await Task.sleep(for: .seconds(Self.shakeSeconds))
                 shakingTileIds.subtract(tileIds)
             }
-        case .selected, .ignored:
+        case .selected:
+            HapticFeedbackService.tap()
+        case .ignored:
             break
         }
     }

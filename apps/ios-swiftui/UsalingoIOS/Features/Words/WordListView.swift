@@ -125,14 +125,24 @@ struct WordListView: View {
             // 一覧のレイヤーと赤シートのレイヤーを分ける。赤シートは一覧と一緒にスクロールしない。
             ZStack(alignment: .topTrailing) {
                 wordScroll(bottomInset: bottomInset, viewportHeight: proxy.size.height)
+                    // チェック中のタップは一覧そのものに同時認識で付け、指でのスクロールを止めない。
+                    // 未表示ならどこをタップしても答えを見せ、表示後は画面の左右で判定する。
+                    .simultaneousGesture(
+                        SpatialTapGesture().onEnded { value in
+                            handleStudyTap(atX: value.location.x, width: proxy.size.width)
+                        },
+                        including: isStudyTapActive ? .all : .subviews
+                    )
                     .overlay {
-                        if isRedSheetEnabled && check.isStarted && !check.isComplete {
+                        if isStudyTapActive {
+                            // ponytail: 支援技術向けの操作だけを残した最低限。触れる操作は上の同時認識が受ける。
                             RedSheetStudyTapLayer(
                                 isAnswerVisible: check.isAnswerVisible,
                                 isDisabled: check.current == nil || check.isUndoing,
                                 onReveal: revealCurrentAnswer,
                                 onJudge: judgeCurrentAnswer
                             )
+                            .allowsHitTesting(false)
                         }
                     }
 
@@ -284,11 +294,9 @@ struct WordListView: View {
                                 hidesMiddleFromAccessibility: effectiveRedSheetColumns > 1 && answerIsHidden(at: index)
                             )
                                 .cardTapTarget(radius: 0) {
-                                    if check.isStarted {
-                                        if word.id == check.current?.id { check.isAnswerVisible = true }
-                                    } else {
-                                        selectedWord = word
-                                    }
+                                    // チェック中のタップは一覧に付けた同時認識だけが受ける。
+                                    // ここでも答えを出すと、同じタップで表示と判定が続けて起きる。
+                                    if !check.isStarted { selectedWord = word }
                                 }
                                 .id(word.id)
                                 .reportsWordListFrame(id: word.id)
@@ -307,7 +315,6 @@ struct WordListView: View {
                     : bottomBarClearance + bottomInset)
             }
             .scrollIndicators(.hidden)
-            .scrollDisabled(isRedSheetEnabled)
             .scrollTargetBehavior(WordListRowScrollBehavior(
                 isEnabled: viewModel.selectedDisplayMode == .list,
                 topInset: headerClearance
@@ -399,6 +406,20 @@ struct WordListView: View {
         }
     }
 
+    private var isStudyTapActive: Bool {
+        isRedSheetEnabled && check.isStarted && !check.isComplete
+    }
+
+    private func handleStudyTap(atX x: CGFloat, width: CGFloat) {
+        guard isStudyTapActive, check.current != nil, !check.isUndoing else { return }
+        switch RedSheetTapAction.resolve(isAnswerVisible: check.isAnswerVisible, tapX: x, width: width) {
+        case .reveal:
+            revealCurrentAnswer()
+        case let .judge(isCorrect):
+            judgeCurrentAnswer(isCorrect: isCorrect)
+        }
+    }
+
     private func judgeCurrentAnswer(isCorrect: Bool) {
         withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
             check.submit(isCorrect: isCorrect)
@@ -423,15 +444,6 @@ struct WordListView: View {
     /// 赤シート中だけ左のバーに出す、いまの1語への操作。カードモードと同じガラスのボタン。
     private var redSheetActionBar: some View {
         HStack(spacing: WireMetrics.spacingS) {
-            Button {
-                columnsBinding.wrappedValue = WordListColumn.rotatedLeft(columns)
-            } label: {
-                Image(systemName: "arrow.left.arrow.right")
-            }
-            .buttonStyle(.glassBarIcon(diameter: 48))
-            .accessibilityLabel(columns.count == 3 ? "列を左へ回す" : "左右の列を入れ替え")
-            .accessibilityValue(columns.map(\.title).joined(separator: "、"))
-
             Button {
                 taggingWord = check.current
             } label: {

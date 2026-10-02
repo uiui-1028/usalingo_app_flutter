@@ -52,15 +52,30 @@ struct AudioRadioView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // 札は画面いっぱいに流すので、進み具合は安全域の上端に浮かべる。
+            .overlay(alignment: .top) {
+                if !isLoading, loadErrorMessage == nil, player.playableCardCount > 0 {
+                    WordListProgressBar(
+                        progress: Double(player.carouselIndex + 1) / Double(player.playableCardCount)
+                    )
+                    .padding(WireMetrics.spacingM)
+                    .glassBarSurface(in: Capsule())
+                    .padding(.horizontal, WireMetrics.screenPadding)
+                    .padding(.top, WireMetrics.spacingS)
+                }
+            }
             .zIndex(0)
 
             actionBar
+                // スライダーを横に動かしても戻らないようにする。
+                .backSwipeProtectedRegion()
                 .zIndex(1)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(WireColor.background)
         .background {
-            BackSwipeEnabler()
+            // カルーセルのドラッグが画面全体を覆うので、戻るを先に判定させる。
+            BackSwipeEnabler(takesPriorityOverContent: true)
         }
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)

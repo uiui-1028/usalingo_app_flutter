@@ -13,4 +13,14 @@ enum HapticFeedbackService {
     static func detent() {
         UISelectionFeedbackGenerator().selectionChanged()
     }
+
+    /// 組がそろったなど、うまくいったときの知らせ。
+    static func success() {
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+    }
+
+    /// 組が違ったなど、うまくいかなかったときの知らせ。
+    static func failure() {
+        UINotificationFeedbackGenerator().notificationOccurred(.error)
+    }
 }
