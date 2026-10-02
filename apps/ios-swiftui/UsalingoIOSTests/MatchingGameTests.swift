@@ -109,6 +109,21 @@ final class MatchingGameTests: XCTestCase {
         XCTAssertTrue(game.isFinished)
     }
 
+    func testMatchedPairCountCountsOnlyMatchesTowardTheWholeDeck() {
+        var game = MatchingGame(words: makeWords(count: 8), shufflesOrder: false)
+        XCTAssertEqual(game.pairCount, 8)
+        XCTAssertEqual(game.matchedPairCount, 0)
+
+        _ = game.tap(tileId: tileId(game, cardId: 1, column: .japanese))
+        _ = game.tap(tileId: tileId(game, cardId: 2, column: .english))
+        XCTAssertEqual(game.matchedPairCount, 0, "取り違えは数えない")
+
+        matchPairs(1...3, in: &game)
+        game.refill()
+        matchPairs(4...8, in: &game)
+        XCTAssertEqual(game.matchedPairCount, 8)
+    }
+
     // MARK: - ヘルパー
 
     private func matchPairs(_ cardIds: ClosedRange<Int>, in game: inout MatchingGame) {

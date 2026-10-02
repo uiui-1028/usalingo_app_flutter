@@ -28,6 +28,11 @@ struct MatchingGameView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            if let game, !isLoading, loadErrorMessage == nil, game.pairCount > 0 {
+                WordListProgressBar(progress: Double(game.matchedPairCount) / Double(game.pairCount))
+                    .padding(.horizontal, WireMetrics.screenPadding)
+                    .padding(.top, WireMetrics.spacingS)
+            }
             ZStack {
                 if isLoading {
                     ProgressView()

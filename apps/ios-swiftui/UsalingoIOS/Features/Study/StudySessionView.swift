@@ -39,6 +39,11 @@ struct StudySessionView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            if !isLoading, loadErrorMessage == nil, !cards.isEmpty {
+                WordListProgressBar(progress: Double(index) / Double(cards.count))
+                    .padding(.horizontal, WireMetrics.screenPadding)
+                    .padding(.top, WireMetrics.spacingS)
+            }
             ZStack {
                 if isLoading {
                     ProgressView()

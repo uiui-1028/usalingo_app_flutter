@@ -49,6 +49,10 @@ struct MatchingGame {
     private(set) var english: [Tile?]
     /// いま選んでいる札。相手を選ぶまで持ち続ける。
     private(set) var selectedTileId: Int?
+    /// 1周で揃える組の数。進み具合の分母。
+    let pairCount: Int
+    /// これまでに揃えた組の数。進み具合の分子。
+    private(set) var matchedPairCount = 0
 
     /// まだ盤に出していない語。
     private var pool: [WordCard]
@@ -62,6 +66,7 @@ struct MatchingGame {
     /// - Parameter shufflesOrder: 語の順と置き場所を混ぜるか。テストだけ `false` にする。
     init(words: [WordCard], shufflesOrder: Bool = true) {
         self.shufflesOrder = shufflesOrder
+        pairCount = words.count
         pool = shufflesOrder ? words.shuffled() : words
         japanese = Array(repeating: nil, count: Self.pairsOnBoard)
         english = Array(repeating: nil, count: Self.pairsOnBoard)
@@ -110,6 +115,7 @@ struct MatchingGame {
         let isCorrect = !missedCardIds.contains(tapped.cardId)
         markCleared(cardId: tapped.cardId)
         clearedSinceRefill += 1
+        matchedPairCount += 1
         return .matched(cardId: tapped.cardId, isCorrect: isCorrect, tileIds: [first.id, tapped.id])
     }
 
