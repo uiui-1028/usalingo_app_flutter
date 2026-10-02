@@ -9,8 +9,8 @@ struct MatchingGameView: View {
     private static let matchFlashSeconds: Double = 0.45
     /// 違った2枚を色で知らせておく時間。揃ったときの黒ベタと同じ長さにする。
     private static let missFlashSeconds: Double = 0.45
-    /// 違った2枚の塗り。利用者の指定で `#FF5D97`（文字は白）。
-    private static let missFill = WireColor.answerCorrect
+    /// 違った2枚の塗り。アプリ全体の不正解の色（文字は白）。
+    private static let missFill = WireColor.answerIncorrect
     private static let tileHeight: CGFloat = 56
 
     @Environment(\.dismiss) private var dismiss
