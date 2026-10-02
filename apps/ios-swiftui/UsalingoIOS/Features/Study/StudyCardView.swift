@@ -60,21 +60,25 @@ struct StudyCardFront: View {
     let card: WordCard
     let content: WordCardContent
     let showAnswer: Bool
+    var placeholderProgress: Double = 0
 
     var body: some View {
         VStack(spacing: WireMetrics.spacingS) {
             partOfSpeechRow
+                .modifier(CardTextPlaceholder(progress: placeholderProgress))
 
             Text(card.text)
                 .wireFont(.titleL)
                 .minimumScaleFactor(0.6)
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
+                .modifier(CardTextPlaceholder(progress: placeholderProgress))
 
             illustration
 
             if let sentence = card.sentenceEnglish, !sentence.isEmpty {
                 WireRecessedText(sentence)
+                    .modifier(CardTextPlaceholder(progress: placeholderProgress))
             }
 
             if showAnswer {
@@ -84,9 +88,11 @@ struct StudyCardFront: View {
                     .minimumScaleFactor(0.7)
                     .lineLimit(2)
                     .multilineTextAlignment(.center)
+                    .modifier(CardTextPlaceholder(progress: placeholderProgress))
 
                 if let sentence = card.sentenceJapanese, !sentence.isEmpty {
                     WireRecessedText(sentence)
+                        .modifier(CardTextPlaceholder(progress: placeholderProgress))
                 }
             }
 
@@ -186,6 +192,7 @@ struct StudyCardBack: View {
     /// `CALayerInvalidGeometry` で落ちる。回っている間は器を外し、
     /// 止まってから開け直す。
     var isScrollEnabled: Bool = true
+    var placeholderProgress: Double = 0
 
     private static let scrollSpace = "StudyCardBackScroll"
 
@@ -258,6 +265,7 @@ struct StudyCardBack: View {
             }
         }
         .frame(maxWidth: .infinity)
+        .modifier(CardTextPlaceholder(progress: placeholderProgress))
     }
 
     @ViewBuilder
@@ -383,5 +391,25 @@ private extension View {
             shadow: nil,
             fill: WireColor.groupL3
         )
+    }
+}
+
+/// レイアウトと操作を維持したまま、文字を灰色のプレースホルダーへ溶かす。
+/// 画像を含まない領域だけに適用し、裏面はスクロールの中身に適用する。
+private struct CardTextPlaceholder: ViewModifier {
+    let progress: Double
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(1 - progress)
+            .overlay {
+                if progress > 0 {
+                    content
+                        .redacted(reason: .placeholder)
+                        .opacity(progress)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+            }
     }
 }
