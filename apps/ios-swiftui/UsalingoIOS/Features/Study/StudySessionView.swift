@@ -203,6 +203,8 @@ struct StudySessionView: View {
             }
         }
         .padding(.horizontal, 18)
+        // カードの影がアクションバーや進捗バーにかからないよう、上下に広めの余白を取る。
+        .padding(.vertical, WireMetrics.spacingXL)
     }
 
     @ViewBuilder
