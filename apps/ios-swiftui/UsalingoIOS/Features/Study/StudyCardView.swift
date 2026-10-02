@@ -29,7 +29,7 @@ struct StudyCardView: View {
         // 外形は表裏で変えない。裏返しても束の重なりとスワイプ判定はずれない。
         // 縦長の固定比率。高さが足りない端末では `.fit` で全体が縮む。
         .frame(maxWidth: 350)
-        .aspectRatio(0.65, contentMode: .fit)
+        .aspectRatio(0.575, contentMode: .fit)
     }
 }
 
