@@ -229,6 +229,7 @@ struct MatchingGameView: View {
 
         switch result {
         case .matched(let cardId, let isCorrect, let tileIds):
+            HapticFeedbackService.success()
             if let card = wordsById[cardId] {
                 answerQueue.enqueue(cardIndex: cardId, card: card, isCorrect: isCorrect)
                 drainAnswerQueue()
@@ -244,12 +245,15 @@ struct MatchingGameView: View {
                 }
             }
         case .mismatched(let tileIds):
+            HapticFeedbackService.failure()
             shakingTileIds.formUnion(tileIds)
             Task {
                 try? await Task.sleep(for: .seconds(Self.shakeSeconds))
                 shakingTileIds.subtract(tileIds)
             }
-        case .selected, .ignored:
+        case .selected:
+            HapticFeedbackService.tap()
+        case .ignored:
             break
         }
     }
