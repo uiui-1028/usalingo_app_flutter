@@ -520,6 +520,95 @@ final class LocalStudyDataSourceTests: XCTestCase {
 
     // MARK: - Helpers
 
+    func testFolderGathersDecksStudiesThemTogetherAndSurvivesReopening() async throws {
+        let source = makeDataSource()
+        let first = try source.importDeck(from: sampleDeckData(cardCount: 2, deckId: "first"))
+        let second = try source.importDeck(from: sampleDeckData(cardCount: 3, deckId: "second"))
+        let decks = try await source.fetchDecks()
+        _ = try source.arrangedDeckTree(for: decks)
+
+        let folder = try source.createFolder(named: "まとめ", containing: first.id)
+        try source.moveDeck(second.id, toFolder: folder.id)
+
+        let tree = try LocalStudyDataSource(directoryURL: directoryURL).arrangedDeckTree(for: decks)
+        guard case .folder(let saved, let children)? = tree.first(where: { $0.layoutEntry == .folder(folder.id) }) else {
+            return XCTFail("フォルダが並びに残る")
+        }
+        XCTAssertEqual(saved.name, "まとめ")
+        XCTAssertEqual(children.map(\.id), [first.id, second.id])
+        XCTAssertFalse(tree.contains(.deck(first.deck)), "フォルダに入れたデッキは一番上の階層に出さない")
+
+        let folderDeck = source.folderDeck(folder)
+        XCTAssertFalse(source.canManage(folderDeck))
+        let cards = try await source.fetchCards(deckId: folderDeck.id)
+        XCTAssertEqual(cards.count, 5)
+        let queue = try await source.fetchStudyQueue(deckId: folderDeck.id, mode: .all)
+        XCTAssertEqual(queue.count, 5)
+    }
+
+    func testRemovingFromFolderAndDeletingFolderKeepTheDecks() async throws {
+        let source = makeDataSource()
+        let first = try source.importDeck(from: sampleDeckData(cardCount: 1, deckId: "first"))
+        let second = try source.importDeck(from: sampleDeckData(cardCount: 1, deckId: "second"))
+        let decks = try await source.fetchDecks()
+        _ = try source.arrangedDeckTree(for: decks)
+        let folder = try source.createFolder(named: "F", containing: first.id)
+        try source.moveDeck(second.id, toFolder: folder.id)
+
+        try source.removeDeckFromFolder(first.id)
+        var layout = try source.arrangedDeckTree(for: decks).map(\.layoutEntry)
+        XCTAssertEqual(layout.firstIndex(of: .deck(first.id)), layout.firstIndex(of: .folder(folder.id)).map { $0 + 1 },
+                       "出したデッキはフォルダのすぐ下に置く")
+
+        try source.deleteFolder(folder.id)
+        layout = try source.arrangedDeckTree(for: decks).map(\.layoutEntry)
+        XCTAssertFalse(layout.contains(.folder(folder.id)))
+        XCTAssertTrue(layout.contains(.deck(first.id)))
+        XCTAssertTrue(layout.contains(.deck(second.id)))
+        XCTAssertTrue(source.deckFolders.isEmpty)
+    }
+
+    func testRenamingOwnDeckChangesItsNameButOfficialDeckOnlyGetsADisplayName() async throws {
+        let source = makeDataSource()
+        let own = try source.importDeck(from: sampleDeckData(cardCount: 1))
+        let initialDecks = try await source.fetchDecks()
+        let starter = try XCTUnwrap(initialDecks.first { !source.canManage($0) })
+
+        try source.renameDeck(own.deck, to: "自分の名前")
+        try source.renameDeck(starter, to: "  表示名  ")
+        var decks = try await source.fetchDecks()
+        XCTAssertEqual(source.deck(id: own.id)?.name, "自分の名前")
+        XCTAssertEqual(decks.first { $0.id == starter.id }?.deckName, "表示名")
+
+        try source.renameDeck(starter, to: "")
+        decks = try await source.fetchDecks()
+        XCTAssertEqual(decks.first { $0.id == starter.id }?.deckName, starter.deckName, "空にすると元の名前に戻る")
+    }
+
+    /// 先頭の空き枠から足したデッキは先頭へ、末尾からなら末尾へ入る。
+    func testPlacedDeckGoesToTheChosenEdge() async throws {
+        let source = makeDataSource()
+        let first = try source.importDeck(from: sampleDeckData(cardCount: 1, deckId: "first"))
+        let second = try source.importDeck(from: sampleDeckData(cardCount: 1, deckId: "second"))
+        let decks = try await source.fetchDecks()
+        _ = try source.arrangedDeckTree(for: decks)
+
+        try source.placeDeck(id: second.id, atTop: true)
+        try source.placeDeck(id: first.id, atTop: false)
+        let layout = try source.arrangedDeckTree(for: decks).map(\.layoutEntry)
+        XCTAssertEqual(layout.first, .deck(second.id))
+        XCTAssertEqual(layout.last, .deck(first.id))
+    }
+
+    func testLibrarySavedBeforeFoldersStillOpens() throws {
+        let json = #"{"decks":[],"removedBundledKeys":[],"nextDeckId":3,"nextCardId":5,"cardIds":{}}"#
+        let library = try JSONDecoder().decode(LocalStudyLibrary.self, from: Data(json.utf8))
+        XCTAssertEqual(library.nextDeckId, 3)
+        XCTAssertNil(library.layout)
+        XCTAssertTrue(library.folders.isEmpty)
+        XCTAssertTrue(library.displayNames.isEmpty)
+    }
+
     private func makeDataSource() -> LocalStudyDataSource {
         LocalStudyDataSource(directoryURL: directoryURL)
     }

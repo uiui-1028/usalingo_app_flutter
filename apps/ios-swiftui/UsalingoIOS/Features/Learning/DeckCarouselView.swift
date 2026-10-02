@@ -24,6 +24,28 @@ enum DeckSlot: Hashable, Identifiable {
     }
 }
 
+/// カルーセルの1枚がふつうのデッキか、フォルダか、フォルダの中のデッキか。
+enum DeckCardRole: Equatable {
+    case deck
+    case folder(isExpanded: Bool)
+    case child
+
+    var isFolder: Bool {
+        if case .folder = self { return true }
+        return false
+    }
+}
+
+/// 長押しメニューの1行。
+struct DeckMenuItem: Identifiable {
+    let title: String
+    let systemImage: String
+    var role: ButtonRole?
+    let action: () -> Void
+
+    var id: String { title }
+}
+
 /// 空き枠がどちらの端か。追加したデッキはこの端へ入る。
 enum DeckSlotEdge: Hashable {
     case top
@@ -46,6 +68,8 @@ struct DeckCarouselView: View {
         static let coverWidthRatio: CGFloat = 0.45
         /// 帯の横幅。中央のカードより少し細くして、主役を目立たせる。
         static let bandWidthRatio: CGFloat = 0.92
+        /// フォルダの中のデッキを右へ寄せる幅。
+        static let childIndent: CGFloat = 24
     }
 
     private let layout = DeckCarouselLayout(
@@ -62,10 +86,12 @@ struct DeckCarouselView: View {
     let onOpen: (Deck) -> Void
     let onSelect: (Deck) -> Void
     let onAdd: (DeckSlotEdge) -> Void
-    let onExport: (Deck) -> Void
-    let onDelete: (Deck) -> Void
-    let canExport: (Deck) -> Bool
-    let canDelete: (Deck) -> Bool
+    /// その枠がフォルダか、フォルダの中のデッキか。
+    var role: (Deck) -> DeckCardRole = { _ in .deck }
+    /// フォルダの「＋」。中のデッキを出し入れする。
+    var onToggleFolder: (Deck) -> Void = { _ in }
+    /// 長押しメニューの中身。空なら長押ししても何も出さない。
+    let menuItems: (Deck) -> [DeckMenuItem]
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @StateObject private var motion = AudioCarouselMotion()
@@ -133,20 +159,42 @@ struct DeckCarouselView: View {
     }
 
     private func deckCard(_ deck: Deck, index: Int, expansion: CGFloat,
-                          width: CGFloat, height: CGFloat) -> some View {
+                          width fullWidth: CGFloat, height: CGFloat) -> some View {
         let progress = summary(deck)
         let isCenter = index == centerIndex
+        let cardRole = self.role(deck)
+        // フォルダの中のデッキは、少し右へ寄せて細くし、どのフォルダの下かを見せる。
+        let width = cardRole == .child ? fullWidth - Metrics.childIndent : fullWidth
 
         return HStack(alignment: .top, spacing: WireMetrics.spacingM) {
-            DeckCoverImage(url: coverURL(deck), symbol: DeckCoverSymbol.forDeck(id: deck.id))
+            DeckCoverImage(url: coverURL(deck), symbol: cardRole.isFolder ? "folder" : DeckCoverSymbol.forDeck(id: deck.id))
                 .frame(width: width * Metrics.coverWidthRatio)
                 .frame(maxHeight: .infinity)
 
             VStack(alignment: .leading, spacing: WireMetrics.spacingS) {
-                Text(deck.deckName)
-                    .wireFont(expansion > 0.5 ? .titleS : .label)
-                    .lineLimit(2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                HStack(alignment: .top, spacing: WireMetrics.spacingS) {
+                    if cardRole.isFolder {
+                        Image(systemName: "folder")
+                            .wireFont(.label)
+                            .accessibilityHidden(true)
+                    }
+                    Text(deck.deckName)
+                        .wireFont(expansion > 0.5 ? .titleS : .label)
+                        .lineLimit(2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    if case .folder(let isExpanded) = cardRole {
+                        Button {
+                            onToggleFolder(deck)
+                        } label: {
+                            Image(systemName: isExpanded ? "minus" : "plus")
+                                .font(.body.weight(.bold))
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(isExpanded ? "フォルダを閉じる" : "フォルダを開く")
+                    }
+                }
                 // 中央へ近づくほど、進み具合を浮かび上がらせる。
                 VStack(alignment: .leading, spacing: WireMetrics.spacingS) {
                     DeckMasteryBar(
@@ -170,10 +218,10 @@ struct DeckCarouselView: View {
         .outlineSurface(radius: WireMetrics.radiusCard, fill: BentoTone.l2.fill)
         .contentShape(Rectangle())
         .onTapGesture { isCenter ? onOpen(deck) : snap(to: index) }
-        // 何もできないデッキ（配信中の公式デッキ）には、空のメニューを出さない。
-        .deckMenu(isEnabled: canExport(deck) || canDelete(deck)) { menu(for: deck) }
+        .deckMenu(isEnabled: !menuItems(deck).isEmpty) { menu(for: deck) }
+        .offset(x: cardRole == .child ? Metrics.childIndent / 2 : 0)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(deck.deckName)
+        .accessibilityLabel(cardRole.isFolder ? "フォルダ \(deck.deckName)" : deck.deckName)
         .accessibilityValue("\(progress.totalCount) 語のうち \(progress.masteredCount) 語を習得")
         .accessibilityHint("選んだ遊び方で開きます")
         .accessibilityAddTraits(.isButton)
@@ -205,11 +253,8 @@ struct DeckCarouselView: View {
 
     @ViewBuilder
     private func menu(for deck: Deck) -> some View {
-        if canExport(deck) {
-            Button("書き出す") { onExport(deck) }
-        }
-        if canDelete(deck) {
-            Button("削除", role: .destructive) { onDelete(deck) }
+        ForEach(menuItems(deck)) { item in
+            Button(item.title, systemImage: item.systemImage, role: item.role, action: item.action)
         }
     }
 
@@ -281,7 +326,8 @@ struct DeckCarouselLayout {
     }
 }
 
-/// デッキの並び順と、最後に中央へ置いたデッキを端末へ覚えておく。
+/// 最後に中央へ置いたデッキを端末へ覚えておく。並び順は、フォルダと一緒に学習データ
+/// （`LocalStudyLibrary.layout`）へ移した。ここに残る並び順は、移す前の並びを引き継ぐためだけに読む。
 ///
 /// 利用者ごとに分けて覚える。端末で作ったデッキの番号は利用者ごとに 1 から振るので、
 /// 分けないと別の人の同じ番号のデッキを指してしまう。
@@ -309,16 +355,6 @@ struct DeckOrderStore {
             .map(\.element)
         defaults.set(result.map(\.id), forKey: orderKey)
         return result
-    }
-
-    /// 追加したデッキを、選んだ空き枠の側の端へ置く。
-    func place(deckId: Int, at edge: DeckSlotEdge, in currentOrder: [Int]) {
-        var ids = currentOrder.filter { $0 != deckId }
-        switch edge {
-        case .top: ids.insert(deckId, at: 0)
-        case .bottom: ids.append(deckId)
-        }
-        defaults.set(ids, forKey: orderKey)
     }
 
     var selectedDeckId: Int? {

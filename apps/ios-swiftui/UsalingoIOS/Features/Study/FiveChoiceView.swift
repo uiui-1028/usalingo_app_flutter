@@ -12,6 +12,7 @@ struct FiveChoiceView: View {
     @State private var saveErrorMessage: String?
     @State private var answerQueue = StudyAnswerQueue()
     @State private var showsLeaveConfirmation = false
+    @StateObject private var audioPlaybackService = AudioPlaybackService()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -28,7 +29,10 @@ struct FiveChoiceView: View {
         .toolbar(.hidden, for: .navigationBar)
         .task { await load() }
         .onAppear { appState.isShellChromeHidden = true }
-        .onDisappear { appState.isShellChromeHidden = false }
+        .onDisappear {
+            appState.isShellChromeHidden = false
+            audioPlaybackService.stop()
+        }
         .confirmationDialog("未保存の回答があります", isPresented: $showsLeaveConfirmation, titleVisibility: .visible) {
             Button("保存せずに戻る", role: .destructive) { dismiss() }
             Button("学習に戻る", role: .cancel) { }
@@ -186,19 +190,28 @@ struct FiveChoiceView: View {
         .outlineSurface(radius: WireMetrics.radiusPill, shadow: nil)
     }
 
+    /// 下端の道具の帯。カード学習と同じガラスの帯に、戻ると音声2つだけを置く。
     private var footer: some View {
-        HStack {
-            Button {
+        HStack(spacing: WireMetrics.spacingS) {
+            toolbarButton("chevron.left", label: "学習に戻る", isDisabled: answerQueue.isDraining) {
                 if answerQueue.isEmpty { dismiss() } else { showsLeaveConfirmation = true }
-            } label: {
-                Image(systemName: "chevron.left")
             }
-            .buttonStyle(.wireIcon(diameter: 44))
-            .accessibilityLabel("学習に戻る")
-            .disabled(answerQueue.isDraining)
-            Spacer()
+            audioButton(
+                urls: [game?.question?.card.wordAudioURL, game?.question?.card.audioURL],
+                symbol: "speaker.wave.2",
+                label: "単語と例文の音声を再生"
+            )
+            audioButton(
+                urls: [game?.question?.card.audioURL],
+                symbol: "text.bubble",
+                label: "例文の音声を再生"
+            )
             if answerQueue.isDraining { ProgressView().accessibilityLabel("回答を保存中") }
         }
+        .padding(.horizontal, WireMetrics.spacingM)
+        .padding(.vertical, WireMetrics.spacingM)
+        .glassBarSurface(in: RoundedRectangle(cornerRadius: WireMetrics.radiusLarge))
+        .frame(maxWidth: .infinity)
         .padding(.horizontal, WireMetrics.screenPadding)
         .padding(.vertical, WireMetrics.spacingS)
         .background {
@@ -206,6 +219,24 @@ struct FiveChoiceView: View {
                 Color.clear.contentShape(Rectangle()).onTapGesture { advance() }
             }
         }
+    }
+
+    private func toolbarButton(
+        _ symbol: String,
+        label: String,
+        isDisabled: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+        }
+        .buttonStyle(.glassBarIcon(diameter: 40))
+        .disabled(isDisabled)
+        .accessibilityLabel(label)
+    }
+
+    private func audioButton(urls: [URL?], symbol: String, label: String) -> some View {
+        StudyAudioButton(service: audioPlaybackService, urls: urls, symbol: symbol, label: label)
     }
 
     @ViewBuilder
@@ -239,6 +270,7 @@ struct FiveChoiceView: View {
 
     private func advance() {
         guard var game, game.isRevealed else { return }
+        audioPlaybackService.stop()
         game.advance()
         self.game = game
         HapticFeedbackService.tap()

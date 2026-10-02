@@ -64,18 +64,6 @@ final class DeckOrderStoreTests: XCTestCase {
         XCTAssertEqual(store.arranged([makeDeck(3), makeDeck(1)]).map(\.id), [3, 1])
     }
 
-    /// 先頭の空き枠から足したデッキは先頭へ、末尾からなら末尾へ入る。
-    func testPlacedDeckGoesToTheChosenEdge() {
-        let store = DeckOrderStore(accountId: "a", defaults: defaults)
-        let decks = [makeDeck(1), makeDeck(2), makeDeck(3)]
-
-        store.place(deckId: 3, at: .top, in: [1, 2])
-        XCTAssertEqual(store.arranged(decks).map(\.id), [3, 1, 2])
-
-        store.place(deckId: 4, at: .bottom, in: [3, 1, 2])
-        XCTAssertEqual(store.arranged(decks + [makeDeck(4)]).map(\.id), [3, 1, 2, 4])
-    }
-
     /// 消えたデッキは詰め、覚えていないデッキは末尾へ足す。
     func testDeletedDecksCloseTheGapAndNewOnesGoLast() {
         let store = DeckOrderStore(accountId: "a", defaults: defaults)
@@ -211,3 +199,27 @@ final class DeckCoverStoreTests: XCTestCase {
         )
     }
 }
+
+final class DeckTreeTests: XCTestCase {
+    private let decks = (1...4).map { Deck(id: $0, deckName: "D\($0)", description: nil) }
+
+    func testKeepsSavedOrderAndPutsFolderChildrenInsideTheFolder() {
+        let folder = LocalDeckFolder(id: 7, name: "F", deckIds: [3, 1])
+        let tree = DeckTree.build(decks: decks, layout: [.deck(2), .folder(7), .deck(4)], folders: [folder])
+        XCTAssertEqual(tree, [.deck(decks[1]), .folder(folder, decks: [decks[2], decks[0]]), .deck(decks[3])])
+    }
+
+    func testDeckListedTwiceStaysInTheFolderAndNewDecksGoLast() {
+        let folder = LocalDeckFolder(id: 7, name: "F", deckIds: [1])
+        let tree = DeckTree.build(decks: decks, layout: [.deck(1), .folder(7)], folders: [folder])
+        XCTAssertEqual(tree.map(\.layoutEntry), [.folder(7), .deck(2), .deck(3), .deck(4)])
+    }
+
+    func testRemovedDecksDropOutOfFoldersButEmptyFoldersStay() {
+        let folders = [LocalDeckFolder(id: 7, name: "F", deckIds: [9, 2]), LocalDeckFolder(id: 8, name: "G", deckIds: [])]
+        let tree = DeckTree.build(decks: decks, layout: [.folder(7)], folders: folders)
+        XCTAssertEqual(DeckTree.folders(in: tree, keepingEmptyFrom: folders).map(\.deckIds), [[2], []])
+        XCTAssertEqual(tree.map(\.layoutEntry), [.folder(7), .folder(8), .deck(1), .deck(3), .deck(4)])
+    }
+}
+

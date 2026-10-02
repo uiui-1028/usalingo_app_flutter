@@ -39,6 +39,11 @@ struct StudySessionView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            if !isLoading, loadErrorMessage == nil, !cards.isEmpty {
+                WordListProgressBar(progress: Double(index) / Double(cards.count))
+                    .padding(.horizontal, WireMetrics.screenPadding)
+                    .padding(.top, WireMetrics.spacingS)
+            }
             ZStack {
                 if isLoading {
                     ProgressView()
@@ -443,21 +448,7 @@ struct StudySessionView: View {
     /// 渡した順に続けて鳴らす。押し始めの1本が鳴っている間だけ停止の見た目にし、
     /// もう一度押すと途中でも止める。鳴らせる音声が1本も無いカードでは押せない。
     private func audioButton(urls: [URL?], symbol: String, label: String) -> some View {
-        let queue = urls.compactMap { $0 }
-        let isPlayingThis = audioPlaybackService.playingURL != nil
-            && audioPlaybackService.playingURL == queue.first
-        return toolbarButton(
-            isPlayingThis ? "speaker.slash" : symbol,
-            label: label,
-            isDisabled: queue.isEmpty
-        ) {
-            guard !queue.isEmpty else { return }
-            if isPlayingThis {
-                audioPlaybackService.stop()
-            } else {
-                audioPlaybackService.playSequence(urls: queue)
-            }
-        }
+        StudyAudioButton(service: audioPlaybackService, urls: urls, symbol: symbol, label: label)
     }
 
     /// 現在のカードから数枚先までを温める。1枚消費するたびに窓が1つ先へずれるので、
@@ -686,5 +677,31 @@ private struct CompletionMetric: View {
         .frame(maxWidth: .infinity)
         .padding(WireMetrics.spacingM)
         .outlineSurface(radius: WireMetrics.radiusCard, shadow: .card)
+    }
+}
+
+/// 押すと順に鳴らし、鳴っている間にもう一度押すと止める音声ボタン。カード学習と5択で使う。
+struct StudyAudioButton: View {
+    @ObservedObject var service: AudioPlaybackService
+    let urls: [URL?]
+    let symbol: String
+    let label: String
+
+    var body: some View {
+        let queue = urls.compactMap { $0 }
+        let isPlayingThis = service.playingURL != nil && service.playingURL == queue.first
+        Button {
+            guard !queue.isEmpty else { return }
+            if isPlayingThis {
+                service.stop()
+            } else {
+                service.playSequence(urls: queue)
+            }
+        } label: {
+            Image(systemName: isPlayingThis ? "speaker.slash" : symbol)
+        }
+        .buttonStyle(.glassBarIcon(diameter: 40))
+        .disabled(queue.isEmpty)
+        .accessibilityLabel(label)
     }
 }

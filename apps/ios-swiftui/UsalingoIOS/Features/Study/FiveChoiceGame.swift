@@ -32,7 +32,8 @@ struct FiveChoiceGame {
     /// 公開されている全単語ではなく、学習タブに追加済みのデッキだけを読む。
     static func load(deckId: Int, source: any StudyDataSource) async throws -> FiveChoiceGame {
         let decks = try await source.fetchDecks()
-        guard decks.contains(where: { $0.id == deckId }) else { throw LocalStudyError.deckNotFound }
+        let isFolder = LocalStudyDataSource.isFolderDeckId(deckId)
+        guard isFolder || decks.contains(where: { $0.id == deckId }) else { throw LocalStudyError.deckNotFound }
         var cards: [WordCard] = []
         var candidates: [WordCard] = []
         for deck in decks {
@@ -40,6 +41,10 @@ struct FiveChoiceGame {
             let deckCards = try await source.fetchCards(deckId: deck.id)
             if deck.id == deckId { cards = deckCards }
             candidates.append(contentsOf: deckCards)
+        }
+        // フォルダは一覧に無いので、中のデッキをまとめたカードを直接読む。
+        if isFolder {
+            cards = try await source.fetchCards(deckId: deckId)
         }
         try Task.checkCancellation()
         return FiveChoiceGame(cards: cards, candidates: candidates)

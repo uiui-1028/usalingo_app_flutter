@@ -41,7 +41,15 @@ enum DeckPlayStyle: String, CaseIterable, Identifiable {
 struct LearningDashboardView: View {
     @EnvironmentObject private var appState: AppState
 
-    @State private var decks: [Deck] = []
+    /// 学習タブの並び。フォルダは中のデッキを持つ。
+    @State private var tree: [DeckTreeItem] = []
+    /// 「＋」で開いているフォルダ。
+    @State private var expandedFolderIds: Set<Int> = []
+    @State private var renamingDeck: Deck?
+    @State private var renameText = ""
+    @State private var movingDeck: Deck?
+    @State private var isReordering = false
+    @State private var folderPendingDeletion: LocalDeckFolder?
     /// デッキごとの進み具合。カードを読み終えるまでは空のまま出す。
     @State private var summaries: [Int: DeckProgressSummary] = [:]
     /// デッキごとの表紙画像。選んだ1枚は `DeckCoverStore` が端末へ覚えている。
@@ -90,7 +98,8 @@ struct LearningDashboardView: View {
             radioDeck = nil
             matchingDeck = nil
             choiceDeck = nil
-            decks = []
+            tree = []
+            expandedFolderIds = []
             covers = [:]
         }
         // タブバーの出し入れは push / pop が始まった時点で決める。子画面の
@@ -150,12 +159,164 @@ struct LearningDashboardView: View {
                 addEdge = edge
                 isShowingLibrary = true
             },
-            onExport: prepareExport,
-            onDelete: delete,
-            canExport: canExport,
-            canDelete: { appState.studyDataSource.canManage($0) }
+            role: role(of:),
+            onToggleFolder: toggleFolder,
+            menuItems: menuItems(for:)
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .alert("名前を変更", isPresented: Binding(
+            get: { renamingDeck != nil },
+            set: { if !$0 { renamingDeck = nil } }
+        )) {
+            TextField("名前", text: $renameText)
+            Button("キャンセル", role: .cancel) { renamingDeck = nil }
+            Button("保存") { commitRename() }
+        } message: {
+            Text(renameMessage)
+        }
+        .sheet(item: $movingDeck) { deck in
+            DeckFolderPickerSheet(
+                deckName: deck.deckName,
+                folders: appState.localStudy.deckFolders,
+                currentFolderId: parentFolder(of: deck)?.id,
+                onCreate: { name in changeLayout { _ = try $0.createFolder(named: name, containing: deck.id) } },
+                onSelect: { folderId in changeLayout { try $0.moveDeck(deck.id, toFolder: folderId) } }
+            )
+            .presentationDetents([.medium, .large])
+        }
+        .sheet(isPresented: $isReordering) {
+            DeckReorderSheet(tree: tree) { layout, folderDeckIds in
+                changeLayout { source in
+                    try source.saveLayout(layout)
+                    for (folderId, deckIds) in folderDeckIds {
+                        try source.reorderFolder(folderId, deckIds: deckIds)
+                    }
+                }
+            }
+        }
+        .confirmationDialog(
+            "フォルダを削除しますか？",
+            isPresented: Binding(
+                get: { folderPendingDeletion != nil },
+                set: { if !$0 { folderPendingDeletion = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: folderPendingDeletion
+        ) { folder in
+            Button("フォルダを削除", role: .destructive) {
+                expandedFolderIds.remove(folder.id)
+                changeLayout { try $0.deleteFolder(folder.id) }
+            }
+        } message: { _ in
+            Text("中のデッキは消えずに、フォルダの外へ出ます。")
+        }
+    }
+
+    // MARK: - フォルダ
+
+    /// カルーセルに並べる順。開いているフォルダは、直後に中のデッキを並べる。
+    private var decks: [Deck] {
+        tree.flatMap { item -> [Deck] in
+            switch item {
+            case .deck(let deck):
+                return [deck]
+            case .folder(let folder, let children):
+                let head = appState.localStudy.folderDeck(folder)
+                return expandedFolderIds.contains(folder.id) ? [head] + children : [head]
+            }
+        }
+    }
+
+    /// フォルダを学習画面へ渡すときのデッキ番号から、そのフォルダを引く。
+    private func folder(of deck: Deck) -> LocalDeckFolder? {
+        for case .folder(let folder, _) in tree where LocalStudyDataSource.folderDeckId(folderId: folder.id) == deck.id {
+            return folder
+        }
+        return nil
+    }
+
+    private func parentFolder(of deck: Deck) -> LocalDeckFolder? {
+        for case .folder(let folder, let children) in tree where children.contains(where: { $0.id == deck.id }) {
+            return folder
+        }
+        return nil
+    }
+
+    private func role(of deck: Deck) -> DeckCardRole {
+        if let folder = folder(of: deck) {
+            return .folder(isExpanded: expandedFolderIds.contains(folder.id))
+        }
+        return parentFolder(of: deck) == nil ? .deck : .child
+    }
+
+    private func toggleFolder(_ deck: Deck) {
+        guard let folder = folder(of: deck) else { return }
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.86)) {
+            if expandedFolderIds.remove(folder.id) == nil {
+                expandedFolderIds.insert(folder.id)
+            }
+        }
+    }
+
+    /// 長押しメニュー。iOS の標準に合わせ、消す操作は最後に赤で置く。
+    private func menuItems(for deck: Deck) -> [DeckMenuItem] {
+        var items = [
+            DeckMenuItem(title: "並び替え", systemImage: "arrow.up.arrow.down") { isReordering = true },
+            DeckMenuItem(title: "名前を変更", systemImage: "pencil") { beginRename(deck) }
+        ]
+        if let folder = folder(of: deck) {
+            items.append(DeckMenuItem(title: "フォルダを削除", systemImage: "folder.badge.minus", role: .destructive) {
+                folderPendingDeletion = folder
+            })
+            return items
+        }
+        items.append(DeckMenuItem(title: "フォルダに移動", systemImage: "folder") { movingDeck = deck })
+        if parentFolder(of: deck) != nil {
+            items.append(DeckMenuItem(title: "フォルダから出す", systemImage: "arrow.up.forward.square") {
+                changeLayout { try $0.removeDeckFromFolder(deck.id) }
+            })
+        }
+        if canExport(deck) {
+            items.append(DeckMenuItem(title: "書き出す", systemImage: "square.and.arrow.up") { prepareExport(deck) })
+        }
+        if appState.studyDataSource.canManage(deck) {
+            items.append(DeckMenuItem(title: "削除", systemImage: "trash", role: .destructive) { delete(deck) })
+        }
+        return items
+    }
+
+    private func beginRename(_ deck: Deck) {
+        renameText = deck.deckName
+        renamingDeck = deck
+    }
+
+    private var renameMessage: String {
+        guard let deck = renamingDeck else { return "" }
+        if folder(of: deck) != nil || appState.studyDataSource.canManage(deck) { return "" }
+        return "配信中のデッキは、この端末での表示名だけが変わります。空にすると元の名前に戻ります。"
+    }
+
+    private func commitRename() {
+        guard let deck = renamingDeck else { return }
+        renamingDeck = nil
+        if let folder = folder(of: deck) {
+            let name = DeckFolderNaming.name(from: renameText)
+            changeLayout { try $0.renameFolder(folder.id, to: name) }
+        } else {
+            let name = renameText
+            changeLayout { try $0.renameDeck(deck, to: name) }
+        }
+    }
+
+    /// 並びやフォルダを変えて保存し、読み直す。バックアップにも載せる。
+    private func changeLayout(_ change: (LocalStudyDataSource) throws -> Void) {
+        do {
+            try change(appState.localStudy)
+            errorMessage = nil
+            appState.markStudyDataChanged()
+        } catch {
+            errorMessage = "変更を保存できませんでした。\(UserFacingError.advice(for: error))"
+        }
     }
 
     /// 読み込みや削除に失敗したときだけ出すお知らせ。
@@ -194,10 +355,13 @@ struct LearningDashboardView: View {
 
     /// ライブラリで追加した公式デッキを、選んだ空き枠の端へ入れて中央に置き、学習タブへ戻る。
     private func placeAddedDeck(remoteDeckId: Int) {
-        let store = deckOrder
         let deckId = LocalStudyDataSource.cachedDeckId(remoteDeckId: remoteDeckId)
-        store.place(deckId: deckId, at: addEdge, in: decks.map(\.id))
-        store.selectedDeckId = deckId
+        do {
+            try appState.localStudy.placeDeck(id: deckId, atTop: addEdge == .top)
+        } catch {
+            errorMessage = "デッキの並びを保存できませんでした。\(UserFacingError.advice(for: error))"
+        }
+        deckOrder.selectedDeckId = deckId
         isShowingLibrary = false
         // 読み直しは追加の時点で上がる `studyDataVersion` にまかせる。ここでも呼ぶと、
         // 全デッキのカードを2回読むことになる。
@@ -223,12 +387,15 @@ struct LearningDashboardView: View {
         do {
             let fetched = try await dataSource.fetchDecks()
             guard appState.localStudy === dataSource else { return }
-            decks = order.arranged(fetched)
+            // 並びを初めて作るときだけ、以前この端末に覚えていた並び順から始める。
+            let seed = dataSource.hasDeckLayout ? [] : order.arranged(fetched).map(\.id)
+            tree = try dataSource.arrangedDeckTree(for: fetched, seed: seed)
             errorMessage = nil
-            await loadDeckDetails(for: fetched, from: dataSource)
+            let folderDecks = dataSource.deckFolders.map(dataSource.folderDeck)
+            await loadDeckDetails(for: fetched + folderDecks, from: dataSource)
         } catch {
             guard appState.localStudy === dataSource else { return }
-            decks = []
+            tree = []
             summaries = [:]
             covers = [:]
             errorMessage = UserFacingError.message(for: error)

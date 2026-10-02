@@ -87,6 +87,9 @@ struct AppShellView: View {
                     .overlay(Capsule().strokeBorder(WireColor.ink, lineWidth: 1))
                     .frame(width: itemWidth)
                     .offset(x: indicatorX)
+                    // @AppStorage の書き換えは withAnimation の外で描き直されることがあるので、
+                    // 選択が変わったときの移動はここでも必ず滑らかにする。
+                    .animation(reduceMotion ? nil : .spring(response: 0.32, dampingFraction: 0.82), value: playStyle)
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
 
@@ -136,6 +139,10 @@ struct AppShellView: View {
                             from: value.startLocation, to: value.location,
                             selectedIndex: playStyleDragOrigin ?? selectedIndex, size: geometry.size, count: styles.count
                         )
+                        // ドラッグ中は枠をまたぐたびに鳴らしている。タップで移るときはここで1回だけ鳴らす。
+                        if let index, index != selectedIndex, playStyleDragOrigin == nil {
+                            HapticFeedbackService.detent()
+                        }
                         // 確定先へ吸い付いた最後だけ、ごく小さく弾ませる。
                         withAnimation(reduceMotion ? nil : .spring(response: 0.32, dampingFraction: 0.82)) {
                             if let index { playStyle = styles[index] }

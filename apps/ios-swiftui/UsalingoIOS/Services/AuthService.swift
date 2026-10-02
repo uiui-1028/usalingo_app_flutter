@@ -101,11 +101,23 @@ final class AuthService {
     }
 
     func signIn(email: String, password: String) async throws -> AuthSession {
+        let session = try await authenticate(email: email, password: password)
+        try sessionStore.save(session)
+        return session
+    }
+
+    /// 端末へ保存せずにサインインだけを確かめる。切り替える前に利用者へ確認したいときに使い、
+    /// 同意を得たら `adopt(_:)` で保存する。
+    func authenticate(email: String, password: String) async throws -> AuthSession {
         let email = try EmailInput.validated(email)
         let session = try await authRequest(path: "token", query: [URLQueryItem(name: "grant_type", value: "password")], email: email, password: password)
         try await ensureCurrentUserRow(session: session)
-        try sessionStore.save(session)
         return session
+    }
+
+    /// `authenticate` で確かめたセッションを、次回起動でも使えるよう端末へ保存する。
+    func adopt(_ session: AuthSession) throws {
+        try sessionStore.save(session)
     }
 
     /// 匿名アカウントでサインインする。登録していない利用者も、会員と同じ
