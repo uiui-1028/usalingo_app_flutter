@@ -37,6 +37,7 @@
 		A10000000000000000000014 /* Features/Learning/LearningDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000014 /* Features/Learning/LearningDashboardView.swift */; };
 		A10000000000000000000015 /* Features/Design/DesignDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000015 /* Features/Design/DesignDashboardView.swift */; };
 		A10000000000000000000016 /* Features/Profile/ProfileDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000016 /* Features/Profile/ProfileDashboardView.swift */; };
+		A1000000000000000000F301 /* Features/Profile/LegalDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000F301 /* Features/Profile/LegalDocument.swift */; };
 		A10000000000000000000017 /* Services/SessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000017 /* Services/SessionStore.swift */; };
 		A10000000000000000000018 /* Features/Words/WordListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000018 /* Features/Words/WordListView.swift */; };
 		A10000000000000000000019 /* Services/AudioPlaybackService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000019 /* Services/AudioPlaybackService.swift */; };
@@ -152,6 +153,7 @@
 		A20000000000000000000014 /* Features/Learning/LearningDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Learning/LearningDashboardView.swift; sourceTree = "<group>"; };
 		A20000000000000000000015 /* Features/Design/DesignDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Design/DesignDashboardView.swift; sourceTree = "<group>"; };
 		A20000000000000000000016 /* Features/Profile/ProfileDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Profile/ProfileDashboardView.swift; sourceTree = "<group>"; };
+		A2000000000000000000F301 /* Features/Profile/LegalDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Profile/LegalDocument.swift; sourceTree = "<group>"; };
 		A20000000000000000000017 /* Services/SessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/SessionStore.swift; sourceTree = "<group>"; };
 		A20000000000000000000018 /* Features/Words/WordListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Words/WordListView.swift; sourceTree = "<group>"; };
 		A20000000000000000000019 /* Services/AudioPlaybackService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/AudioPlaybackService.swift; sourceTree = "<group>"; };
@@ -314,6 +316,7 @@
 				A20000000000000000000015 /* Features/Design/DesignDashboardView.swift */,
 				A20000000000000000000F02 /* Features/Design/DesignPreviewStage.swift */,
 				A20000000000000000000016 /* Features/Profile/ProfileDashboardView.swift */,
+				A2000000000000000000F301 /* Features/Profile/LegalDocument.swift */,
 				A20000000000000000000018 /* Features/Words/WordListView.swift */,
 				A200000000000000000070 /* Features/Words/WordListViewModel.swift */,
 				A200000000000000000071 /* Features/Words/WordListFilters.swift */,
@@ -526,6 +529,7 @@
 				A10000000000000000000015 /* Features/Design/DesignDashboardView.swift in Sources */,
 				A10000000000000000000F02 /* Features/Design/DesignPreviewStage.swift in Sources */,
 				A10000000000000000000016 /* Features/Profile/ProfileDashboardView.swift in Sources */,
+				A1000000000000000000F301 /* Features/Profile/LegalDocument.swift in Sources */,
 				A10000000000000000000017 /* Services/SessionStore.swift in Sources */,
 				A10000000000000000000018 /* Features/Words/WordListView.swift in Sources */,
 				A100000000000000000070 /* Features/Words/WordListViewModel.swift in Sources */,
