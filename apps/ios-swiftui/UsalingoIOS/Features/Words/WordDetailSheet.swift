@@ -474,8 +474,14 @@ private struct InteractiveWordCard: View {
             let tilt = reduceMotion ? 0 : Double(max(0, 1 - abs(flipDrag) / deadZone))
             let angle = baseAngle + flipAngle(for: flipDrag, width: width)
             let showsBack = isBack(angle)
+            let placeholderProgress = Double(min(1, max(0, (280 - width) / 80)))
 
-            face(showsBack: showsBack)
+            // 小さい枠で再配置すると画像が押しつぶされるため、通常のカード幅で
+            // 配置してから全体を縮める。文字だけは 280〜200pt の間で灰色へ変える。
+            face(showsBack: showsBack, placeholderProgress: placeholderProgress)
+            .frame(width: 350, height: 350 / 0.74)
+            .scaleEffect(width / 350)
+            .frame(width: width, height: height)
             .rotation3DEffect(.degrees(-y * 13 * tilt), axis: (x: 1, y: 0, z: 0), perspective: 0.5)
             .rotation3DEffect(.degrees(angle + x * 13 * tilt), axis: (x: 0, y: 1, z: 0), perspective: 0.5)
             .scaleEffect(touch == nil || reduceMotion ? 1 : 1.025)
@@ -502,28 +508,30 @@ private struct InteractiveWordCard: View {
     /// 表裏は同じ外形に重ねる。半分より回ったところで入れ替える。
     /// 裏面は 180° 逆に回してあり、カードが裏を向いたときに正しい向きで立つ。
     @ViewBuilder
-    private func face(showsBack: Bool) -> some View {
+    private func face(showsBack: Bool, placeholderProgress: Double) -> some View {
         ZStack {
-            front
+            front(placeholderProgress: placeholderProgress)
                 .opacity(showsBack ? 0 : 1)
                 .allowsHitTesting(!showsBack)
-            back
+            back(placeholderProgress: placeholderProgress)
                 .opacity(showsBack ? 1 : 0)
                 .allowsHitTesting(showsBack)
                 .rotation3DEffect(.degrees(180), axis: (x: 0, y: 1, z: 0))
         }
     }
 
-    private var front: some View {
+    private func front(placeholderProgress: Double) -> some View {
         StudyCardFace {
-            StudyCardFront(card: word, content: WordCardContent(card: word), showAnswer: true)
+            StudyCardFront(card: word, content: WordCardContent(card: word), showAnswer: true,
+                           placeholderProgress: placeholderProgress)
         }
     }
 
-    private var back: some View {
+    private func back(placeholderProgress: Double) -> some View {
         StudyCardFace {
             // 回っている間はスクロールを閉じる。理由は `StudyCardBack` 側に書いてある。
-            StudyCardBack(content: WordCardContent(card: word), isScrollEnabled: !isTurning)
+            StudyCardBack(content: WordCardContent(card: word), isScrollEnabled: !isTurning,
+                          placeholderProgress: placeholderProgress)
         }
     }
 
