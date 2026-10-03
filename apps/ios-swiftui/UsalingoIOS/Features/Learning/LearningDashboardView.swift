@@ -43,8 +43,8 @@ struct LearningDashboardView: View {
 
     /// 学習タブの並び。フォルダは中のデッキを持つ。
     @State private var tree: [DeckTreeItem] = []
-    /// 「＋」で開いているフォルダ。
-    @State private var expandedFolderIds: Set<Int> = []
+    /// 「＋」で開いているフォルダ。一度に1つだけ開く。
+    @State private var openFolderId: Int?
     @State private var renamingDeck: Deck?
     @State private var renameText = ""
     @State private var folderPendingDeletion: LocalDeckFolder?
@@ -99,7 +99,7 @@ struct LearningDashboardView: View {
             matchingDeck = nil
             choiceDeck = nil
             tree = []
-            expandedFolderIds = []
+            openFolderId = nil
             covers = [:]
         }
         // タブバーの出し入れは push / pop が始まった時点で決める。子画面の
@@ -141,7 +141,7 @@ struct LearningDashboardView: View {
             coverURL: { covers[$0.id] },
             summary: summary(for:),
             onOpen: open,
-            onSelect: { deckOrder.selectedDeckId = $0.id },
+            onSelect: select,
             onAdd: { edge in
                 addEdge = edge
                 isShowingLibrary = true
@@ -155,7 +155,8 @@ struct LearningDashboardView: View {
                 pendingMenuAction = nil
                 withoutAnimation { menuTarget = nil }
             },
-            onDrop: drop
+            onDrop: drop(from:target:),
+            onReorderInFolder: reorderInFolder(deckId:folderDeckId:index:)
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         // 長押しメニューはタブバーまで覆うよう全画面に重ねる。下から出てくる動きは消し、中で薄く出す。
@@ -186,7 +187,7 @@ struct LearningDashboardView: View {
             presenting: folderPendingDeletion
         ) { folder in
             Button("フォルダを削除", role: .destructive) {
-                expandedFolderIds.remove(folder.id)
+                if openFolderId == folder.id { openFolderId = nil }
                 changeLayout { try $0.deleteFolder(folder.id) }
             }
         } message: { _ in
@@ -211,29 +212,23 @@ struct LearningDashboardView: View {
 
     // MARK: - フォルダ
 
-    /// カルーセルに並べる順。開いているフォルダは、直後に中のデッキを並べる。
+    /// カルーセルに並べる順。フォルダの中のデッキは、フォルダのカードの中に並べる。
     private var decks: [Deck] {
-        tree.flatMap { item -> [Deck] in
+        tree.map { item in
             switch item {
-            case .deck(let deck):
-                return [deck]
-            case .folder(let folder, let children):
-                let head = appState.localStudy.folderDeck(folder)
-                return expandedFolderIds.contains(folder.id) ? [head] + children : [head]
+            case .deck(let deck): return deck
+            case .folder(let folder, _): return appState.localStudy.folderDeck(folder)
             }
         }
     }
 
     /// フォルダを学習画面へ渡すときのデッキ番号から、そのフォルダを引く。
     private func folder(of deck: Deck) -> LocalDeckFolder? {
-        for case .folder(let folder, _) in tree where LocalStudyDataSource.folderDeckId(folderId: folder.id) == deck.id {
-            return folder
-        }
-        return nil
+        folder(deckId: deck.id)
     }
 
-    private func parentFolder(of deck: Deck) -> LocalDeckFolder? {
-        for case .folder(let folder, let children) in tree where children.contains(where: { $0.id == deck.id }) {
+    private func folder(deckId: Int) -> LocalDeckFolder? {
+        for case .folder(let folder, _) in tree where LocalStudyDataSource.folderDeckId(folderId: folder.id) == deckId {
             return folder
         }
         return nil
@@ -247,8 +242,18 @@ struct LearningDashboardView: View {
     }
 
     /// 長押しで運んだカードを落とした。並べ替えか、フォルダへの出し入れか、新しいフォルダにまとめる。
-    private func drop(dragged: Int, target: DeckDropTarget) {
-        let rows = DeckDrop.rows(for: tree, expandedFolderIds: expandedFolderIds)
+    /// フォルダの中から運んだデッキは、並びの最後に「そのフォルダの中のデッキ」として足して同じ決まりで扱う。
+    private func drop(from origin: DeckDragSource, target: DeckDropTarget) {
+        var rows = DeckDrop.rows(for: tree, expandedFolderIds: [])
+        let dragged: Int
+        switch origin {
+        case .row(let index):
+            dragged = index
+        case .child(let deckId, let folderDeckId):
+            guard let folder = folder(deckId: folderDeckId) else { return }
+            rows.append(.deck(deckId, folder: folder.id))
+            dragged = rows.count - 1
+        }
         guard let action = DeckDrop.action(rows: rows, dragged: dragged, target: target) else { return }
         HapticFeedbackService.success()
         withAnimation(.spring(response: 0.3, dampingFraction: 0.86)) {
@@ -256,30 +261,47 @@ struct LearningDashboardView: View {
                 switch action {
                 case .moveToTop(let entry, let index):
                     try source.moveEntry(entry, toTopLevelIndex: index)
+                    // 落としたカードを中央に置く。
+                    switch entry {
+                    case .deck(let id): deckOrder.selectedDeckId = id
+                    case .folder(let id): deckOrder.selectedDeckId = LocalStudyDataSource.folderDeckId(folderId: id)
+                    }
                 case .moveIntoFolder(let deckId, let folderId, let index):
                     try source.moveDeck(deckId, toFolder: folderId, at: index)
+                    deckOrder.selectedDeckId = LocalStudyDataSource.folderDeckId(folderId: folderId)
                 case .makeFolder(let deckId, let targetId):
                     let folder = try source.createFolder(named: DeckFolderNaming.defaultName, containing: targetId)
                     try source.moveDeck(deckId, toFolder: folder.id)
+                    deckOrder.selectedDeckId = LocalStudyDataSource.folderDeckId(folderId: folder.id)
                 }
             }
         }
     }
 
+    /// 開いたフォルダの中で並べ替えた。
+    private func reorderInFolder(deckId: Int, folderDeckId: Int, index: Int) {
+        guard let folder = folder(deckId: folderDeckId) else { return }
+        changeLayout { try $0.moveDeck(deckId, toFolder: folder.id, at: index) }
+    }
+
+    /// 中央に止まったカードを覚える。開いたフォルダから離れたら、そのフォルダを閉じる。
+    private func select(_ deck: Deck) {
+        deckOrder.selectedDeckId = deck.id
+        if let open = openFolderId, LocalStudyDataSource.folderDeckId(folderId: open) != deck.id {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.86)) { openFolderId = nil }
+        }
+    }
+
     private func role(of deck: Deck) -> DeckCardRole {
         if let folder = folder(of: deck) {
-            return .folder(isExpanded: expandedFolderIds.contains(folder.id))
+            return .folder(isExpanded: openFolderId == folder.id)
         }
-        return parentFolder(of: deck) == nil ? .deck : .child
+        return .deck
     }
 
     private func toggleFolder(_ deck: Deck) {
         guard let folder = folder(of: deck) else { return }
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.86)) {
-            if expandedFolderIds.remove(folder.id) == nil {
-                expandedFolderIds.insert(folder.id)
-            }
-        }
+        openFolderId = openFolderId == folder.id ? nil : folder.id
     }
 
     private func presentMenu(for deck: Deck, cardFrame: CGRect) {

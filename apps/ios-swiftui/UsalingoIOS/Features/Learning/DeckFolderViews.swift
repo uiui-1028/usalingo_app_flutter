@@ -115,6 +115,14 @@ enum DeckDropTarget: Equatable {
     case end
 }
 
+/// 運び始めた場所。一覧の1枚か、開いたフォルダの中のタイルか。
+enum DeckDragSource: Equatable {
+    /// `decks` の中での位置。
+    case row(Int)
+    /// フォルダ（学習用のデッキ番号）の中のデッキ。
+    case child(deckId: Int, folderDeckId: Int)
+}
+
 /// 落としたときに行う並びの変更。
 enum DeckDropAction: Equatable {
     /// 一番上の階層の `index` 番目へ動かす（動かすものを除いた並びでの位置）。

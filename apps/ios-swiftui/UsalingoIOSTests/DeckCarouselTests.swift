@@ -268,6 +268,16 @@ final class DeckDropTests: XCTestCase {
         XCTAssertEqual(DeckDrop.action(rows: rows, dragged: 1, target: .row(4, .after)), .moveToTop(.folder(7), index: 2))
     }
 
+    /// 開いたフォルダの中から運んだデッキは、閉じた並びの最後に足して同じ決まりで扱う。
+    func testDeckDraggedOutOfAFolderTileUsesTheSameRules() {
+        let closed: [DeckRow] = [.deck(1, folder: nil), .folder(7), .deck(4, folder: nil), .deck(2, folder: 7)]
+        XCTAssertEqual(DeckDrop.action(rows: closed, dragged: 3, target: .row(0, .before)), .moveToTop(.deck(2), index: 0))
+        XCTAssertEqual(DeckDrop.action(rows: closed, dragged: 3, target: .end), .moveToTop(.deck(2), index: 3))
+        XCTAssertEqual(DeckDrop.action(rows: closed, dragged: 3, target: .row(2, .onto)), .makeFolder(deckId: 2, withDeckId: 4))
+        XCTAssertEqual(DeckDrop.action(rows: closed, dragged: 3, target: .row(1, .onto)),
+                       .moveIntoFolder(deckId: 2, folderId: 7, index: nil))
+    }
+
     func testDroppingOnItselfDoesNothing() {
         XCTAssertNil(DeckDrop.action(rows: rows, dragged: 0, target: .row(0, .onto)))
     }
