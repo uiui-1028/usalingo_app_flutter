@@ -20,6 +20,8 @@ struct WordListView: View {
     @State private var redSheetTopRatio = Self.initialRedSheetTopRatio
     /// 赤シートが右端から覆う列の数。オンにするたびに1列へ戻す。
     @State private var redSheetCoveredColumns = 1
+    /// 赤シート中に指で引っ張った分だけ一覧をずらす量。離すと 0 へ戻す。
+    @State private var rubberBandOffset: CGFloat = 0
     @State private var rowFrames: [Int: CGRect] = [:]
     @State private var lastRowHeight: CGFloat = 80
     @StateObject private var check = RedSheetCheckModel()
@@ -71,6 +73,7 @@ struct WordListView: View {
             if isRedSheetEnabled { BackSwipeProtectedRegionMarker() }
         }
         .onChange(of: isRedSheetEnabled) { _, enabled in
+            rubberBandOffset = 0
             if enabled {
                 redSheetTopRatio = Self.initialRedSheetTopRatio
                 redSheetCoveredColumns = 1
@@ -125,6 +128,24 @@ struct WordListView: View {
             // 一覧のレイヤーと赤シートのレイヤーを分ける。赤シートは一覧と一緒にスクロールしない。
             ZStack(alignment: .topTrailing) {
                 wordScroll(bottomInset: bottomInset, viewportHeight: proxy.size.height)
+                    // 赤シート中は一覧を動かさない。引っ張ると少しだけ伸びて元の位置へ戻り、
+                    // ここから動かないことを iOS のラバーバンドと同じ手ごたえで伝える。
+                    .offset(y: rubberBandOffset)
+                    .simultaneousGesture(
+                        DragGesture(minimumDistance: 10)
+                            .onChanged { value in
+                                rubberBandOffset = RubberBand.offset(
+                                    for: value.translation.height,
+                                    dimension: proxy.size.height
+                                )
+                            }
+                            .onEnded { _ in
+                                withAnimation(reduceMotion ? nil : .spring(response: 0.4, dampingFraction: 0.75)) {
+                                    rubberBandOffset = 0
+                                }
+                            },
+                        including: isRedSheetEnabled ? .all : .subviews
+                    )
                     // チェック中のタップは一覧そのものに同時認識で付け、指でのスクロールを止めない。
                     // 未表示ならどこをタップしても答えを見せ、表示後は画面の左右で判定する。
                     .simultaneousGesture(
@@ -315,6 +336,8 @@ struct WordListView: View {
                     : bottomBarClearance + bottomInset)
             }
             .scrollIndicators(.hidden)
+            // 赤シート中の位置合わせは判定ごとの自動スクロールにまかせ、指では動かさない。
+            .scrollDisabled(isRedSheetEnabled)
             .scrollTargetBehavior(WordListRowScrollBehavior(
                 isEnabled: viewModel.selectedDisplayMode == .list,
                 topInset: headerClearance
@@ -524,6 +547,16 @@ private struct WordListRowScrollBehavior: ScrollTargetBehavior {
 enum WordListRowSnapping {
     static func bottomPadding(viewportHeight: CGFloat, lastRowHeight: CGFloat) -> CGFloat {
         max(0, viewportHeight - lastRowHeight)
+    }
+}
+
+/// 端の先へ引っ張ったときの iOS 標準の抵抗。引くほど重くなり、`dimension` を超えては伸びない。
+enum RubberBand {
+    static func offset(for translation: CGFloat, dimension: CGFloat, coefficient: CGFloat = 0.55) -> CGFloat {
+        guard dimension > 0, translation != 0 else { return 0 }
+        let distance = abs(translation)
+        let stretched = (1 - 1 / (distance * coefficient / dimension + 1)) * dimension
+        return translation < 0 ? -stretched : stretched
     }
 }
 

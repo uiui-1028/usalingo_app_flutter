@@ -8,7 +8,7 @@ final class PlayStyleBarHitTestTests: XCTestCase {
     func testTapSelectsEveryMode() {
         for index in 0..<5 {
             let point = CGPoint(x: 30 + index * 60, y: 24)
-            XCTAssertEqual(PlayStyleBarHitTest.selection(from: point, to: point, selectedIndex: 0, size: size, count: 5), index)
+            XCTAssertEqual(PlayStyleBarHitTest.selection(from: point, to: point, size: size, count: 5), index)
         }
     }
 
@@ -18,21 +18,22 @@ final class PlayStyleBarHitTestTests: XCTestCase {
                 XCTAssertEqual(PlayStyleBarHitTest.selection(
                     from: CGPoint(x: 30 + source * 60, y: 24),
                     to: CGPoint(x: 30 + destination * 60, y: 24),
-                    selectedIndex: source, size: size, count: 5
+                    size: size, count: 5
                 ), destination)
             }
         }
     }
 
-    func testDragFromUnselectedModeDoesNotChangeSelection() {
-        XCTAssertNil(PlayStyleBarHitTest.selection(from: CGPoint(x: 90, y: 24), to: CGPoint(x: 270, y: 24), selectedIndex: 0, size: size, count: 5))
+    /// タブバーと同じく、選択中でないアイコンから触れて滑らせても選べる。
+    func testDragFromUnselectedModeSelectsWhereItIsReleased() {
+        XCTAssertEqual(PlayStyleBarHitTest.selection(from: CGPoint(x: 90, y: 24), to: CGPoint(x: 270, y: 24), size: size, count: 5), 4)
     }
 
     func testDiagonalDragOutsideBarSelectsByHorizontalPosition() {
         for y in [CGFloat(-200), 24, 250] {
             for destination in 0..<5 {
                 let end = CGPoint(x: CGFloat(30 + destination * 60), y: y)
-                XCTAssertEqual(PlayStyleBarHitTest.selection(from: CGPoint(x: 150, y: 24), to: end, selectedIndex: 2, size: size, count: 5), destination)
+                XCTAssertEqual(PlayStyleBarHitTest.selection(from: CGPoint(x: 150, y: 24), to: end, size: size, count: 5), destination)
                 XCTAssertEqual(PlayStyleBarHitTest.nearestIndex(atX: end.x, width: size.width, count: 5), destination)
             }
         }
@@ -40,13 +41,13 @@ final class PlayStyleBarHitTestTests: XCTestCase {
 
     func testDragPastHorizontalEndsSelectsEndIcons() {
         for y in [CGFloat(-200), 250] {
-            XCTAssertEqual(PlayStyleBarHitTest.selection(from: CGPoint(x: 150, y: 24), to: CGPoint(x: -500, y: y), selectedIndex: 2, size: size, count: 5), 0)
-            XCTAssertEqual(PlayStyleBarHitTest.selection(from: CGPoint(x: 150, y: 24), to: CGPoint(x: 800, y: y), selectedIndex: 2, size: size, count: 5), 4)
+            XCTAssertEqual(PlayStyleBarHitTest.selection(from: CGPoint(x: 150, y: 24), to: CGPoint(x: -500, y: y), size: size, count: 5), 0)
+            XCTAssertEqual(PlayStyleBarHitTest.selection(from: CGPoint(x: 150, y: 24), to: CGPoint(x: 800, y: y), size: size, count: 5), 4)
         }
     }
 
     func testStartingOutsideBarCannotSelect() {
-        XCTAssertNil(PlayStyleBarHitTest.selection(from: CGPoint(x: 150, y: 60), to: CGPoint(x: 270, y: 24), selectedIndex: 2, size: size, count: 5))
+        XCTAssertNil(PlayStyleBarHitTest.selection(from: CGPoint(x: 150, y: 60), to: CGPoint(x: 270, y: 24), size: size, count: 5))
     }
 
     func testCellBoundariesMatchFixedLayout() {
@@ -57,15 +58,15 @@ final class PlayStyleBarHitTestTests: XCTestCase {
     }
 
     func testShortDragAcrossBoundarySelectsNearestIcon() {
-        XCTAssertEqual(PlayStyleBarHitTest.selection(from: CGPoint(x: 59, y: 24), to: CGPoint(x: 61, y: 24), selectedIndex: 0, size: size, count: 5), 1)
-        XCTAssertEqual(PlayStyleBarHitTest.selection(from: CGPoint(x: 61, y: 24), to: CGPoint(x: 59, y: 24), selectedIndex: 1, size: size, count: 5), 0)
+        XCTAssertEqual(PlayStyleBarHitTest.selection(from: CGPoint(x: 59, y: 24), to: CGPoint(x: 61, y: 24), size: size, count: 5), 1)
+        XCTAssertEqual(PlayStyleBarHitTest.selection(from: CGPoint(x: 61, y: 24), to: CGPoint(x: 59, y: 24), size: size, count: 5), 0)
     }
 
     func testReleaseOnEitherSideOfEveryBoundarySelectsNearestIcon() {
         for boundary in 1..<5 {
             let x = CGFloat(boundary * 60)
             for delta in [CGFloat(-0.1), 0, 0.1] {
-                XCTAssertEqual(PlayStyleBarHitTest.selection(from: CGPoint(x: 30, y: 24), to: CGPoint(x: x + delta, y: 24), selectedIndex: 0, size: size, count: 5), delta < 0 ? boundary - 1 : boundary)
+                XCTAssertEqual(PlayStyleBarHitTest.selection(from: CGPoint(x: 30, y: 24), to: CGPoint(x: x + delta, y: 24), size: size, count: 5), delta < 0 ? boundary - 1 : boundary)
             }
         }
     }

@@ -118,13 +118,14 @@ struct AppShellView: View {
                         state = true
                     }
                     .onChanged { value in
-                        if playStyleDrag == nil {
-                            let start = PlayStyleBarHitTest.index(at: value.startLocation, size: geometry.size, count: styles.count)
-                            playStyleDragOrigin = start == selectedIndex ? selectedIndex : nil
-                            playStyleHapticIndex = selectedIndex
-                        }
                         // 追従は短く、弾ませずにわずかな柔らかさだけを付ける。
                         withAnimation(reduceMotion ? nil : .interactiveSpring(response: 0.16, dampingFraction: 1, blendDuration: 0.08)) {
+                            if playStyleDrag == nil {
+                                // タブバーと同じく、どのアイコンから触れても選択枠がその指の下へ滑って来て、
+                                // そのまま横へ滑らせて選べる。
+                                playStyleDragOrigin = PlayStyleBarHitTest.index(at: value.startLocation, size: geometry.size, count: styles.count)
+                                playStyleHapticIndex = selectedIndex
+                            }
                             playStyleDrag = value
                         }
                         if playStyleDragOrigin != nil,
@@ -136,13 +137,8 @@ struct AppShellView: View {
                     }
                     .onEnded { value in
                         let index = PlayStyleBarHitTest.selection(
-                            from: value.startLocation, to: value.location,
-                            selectedIndex: playStyleDragOrigin ?? selectedIndex, size: geometry.size, count: styles.count
+                            from: value.startLocation, to: value.location, size: geometry.size, count: styles.count
                         )
-                        // ドラッグ中は枠をまたぐたびに鳴らしている。タップで移るときはここで1回だけ鳴らす。
-                        if let index, index != selectedIndex, playStyleDragOrigin == nil {
-                            HapticFeedbackService.detent()
-                        }
                         // 確定先へ吸い付いた最後だけ、ごく小さく弾ませる。
                         withAnimation(reduceMotion ? nil : .spring(response: 0.32, dampingFraction: 0.82)) {
                             if let index { playStyle = styles[index] }
@@ -182,17 +178,11 @@ enum PlayStyleBarHitTest {
         return min(Int(point.x / (size.width / CGFloat(count))), count - 1)
     }
 
-    static func selection(from start: CGPoint, to end: CGPoint, selectedIndex: Int, size: CGSize, count: Int) -> Int? {
-        guard let startIndex = index(at: start, size: size, count: count) else { return nil }
-        // 選択中から始めたドラッグは、バーを上下に離れても横位置だけで確定する。
-        if startIndex == selectedIndex {
-            return nearestIndex(atX: end.x, width: size.width, count: count)
-        }
-        guard let endIndex = index(at: end, size: size, count: count) else { return nil }
-        if hypot(end.x - start.x, end.y - start.y) < 5 {
-            return startIndex == endIndex ? endIndex : nil
-        }
-        return nil
+    /// バーの中で触れ始めたら、どのアイコンからでも、離した横位置にいちばん近いアイコンを選ぶ。
+    /// バーを上下に離れても横位置だけで決める。
+    static func selection(from start: CGPoint, to end: CGPoint, size: CGSize, count: Int) -> Int? {
+        guard index(at: start, size: size, count: count) != nil else { return nil }
+        return nearestIndex(atX: end.x, width: size.width, count: count)
     }
 
     static func nearestIndex(atX x: CGFloat, width: CGFloat, count: Int) -> Int? {

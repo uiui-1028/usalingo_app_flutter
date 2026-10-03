@@ -52,4 +52,15 @@ final class WordListColumnLayoutTests: XCTestCase {
         XCTAssertEqual(RedSheetPosition.coveredColumns(start: 1, translation: -400, columnWidth: 130, maximum: 2), 2)
         XCTAssertEqual(RedSheetPosition.coveredColumns(start: 2, translation: 400, columnWidth: 130, maximum: 2), 1)
     }
+
+    func testRubberBandResistsMoreTheFurtherItIsPulledAndNeverExceedsTheView() {
+        XCTAssertEqual(RubberBand.offset(for: 0, dimension: 600), 0)
+        let small = RubberBand.offset(for: 50, dimension: 600)
+        let large = RubberBand.offset(for: 500, dimension: 600)
+        XCTAssertGreaterThan(small, 0)
+        XCTAssertLessThan(small, 50, "引いた量より少なく動く")
+        XCTAssertLessThan(large / 500, small / 50, "引くほど重くなる")
+        XCTAssertLessThan(RubberBand.offset(for: 100_000, dimension: 600), 600)
+        XCTAssertEqual(RubberBand.offset(for: -50, dimension: 600), -small, accuracy: 0.0001)
+    }
 }

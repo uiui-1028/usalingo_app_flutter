@@ -239,3 +239,124 @@ struct DeckReorderSheet: View {
         }
     }
 }
+
+// MARK: - 長押しメニュー
+
+/// 長押しで開くメニューの中身と、押したカードの画面上の位置。
+struct DeckMenuTarget: Identifiable {
+    let deck: Deck
+    let cardFrame: CGRect
+    let items: [DeckMenuItem]
+
+    var id: Int { deck.id }
+}
+
+/// 長押しメニュー。iOS 標準の長押しメニューより背景を強く暗くぼかすため、自前で重ねる。
+/// 押したカードの形だけ切り抜いて見せ、その上か下にメニューを置く。外をタップすると閉じる。
+struct DeckActionMenuOverlay: View {
+    /// 背景を暗くする濃さ。0...1。
+    static let dimOpacity: Double = 0.6
+
+    let target: DeckMenuTarget
+    /// 閉じ終えたときに呼ぶ。メニューで選んだ操作があれば渡す。
+    let onFinish: ((() -> Void)?) -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isShown = false
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack {
+                backdrop
+                    .contentShape(Rectangle())
+                    .onTapGesture { close(then: nil) }
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityLabel("メニューを閉じる")
+
+                menu(in: proxy.size)
+            }
+        }
+        .ignoresSafeArea()
+        .opacity(isShown ? 1 : 0)
+        .onAppear {
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { isShown = true }
+        }
+    }
+
+    /// 画面全体をぼかして暗くし、押したカードの形だけ抜く。
+    private var backdrop: some View {
+        ZStack {
+            Rectangle().fill(.ultraThinMaterial)
+            Color.black.opacity(Self.dimOpacity)
+        }
+        .mask {
+            Rectangle()
+                .overlay {
+                    RoundedRectangle(cornerRadius: WireMetrics.radiusCard, style: .continuous)
+                        .frame(width: target.cardFrame.width, height: target.cardFrame.height)
+                        .position(x: target.cardFrame.midX, y: target.cardFrame.midY)
+                        .blendMode(.destinationOut)
+                }
+                .compositingGroup()
+        }
+        .accessibilityHidden(true)
+    }
+
+    /// カードが画面の上半分にあれば下へ、下半分にあれば上へ出す。入りきらないときはスクロールさせる。
+    private func menu(in size: CGSize) -> some View {
+        let card = target.cardFrame
+        let opensBelow = card.midY < size.height / 2
+        let gap = WireMetrics.spacingS
+        let margin = WireMetrics.spacingXL
+        let available = max(0, opensBelow ? size.height - card.maxY - gap - margin : card.minY - gap - margin)
+        let width = min(260, size.width - WireMetrics.screenPadding * 2)
+        let x = min(max(card.minX, WireMetrics.screenPadding), size.width - WireMetrics.screenPadding - width)
+
+        return ViewThatFits(in: .vertical) {
+            menuList
+            ScrollView { menuList }
+        }
+        .frame(width: width)
+        .frame(maxHeight: available, alignment: opensBelow ? .top : .bottom)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .shadow(color: .black.opacity(0.25), radius: 20, y: 8)
+        .scaleEffect(isShown || reduceMotion ? 1 : 0.9, anchor: opensBelow ? .top : .bottom)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: opensBelow ? .topLeading : .bottomLeading)
+        .padding(.leading, x)
+        .padding(opensBelow ? .top : .bottom, opensBelow ? card.maxY + gap : size.height - card.minY + gap)
+    }
+
+    private var menuList: some View {
+        VStack(spacing: 0) {
+            ForEach(Array(target.items.enumerated()), id: \.element.id) { index, item in
+                if index > 0 { Divider() }
+                Button {
+                    close(then: item.action)
+                } label: {
+                    HStack(spacing: WireMetrics.spacingM) {
+                        Text(item.title)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Image(systemName: item.systemImage)
+                            .accessibilityHidden(true)
+                    }
+                    .foregroundStyle(item.role == .destructive ? Color.red : Color.primary)
+                    .padding(.horizontal, WireMetrics.spacingM)
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func close(then action: (() -> Void)?) {
+        guard isShown else { return }
+        withAnimation(reduceMotion ? nil : .easeIn(duration: 0.15)) {
+            isShown = false
+        } completion: {
+            onFinish(action)
+        }
+    }
+}
