@@ -67,9 +67,11 @@ struct DeckCarouselView: View {
         static let coverWidthRatio: CGFloat = 0.45
         /// 帯の横幅。中央のカードより少し細くして、主役を目立たせる。
         static let bandWidthRatio: CGFloat = 0.92
-        /// 開いたフォルダの中に並べる小さなタイル。
-        static let tileHeight: CGFloat = 56
+        /// 開いたフォルダの中に縦に積む、横幅いっぱいの行。
+        static let tileHeight: CGFloat = 64
         static let tileSpacing: CGFloat = 8
+        /// 開いたフォルダの上に置く、名前と下線の見出し。
+        static let folderHeaderHeight: CGFloat = 56
         /// 開いたフォルダが画面の高さに占める上限。超える分はフォルダの中だけでスクロールする。
         static let openFolderMaxRatio: CGFloat = 0.72
         /// 帯だけを並べるときの、1枠ぶんの間隔。
@@ -92,7 +94,7 @@ struct DeckCarouselView: View {
     let onAdd: (DeckSlotEdge) -> Void
     /// その枠がフォルダか。開いているか。
     var role: (Deck) -> DeckCardRole = { _ in .deck }
-    /// フォルダの中のデッキ。閉じているときは表紙を重ね、開くと小さなタイルで並べる。
+    /// フォルダの中のデッキ。閉じているときは表紙を重ね、開くと横幅いっぱいの行で縦に積む。
     var children: (Deck) -> [Deck] = { _ in [] }
     /// フォルダの「＋」「－」。
     var onToggleFolder: (Deck) -> Void = { _ in }
@@ -254,12 +256,12 @@ struct DeckCarouselView: View {
     }
 
     private func openFolderHeight(childCount: Int, size: CGSize) -> CGFloat {
-        let content = gridContentHeight(count: childCount) + WireMetrics.spacingS * 2 + Metrics.bandHeight
+        let content = gridContentHeight(count: childCount) + WireMetrics.spacingS * 2 + Metrics.folderHeaderHeight
         return min(max(layout.expandedHeight, content), max(layout.expandedHeight, size.height * Metrics.openFolderMaxRatio))
     }
 
     private func gridContentHeight(count: Int) -> CGFloat {
-        let rows = CGFloat(max(1, (count + 1) / 2))
+        let rows = CGFloat(max(1, count))
         return rows * Metrics.tileHeight + (rows - 1) * Metrics.tileSpacing
     }
 
@@ -349,9 +351,10 @@ struct DeckCarouselView: View {
         .outlineSurface(radius: WireMetrics.radiusCard, fill: BentoTone.l2.fill)
     }
 
-    /// フォルダのカード。閉じているときは中のデッキの表紙を上に重ね、開くと中のデッキを小さなタイルで並べる。
-    /// 下のガラスの帯に名前と「＋」を置く。帯の高さは細い帯の枠と同じなので、中央から離れると帯だけが残る。
-    /// `keepsGrid` は、中のタイルを運んでいる間。フォルダを閉じても運んでいるタイルを画面に残し、
+    /// フォルダのカード。閉じているときは中のデッキの表紙を上に重ね、下のガラスの帯に名前と「＋」を置く。
+    /// 帯の高さは細い帯の枠と同じなので、中央から離れると帯だけが残る。
+    /// 開くと上に名前と下線の見出しを出し、中のデッキを横幅いっぱいの行で縦に積む。「−」は右上の角にかける。
+    /// `keepsGrid` は、中の行を運んでいる間。フォルダを閉じても運んでいる行を画面に残し、
     /// 指で押さえている操作が途中で打ち切られないようにする（見えないまま残す）。
     private func folderCard(_ deck: Deck, slotIndex: Int, isOpen: Bool, keepsGrid: Bool, expansion: CGFloat,
                             width: CGFloat, height: CGFloat) -> some View {
@@ -363,41 +366,71 @@ struct DeckCarouselView: View {
                     .opacity(Double(expansion))
             }
             if isOpen || keepsGrid {
-                folderGrid(deck, slotIndex: slotIndex, width: width, height: max(0, height - Metrics.bandHeight))
+                folderGrid(deck, slotIndex: slotIndex, width: width, height: max(0, height - Metrics.folderHeaderHeight))
                     .frame(maxHeight: .infinity, alignment: .top)
-                    .padding(.bottom, Metrics.bandHeight)
+                    .padding(.top, Metrics.folderHeaderHeight)
                     .opacity(isOpen ? 1 : 0)
             }
 
-            HStack(spacing: WireMetrics.spacingS) {
-                Text(deck.deckName)
-                    .wireFont(expansion > 0.5 ? .titleS : .label, color: WireColor.surface)
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                Button {
-                    toggleFolder(deck, at: slotIndex)
-                } label: {
-                    Image(systemName: isOpen ? "minus" : "plus")
-                        .font(.body.weight(.bold))
-                        .foregroundStyle(WireColor.ink)
-                        .frame(width: 40, height: 40)
-                        .background(Circle().fill(WireColor.surface))
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
+            if isOpen {
+                VStack(alignment: .leading, spacing: WireMetrics.spacingXS) {
+                    Text(deck.deckName)
+                        .wireFont(.titleL)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                    Rectangle()
+                        .fill(WireColor.ink)
+                        .frame(height: 2)
+                        .accessibilityHidden(true)
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(isOpen ? "フォルダを閉じる" : "フォルダを開く")
+                // 右上の角にかけたボタンに名前が隠れないよう、右を空ける。
+                .padding(.leading, WireMetrics.spacingM)
+                .padding(.trailing, 36)
+                .frame(height: Metrics.folderHeaderHeight)
+                .frame(maxHeight: .infinity, alignment: .top)
+            } else {
+                HStack(spacing: WireMetrics.spacingS) {
+                    Text(deck.deckName)
+                        .wireFont(expansion > 0.5 ? .titleS : .label, color: WireColor.surface)
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    folderToggle(deck, slotIndex: slotIndex, isOpen: false)
+                }
+                .padding(.horizontal, WireMetrics.spacingM)
+                .frame(height: Metrics.bandHeight)
+                // 白い文字が表紙の上でも読めるよう、ぼかしに暗い色を重ねる。
+                .background(Color.black.opacity(0.35))
+                .background(.ultraThinMaterial)
             }
-            .padding(.horizontal, WireMetrics.spacingM)
-            .frame(height: Metrics.bandHeight)
-            // 白い文字が表紙の上でも読めるよう、ぼかしに暗い色を重ねる。
-            .background(Color.black.opacity(0.35))
-            .background(.ultraThinMaterial)
         }
         .frame(width: width, height: height)
         .background(BentoTone.l2.fill)
         .clipShape(shape)
         .overlay(shape.strokeBorder(WireColor.ink, lineWidth: WireMetrics.strokeBase))
+        .overlay(alignment: .topTrailing) {
+            if isOpen {
+                folderToggle(deck, slotIndex: slotIndex, isOpen: true)
+                    .offset(x: 8, y: -8)
+            }
+        }
+    }
+
+    /// フォルダを開く「＋」と閉じる「−」。白い丸に細い縁を付ける。
+    private func folderToggle(_ deck: Deck, slotIndex: Int, isOpen: Bool) -> some View {
+        Button {
+            toggleFolder(deck, at: slotIndex)
+        } label: {
+            Image(systemName: isOpen ? "minus" : "plus")
+                .font(.body.weight(.bold))
+                .foregroundStyle(WireColor.ink)
+                .frame(width: 40, height: 40)
+                .background(Circle().fill(WireColor.surface))
+                .overlay(Circle().strokeBorder(WireColor.ink, lineWidth: WireMetrics.strokeBase))
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(isOpen ? "フォルダを閉じる" : "フォルダを開く")
     }
 
     /// 閉じたフォルダの上半分。中のデッキの表紙を、少しずつ傾けて重ねる。
@@ -420,12 +453,12 @@ struct DeckCarouselView: View {
         .accessibilityHidden(true)
     }
 
-    /// 開いたフォルダの中。中のデッキを2列の小さなタイルで並べ、入りきらなければこの中だけスクロールする。
-    /// 中で運んでいる間は、運ぶタイルを除いて並べ、空き箱の分だけ後ろをずらす。
+    /// 開いたフォルダの中。中のデッキを横幅いっぱいの行で縦に積み、入りきらなければこの中だけスクロールする。
+    /// 中で運んでいる間は、運ぶ行を除いて並べ、空き箱の分だけ後ろをずらす。
     private func folderGrid(_ folder: Deck, slotIndex: Int, width: CGFloat, height: CGFloat) -> some View {
         let decks = children(folder)
         let padding = WireMetrics.spacingS
-        let tileWidth = max(0, (width - padding * 2 - Metrics.tileSpacing) / 2)
+        let tileWidth = max(0, width - padding * 2)
         let movingId = drag.flatMap { $0.source == .child(folderSlot: slotIndex) ? $0.deck.id : nil }
         let isMovingInside = drag?.isInFolder == true && movingId != nil
         let contentHeight = gridContentHeight(count: decks.count)
@@ -436,8 +469,7 @@ struct DeckCarouselView: View {
         }
 
         func origin(of position: Int) -> CGPoint {
-            CGPoint(x: CGFloat(position % 2) * (tileWidth + Metrics.tileSpacing),
-                    y: CGFloat(position / 2) * (Metrics.tileHeight + Metrics.tileSpacing))
+            CGPoint(x: 0, y: CGFloat(position) * (Metrics.tileHeight + Metrics.tileSpacing))
         }
 
         return ScrollView {
@@ -472,19 +504,23 @@ struct DeckCarouselView: View {
         .onPreferenceChange(FolderGridOffsetKey.self) { gridScrollOffset = $0 }
     }
 
-    /// 開いたフォルダの中の1枚。押すとそのデッキだけを開き、長押しでメニュー、そのまま動かすと運べる。
+    /// 開いたフォルダの中の1行。左半分に表紙、右に暗い地で名前を置く。
+    /// 押すとそのデッキだけを開き、長押しでメニュー、そのまま動かすと運べる。
     private func childTile(_ deck: Deck, folderSlot: Int, width: CGFloat) -> some View {
-        HStack(spacing: WireMetrics.spacingS) {
+        let shape = RoundedRectangle(cornerRadius: WireMetrics.radiusControl, style: .continuous)
+        return HStack(spacing: 0) {
             DeckCoverImage(url: coverURL(deck), symbol: DeckCoverSymbol.forDeck(id: deck.id))
-                .frame(width: 40, height: 40)
+                .frame(width: width / 2)
             Text(deck.deckName)
-                .wireFont(.caption)
+                .wireFont(.label, color: WireColor.surface)
                 .lineLimit(2)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, WireMetrics.spacingS)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
-        .padding(WireMetrics.spacingXS)
         .frame(width: width, height: Metrics.tileHeight)
-        .outlineSurface(radius: WireMetrics.radiusControl, shadow: nil, fill: WireColor.surface)
+        .background(WireColor.ink)
+        .clipShape(shape)
+        .overlay(shape.strokeBorder(WireColor.ink, lineWidth: WireMetrics.strokeBase))
         .contentShape(Rectangle())
         .onTapGesture { onOpen(deck) }
         .gesture(pressGesture(deck: deck, source: .child(folderSlot: folderSlot)))
@@ -684,12 +720,11 @@ struct DeckCarouselView: View {
         return CGRect(x: 0, y: midY - place.height / 2, width: viewportSize.width, height: place.height)
     }
 
-    /// フォルダの中で、指の下にあるタイルの位置。2列で数える。
+    /// フォルダの中で、指の下にある行の位置。
     private func tileIndex(at point: CGPoint, in rect: CGRect, count: Int) -> Int {
-        let gridTop = rect.minY + WireMetrics.spacingS - gridScrollOffset
+        let gridTop = rect.minY + Metrics.folderHeaderHeight + WireMetrics.spacingS - gridScrollOffset
         let row = max(0, Int((point.y - gridTop) / (Metrics.tileHeight + Metrics.tileSpacing)))
-        let column = point.x < rect.midX ? 0 : 1
-        return min(row * 2 + column, max(0, count))
+        return min(row, max(0, count))
     }
 
     private func finishDrag() {
