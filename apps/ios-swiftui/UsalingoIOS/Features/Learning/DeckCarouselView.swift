@@ -167,8 +167,9 @@ struct DeckCarouselView: View {
             ZStack {
                 ForEach(Array(slots.enumerated()), id: \.element.id) { index, slot in
                     let place = placement(of: index, center: center, size: proxy.size)
-                    // 画面の外の枠は描かない。
-                    if abs(place.y) < proxy.size.height {
+                    // 画面の外の枠は描かない。ただし運んでいるカード（とその元のフォルダ）は消さない。
+                    // 消すと、指で押さえている操作そのものが打ち切られてしまう。
+                    if abs(place.y) < proxy.size.height || isDragOrigin(index) {
                         slotView(slot, index: index, expansion: place.expansion,
                                  width: proxy.size.width, height: place.height)
                             .offset(y: place.y)
@@ -239,6 +240,12 @@ struct DeckCarouselView: View {
         return Array(slots.indices)
     }
 
+    /// 運んでいるカードの元の枠か。フォルダの中のタイルを運んでいるときは、そのフォルダ。
+    private func isDragOrigin(_ index: Int) -> Bool {
+        guard let drag else { return false }
+        return drag.source == .slot(index) || drag.source == .child(folderSlot: index)
+    }
+
     private var openFolderSlot: Int? {
         slots.firstIndex { slot in
             guard let deck = slot.deck else { return false }
@@ -268,7 +275,8 @@ struct DeckCarouselView: View {
                 let merging = drag.map { $0.target == .row(index - 1, .onto) } ?? false
                 Group {
                     if case .folder(let isOpen) = role(deck) {
-                        folderCard(deck, slotIndex: index, isOpen: isOpen && !isBandMode, expansion: expansion,
+                        folderCard(deck, slotIndex: index, isOpen: isOpen && !isBandMode,
+                                   keepsGrid: drag?.source == .child(folderSlot: index), expansion: expansion,
                                    width: cardWidth, height: height)
                     } else {
                         deckCard(deck, expansion: expansion, width: cardWidth, height: height)
@@ -343,18 +351,22 @@ struct DeckCarouselView: View {
 
     /// フォルダのカード。閉じているときは中のデッキの表紙を上に重ね、開くと中のデッキを小さなタイルで並べる。
     /// 下のガラスの帯に名前と「＋」を置く。帯の高さは細い帯の枠と同じなので、中央から離れると帯だけが残る。
-    private func folderCard(_ deck: Deck, slotIndex: Int, isOpen: Bool, expansion: CGFloat,
+    /// `keepsGrid` は、中のタイルを運んでいる間。フォルダを閉じても運んでいるタイルを画面に残し、
+    /// 指で押さえている操作が途中で打ち切られないようにする（見えないまま残す）。
+    private func folderCard(_ deck: Deck, slotIndex: Int, isOpen: Bool, keepsGrid: Bool, expansion: CGFloat,
                             width: CGFloat, height: CGFloat) -> some View {
         let shape = RoundedRectangle(cornerRadius: WireMetrics.radiusCard, style: .continuous)
 
         return ZStack(alignment: .bottom) {
-            if isOpen {
-                folderGrid(deck, slotIndex: slotIndex, width: width, height: height - Metrics.bandHeight)
-                    .frame(maxHeight: .infinity, alignment: .top)
-                    .padding(.bottom, Metrics.bandHeight)
-            } else {
+            if !isOpen {
                 coverStack(children(deck), height: height)
                     .opacity(Double(expansion))
+            }
+            if isOpen || keepsGrid {
+                folderGrid(deck, slotIndex: slotIndex, width: width, height: max(0, height - Metrics.bandHeight))
+                    .frame(maxHeight: .infinity, alignment: .top)
+                    .padding(.bottom, Metrics.bandHeight)
+                    .opacity(isOpen ? 1 : 0)
             }
 
             HStack(spacing: WireMetrics.spacingS) {
@@ -414,9 +426,14 @@ struct DeckCarouselView: View {
         let decks = children(folder)
         let padding = WireMetrics.spacingS
         let tileWidth = max(0, (width - padding * 2 - Metrics.tileSpacing) / 2)
-        let movingId = drag.flatMap { $0.isInFolder && $0.source == .child(folderSlot: slotIndex) ? $0.deck.id : nil }
-        let others = decks.filter { $0.id != movingId }
+        let movingId = drag.flatMap { $0.source == .child(folderSlot: slotIndex) ? $0.deck.id : nil }
+        let isMovingInside = drag?.isInFolder == true && movingId != nil
         let contentHeight = gridContentHeight(count: decks.count)
+        /// 運んでいるタイルを除いた並びでの位置。空き箱の分だけ後ろをずらす。
+        func position(of deck: Deck) -> Int {
+            let index = decks.filter { $0.id != movingId }.firstIndex { $0.id == deck.id } ?? 0
+            return isMovingInside && index >= (drag?.tileGap ?? 0) ? index + 1 : index
+        }
 
         func origin(of position: Int) -> CGPoint {
             CGPoint(x: CGFloat(position % 2) * (tileWidth + Metrics.tileSpacing),
@@ -425,12 +442,14 @@ struct DeckCarouselView: View {
 
         return ScrollView {
             ZStack(alignment: .topLeading) {
-                ForEach(Array(others.enumerated()), id: \.element.id) { position, child in
-                    let shifted = movingId != nil && position >= (drag?.tileGap ?? 0) ? position + 1 : position
+                ForEach(decks) { child in
+                    // 運んでいるタイルは見えないまま元の場所に残す（指の下には浮かべた写しを出す）。
+                    let place = child.id == movingId ? origin(of: drag?.tileGap ?? 0) : origin(of: position(of: child))
                     childTile(child, folderSlot: slotIndex, width: tileWidth)
-                        .offset(x: origin(of: shifted).x, y: origin(of: shifted).y)
+                        .offset(x: place.x, y: place.y)
+                        .opacity(child.id == movingId ? 0 : 1)
                 }
-                if movingId != nil, let gap = drag?.tileGap {
+                if isMovingInside, let gap = drag?.tileGap {
                     dropPlaceholder(width: tileWidth, height: Metrics.tileHeight)
                         .offset(x: origin(of: gap).x, y: origin(of: gap).y)
                 }
@@ -447,7 +466,8 @@ struct DeckCarouselView: View {
             }
         }
         .coordinateSpace(name: Self.gridCoordinateSpace)
-        .scrollDisabled(contentHeight + padding * 2 <= height)
+        // 長押しで掴んでいる間は、フォルダの中のスクロールに指を取られないよう止める。
+        .scrollDisabled(contentHeight + padding * 2 <= height || pressedDeckId != nil)
         .scrollIndicators(.hidden)
         .onPreferenceChange(FolderGridOffsetKey.self) { gridScrollOffset = $0 }
     }
