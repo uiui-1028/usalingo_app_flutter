@@ -555,10 +555,11 @@ final class LocalStudyDataSourceTests: XCTestCase {
         let folder = try source.createFolder(named: "F", containing: first.id)
         try source.moveDeck(second.id, toFolder: folder.id)
 
-        try source.removeDeckFromFolder(first.id)
+        // フォルダの外へ運ぶと、フォルダから出て指定した位置に入る。
+        try source.moveEntry(.deck(first.id), toTopLevelIndex: 0)
         var layout = try source.arrangedDeckTree(for: decks).map(\.layoutEntry)
-        XCTAssertEqual(layout.firstIndex(of: .deck(first.id)), layout.firstIndex(of: .folder(folder.id)).map { $0 + 1 },
-                       "出したデッキはフォルダのすぐ下に置く")
+        XCTAssertEqual(layout.first, .deck(first.id))
+        XCTAssertEqual(source.deckFolders.first?.deckIds, [second.id])
 
         try source.deleteFolder(folder.id)
         layout = try source.arrangedDeckTree(for: decks).map(\.layoutEntry)
@@ -566,6 +567,43 @@ final class LocalStudyDataSourceTests: XCTestCase {
         XCTAssertTrue(layout.contains(.deck(first.id)))
         XCTAssertTrue(layout.contains(.deck(second.id)))
         XCTAssertTrue(source.deckFolders.isEmpty)
+    }
+
+    func testDeckMovesToTheChosenPlaceInsideAFolder() async throws {
+        let source = makeDataSource()
+        let first = try source.importDeck(from: sampleDeckData(cardCount: 1, deckId: "first"))
+        let second = try source.importDeck(from: sampleDeckData(cardCount: 1, deckId: "second"))
+        let third = try source.importDeck(from: sampleDeckData(cardCount: 1, deckId: "third"))
+        let decks = try await source.fetchDecks()
+        _ = try source.arrangedDeckTree(for: decks)
+        let folder = try source.createFolder(named: "F", containing: first.id)
+        try source.moveDeck(second.id, toFolder: folder.id)
+
+        try source.moveDeck(third.id, toFolder: folder.id, at: 1)
+        XCTAssertEqual(source.deckFolders.first?.deckIds, [first.id, third.id, second.id])
+        try source.moveDeck(second.id, toFolder: folder.id, at: 0)
+        XCTAssertEqual(source.deckFolders.first?.deckIds, [second.id, first.id, third.id])
+    }
+
+    func testDeletingOfficialDeckHidesItButKeepsItsRecordsUntilAddedAgain() async throws {
+        let source = makeDataSource()
+        let initialDecks = try await source.fetchDecks()
+        let starter = try XCTUnwrap(initialDecks.first { !source.canManage($0) })
+        let queue = try await source.fetchStudyQueue(deckId: starter.id, mode: .all)
+        let card = try XCTUnwrap(queue.first)
+        _ = try await source.saveAnswerWithUndo(card: card, isCorrect: true)
+
+        try source.hideDeck(id: starter.id)
+        XCTAssertTrue(source.isHidden(deckId: starter.id))
+        let hiddenDecks = try await source.fetchDecks()
+        XCTAssertFalse(hiddenDecks.contains { $0.id == starter.id })
+        XCTAssertTrue(source.hasStudyRecord, "学習の記録は残す")
+
+        try source.unhideDeck(id: starter.id)
+        let restored = try await source.fetchStudyQueue(deckId: starter.id, mode: .all)
+        let shownDecks = try await source.fetchDecks()
+        XCTAssertTrue(shownDecks.contains { $0.id == starter.id })
+        XCTAssertNotNil(restored.first { $0.id == card.id }?.learning, "追加し直すと記録ごと戻る")
     }
 
     func testRenamingOwnDeckChangesItsNameButOfficialDeckOnlyGetsADisplayName() async throws {

@@ -88,10 +88,20 @@ struct DeckCarouselView: View {
     let onAdd: (DeckSlotEdge) -> Void
     /// その枠がフォルダか、フォルダの中のデッキか。
     var role: (Deck) -> DeckCardRole = { _ in .deck }
+    /// フォルダのカードに重ねて見せる、中のデッキ。
+    var children: (Deck) -> [Deck] = { _ in [] }
     /// フォルダの「＋」。中のデッキを出し入れする。
     var onToggleFolder: (Deck) -> Void = { _ in }
     /// 長押し。押したカードの画面上の位置を渡し、呼ぶ側が自前のメニューを重ねる。
     let onLongPress: (Deck, CGRect) -> Void
+    /// 長押しのまま指を動かし始めた。呼ぶ側はメニューを閉じる。
+    var onDragStart: (Deck) -> Void = { _ in }
+    /// 指を離した。番号はどちらも `decks` の中での位置。
+    var onDrop: (Int, DeckDropTarget) -> Void = { _, _ in }
+
+    private static let coordinateSpace = "deckCarousel"
+    /// 端からこの距離まで指を寄せると、カルーセルを1枚ずつ送る。
+    private static let autoScrollEdge: CGFloat = 72
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @StateObject private var motion = AudioCarouselMotion()
@@ -99,6 +109,21 @@ struct DeckCarouselView: View {
     @State private var centerIndex = 0
     /// カードごとの画面上の位置。書き換えても描き直さないよう、参照で持つ。
     @State private var cardFrames = CardFrameBox()
+    /// 長押しが決まった枠。指を離すまで持つ。
+    @State private var pressedIndex: Int?
+    /// 長押しのあと指で運んでいるカード。
+    @State private var drag: CardDrag?
+    @GestureState private var isPressing = false
+    /// 端へ寄せて送っている向き。-1 で上、1 で下、0 で止める。
+    @State private var autoScrollDirection = 0
+    @State private var viewportSize: CGSize = .zero
+
+    private struct CardDrag {
+        let deck: Deck
+        let slotIndex: Int
+        var location: CGPoint
+        var target: DeckDropTarget?
+    }
 
     private var slots: [DeckSlot] { DeckSlot.slots(for: decks) }
 
@@ -123,6 +148,10 @@ struct DeckCarouselView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .contentShape(Rectangle())
             .gesture(dragGesture)
+            .overlay { dragOverlay(size: proxy.size, center: center) }
+            .coordinateSpace(name: Self.coordinateSpace)
+            .onAppear { viewportSize = proxy.size }
+            .onChange(of: proxy.size) { _, size in viewportSize = size }
         }
         .onAppear { synchronize() }
         .onDisappear { motion.stop() }
@@ -132,6 +161,11 @@ struct DeckCarouselView: View {
                 motion.snap(to: motion.nearestIndex, animated: false, completion: complete)
             }
         }
+        .onChange(of: isPressing) { _, pressing in
+            // システムに指を取り上げられたときは onEnded が来ないので、ここで片付ける。
+            if !pressing { cancelPress() }
+        }
+        .task(id: autoScrollDirection) { await autoScroll() }
     }
 
     // MARK: - 1枠
@@ -143,7 +177,28 @@ struct DeckCarouselView: View {
         Group {
             switch slot {
             case .deck(let deck):
-                deckCard(deck, index: index, expansion: expansion, width: cardWidth, height: height)
+                let merging = isMergeTarget(rowIndex: index - 1)
+                Group {
+                    if case .folder(let isExpanded) = role(deck) {
+                        folderCard(deck, isExpanded: isExpanded, expansion: expansion, width: cardWidth, height: height)
+                    } else {
+                        deckCard(deck, expansion: expansion, width: cardWidth, height: height)
+                    }
+                }
+                .modifier(cardInteractions(deck, index: index))
+                .overlay {
+                    if merging {
+                        RoundedRectangle(cornerRadius: WireMetrics.radiusCard, style: .continuous)
+                            .strokeBorder(WireColor.ink, lineWidth: 3)
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                    }
+                }
+                .scaleEffect(merging ? 1.04 : 1)
+                // 位置の記録より外で寄せ、メニューの切り抜きとカードの位置をそろえる。
+                .offset(x: role(deck) == .child ? Metrics.childIndent / 2 : 0)
+                .opacity(drag?.slotIndex == index ? 0.35 : 1)
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: merging)
             case .empty(let edge):
                 emptyCard(edge, width: cardWidth, height: height)
             }
@@ -160,43 +215,22 @@ struct DeckCarouselView: View {
         .accessibilityHidden(index != centerIndex)
     }
 
-    private func deckCard(_ deck: Deck, index: Int, expansion: CGFloat,
-                          width fullWidth: CGFloat, height: CGFloat) -> some View {
+    private func deckCard(_ deck: Deck, expansion: CGFloat, width fullWidth: CGFloat, height: CGFloat) -> some View {
         let progress = summary(deck)
-        let isCenter = index == centerIndex
-        let cardRole = self.role(deck)
+        let isChild = role(deck) == .child
         // フォルダの中のデッキは、少し右へ寄せて細くし、どのフォルダの下かを見せる。
-        let width = cardRole == .child ? fullWidth - Metrics.childIndent : fullWidth
+        let width = isChild ? fullWidth - Metrics.childIndent : fullWidth
 
         return HStack(alignment: .top, spacing: WireMetrics.spacingM) {
-            DeckCoverImage(url: coverURL(deck), symbol: cardRole.isFolder ? "folder" : DeckCoverSymbol.forDeck(id: deck.id))
+            DeckCoverImage(url: coverURL(deck), symbol: DeckCoverSymbol.forDeck(id: deck.id))
                 .frame(width: width * Metrics.coverWidthRatio)
                 .frame(maxHeight: .infinity)
 
             VStack(alignment: .leading, spacing: WireMetrics.spacingS) {
-                HStack(alignment: .top, spacing: WireMetrics.spacingS) {
-                    if cardRole.isFolder {
-                        Image(systemName: "folder")
-                            .wireFont(.label)
-                            .accessibilityHidden(true)
-                    }
-                    Text(deck.deckName)
-                        .wireFont(expansion > 0.5 ? .titleS : .label)
-                        .lineLimit(2)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    if case .folder(let isExpanded) = cardRole {
-                        Button {
-                            onToggleFolder(deck)
-                        } label: {
-                            Image(systemName: isExpanded ? "minus" : "plus")
-                                .font(.body.weight(.bold))
-                                .frame(width: 44, height: 44)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(isExpanded ? "フォルダを閉じる" : "フォルダを開く")
-                    }
-                }
+                Text(deck.deckName)
+                    .wireFont(expansion > 0.5 ? .titleS : .label)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 // 中央へ近づくほど、進み具合を浮かび上がらせる。
                 VStack(alignment: .leading, spacing: WireMetrics.spacingS) {
                     DeckMasteryBar(
@@ -218,18 +252,75 @@ struct DeckCarouselView: View {
         .frame(width: width, height: height, alignment: .topLeading)
         .clipped()
         .outlineSurface(radius: WireMetrics.radiusCard, fill: BentoTone.l2.fill)
-        .contentShape(Rectangle())
-        .onTapGesture { isCenter ? onOpen(deck) : snap(to: index) }
-        .onLongPressGesture(minimumDuration: 0.45) { presentMenu(for: deck) }
-        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { cardFrames.frames[deck.id] = $0 }
-        .offset(x: cardRole == .child ? Metrics.childIndent / 2 : 0)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(cardRole.isFolder ? "フォルダ \(deck.deckName)" : deck.deckName)
-        .accessibilityValue("\(progress.totalCount) 語のうち \(progress.masteredCount) 語を習得")
-        .accessibilityHint("選んだ遊び方で開きます")
-        .accessibilityAddTraits(.isButton)
-        // ponytail: 支援技術からは名前付きの操作でメニューを開くだけの最低限。作り込みは後でまとめて行う。
-        .accessibilityAction(named: "メニュー") { presentMenu(for: deck) }
+    }
+
+    /// フォルダのカード。中のデッキの表紙を上に重ね、下のガラスの帯に名前と「＋」を置く。
+    /// 帯の高さは細い帯の枠と同じなので、中央から離れると帯だけが残る。
+    private func folderCard(_ deck: Deck, isExpanded: Bool, expansion: CGFloat,
+                            width: CGFloat, height: CGFloat) -> some View {
+        let covers = Array(children(deck).prefix(4))
+        let coverSize = max(0, min(130, height - Metrics.bandHeight - WireMetrics.spacingS))
+        let shape = RoundedRectangle(cornerRadius: WireMetrics.radiusCard, style: .continuous)
+
+        return ZStack(alignment: .bottom) {
+            HStack(spacing: -coverSize * 0.3) {
+                if covers.isEmpty {
+                    DeckCoverImage(url: nil, symbol: "folder")
+                        .frame(width: coverSize, height: coverSize)
+                }
+                ForEach(Array(covers.enumerated()), id: \.element.id) { offset, child in
+                    DeckCoverImage(url: coverURL(child), symbol: DeckCoverSymbol.forDeck(id: child.id))
+                        .frame(width: coverSize, height: coverSize)
+                        .rotationEffect(.degrees(offset.isMultiple(of: 2) ? -4 : 4))
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .padding(.top, WireMetrics.spacingS)
+            .opacity(Double(expansion))
+            .accessibilityHidden(true)
+
+            HStack(spacing: WireMetrics.spacingS) {
+                Text(deck.deckName)
+                    .wireFont(expansion > 0.5 ? .titleS : .label, color: WireColor.surface)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Button {
+                    onToggleFolder(deck)
+                } label: {
+                    Image(systemName: isExpanded ? "minus" : "plus")
+                        .font(.body.weight(.bold))
+                        .foregroundStyle(WireColor.ink)
+                        .frame(width: 40, height: 40)
+                        .background(Circle().fill(WireColor.surface))
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(isExpanded ? "フォルダを閉じる" : "フォルダを開く")
+            }
+            .padding(.horizontal, WireMetrics.spacingM)
+            .frame(height: Metrics.bandHeight)
+            // 白い文字が表紙の上でも読めるよう、ぼかしに暗い色を重ねる。
+            .background(Color.black.opacity(0.35))
+            .background(.ultraThinMaterial)
+        }
+        .frame(width: width, height: height)
+        .background(BentoTone.l2.fill)
+        .clipShape(shape)
+        .overlay(shape.strokeBorder(WireColor.ink, lineWidth: WireMetrics.strokeBase))
+    }
+
+    /// タップで開き、長押しでメニュー、長押しのまま動かすと並べ替え。
+    private func cardInteractions(_ deck: Deck, index: Int) -> some ViewModifier {
+        CardInteractions(
+            deck: deck,
+            isFolder: role(deck).isFolder,
+            progress: summary(deck),
+            onTap: { index == centerIndex ? onOpen(deck) : snap(to: index) },
+            press: pressGesture(deck: deck, index: index),
+            onFrame: { cardFrames.frames[deck.id] = $0 },
+            onMenu: { presentMenu(for: deck) }
+        )
     }
 
     private func presentMenu(for deck: Deck) {
@@ -259,6 +350,156 @@ struct DeckCarouselView: View {
             .accessibilityLabel(edge == .top ? "先頭にデッキを追加" : "末尾にデッキを追加")
             .accessibilityHint("デッキライブラリを開きます")
             .accessibilityAddTraits(.isButton)
+    }
+
+    // MARK: - 長押しで運ぶ
+
+    private func pressGesture(deck: Deck, index: Int) -> AnyGesture<Void> {
+        AnyGesture(
+            LongPressGesture(minimumDuration: 0.45)
+                .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.coordinateSpace)))
+                .updating($isPressing) { _, state, _ in state = true }
+                .onChanged { value in
+                    guard case .second(true, let dragValue) = value else { return }
+                    if pressedIndex != index {
+                        pressedIndex = index
+                        presentMenu(for: deck)
+                    }
+                    guard let dragValue else { return }
+                    if drag == nil {
+                        // 指を少し動かしたら、メニューをやめて運び始める。
+                        guard hypot(dragValue.translation.width, dragValue.translation.height) > 8 else { return }
+                        drag = CardDrag(deck: deck, slotIndex: index, location: dragValue.location)
+                        onDragStart(deck)
+                    }
+                    updateDrag(to: dragValue.location)
+                }
+                .onEnded { _ in finishDrag() }
+                .map { _ in () }
+        )
+    }
+
+    private func updateDrag(to location: CGPoint) {
+        guard var current = drag else { return }
+        current.location = location
+        let target = dropTarget(at: location, rowOfDragged: current.slotIndex - 1)
+        if target != current.target {
+            current.target = target
+            HapticFeedbackService.detent()
+        }
+        drag = current
+        let edge = Self.autoScrollEdge
+        autoScrollDirection = location.y < edge ? -1 : (location.y > viewportSize.height - edge ? 1 : 0)
+    }
+
+    private func finishDrag() {
+        let finished = drag
+        cancelPress()
+        guard let finished, let target = finished.target else { return }
+        onDrop(finished.slotIndex - 1, target)
+    }
+
+    private func cancelPress() {
+        drag = nil
+        pressedIndex = nil
+        autoScrollDirection = 0
+    }
+
+    /// 端へ寄せている間、1枚ずつ送る。送ったら、指の下の落とし先を選び直す。
+    private func autoScroll() async {
+        guard autoScrollDirection != 0 else { return }
+        while !Task.isCancelled, drag != nil {
+            snap(to: centerIndex + autoScrollDirection)
+            try? await Task.sleep(for: .seconds(0.45))
+            if let location = drag?.location { updateDrag(to: location) }
+        }
+    }
+
+    /// 指の位置にある枠と、その上・真ん中・下のどこか。
+    private func dropTarget(at point: CGPoint, rowOfDragged: Int) -> DeckDropTarget? {
+        let center = -motion.position / layout.stride
+        for (index, slot) in slots.enumerated() {
+            let offset = CGFloat(index) - center
+            let midY = viewportSize.height / 2 + layout.y(offset: offset)
+            let height = layout.height(offset: offset)
+            guard point.y >= midY - (height + layout.spacing) / 2,
+                  point.y < midY + (height + layout.spacing) / 2 else { continue }
+            switch slot {
+            case .empty(.top): return .start
+            case .empty(.bottom): return .end
+            case .deck:
+                guard index - 1 != rowOfDragged else { return nil }
+                let ratio = (point.y - (midY - height / 2)) / max(height, 1)
+                return .row(index - 1, ratio < 0.25 ? .before : (ratio > 0.75 ? .after : .onto))
+            }
+        }
+        return point.y < viewportSize.height / 2 ? .start : .end
+    }
+
+    /// 重ねるとフォルダにまとまる枠か。フォルダは重ねられないので、運んでいるのがフォルダなら出さない。
+    private func isMergeTarget(rowIndex: Int) -> Bool {
+        guard let drag, drag.target == .row(rowIndex, .onto) else { return false }
+        return !role(drag.deck).isFolder
+    }
+
+    /// 運んでいるカードと、差し込む位置の線。指には触れない。
+    @ViewBuilder
+    private func dragOverlay(size: CGSize, center: CGFloat) -> some View {
+        if let drag {
+            ZStack {
+                if let lineY = insertionLineY(for: drag.target, dragged: drag.deck, size: size, center: center) {
+                    Capsule()
+                        .fill(WireColor.ink)
+                        .frame(width: size.width * Metrics.bandWidthRatio, height: 4)
+                        .position(x: size.width / 2, y: lineY)
+                }
+                floatingCard(drag.deck)
+                    .frame(width: size.width * Metrics.bandWidthRatio, height: Metrics.bandHeight)
+                    .position(drag.location)
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+        }
+    }
+
+    private func insertionLineY(for target: DeckDropTarget?, dragged: Deck, size: CGSize, center: CGFloat) -> CGFloat? {
+        let slotIndex: Int
+        let isBefore: Bool
+        switch target {
+        case .none:
+            return nil
+        case .start:
+            slotIndex = 1
+            isBefore = true
+        case .end:
+            slotIndex = slots.count - 2
+            isBefore = false
+        case .row(let row, let zone):
+            // フォルダは重ねられないので、真ん中でも後ろへ差し込む線を出す。
+            if zone == .onto, !role(dragged).isFolder { return nil }
+            slotIndex = row + 1
+            isBefore = zone == .before
+        }
+        guard slots.indices.contains(slotIndex) else { return nil }
+        let offset = CGFloat(slotIndex) - center
+        let midY = size.height / 2 + layout.y(offset: offset)
+        let half = (layout.height(offset: offset) + layout.spacing) / 2
+        return isBefore ? midY - half : midY + half
+    }
+
+    private func floatingCard(_ deck: Deck) -> some View {
+        HStack(spacing: WireMetrics.spacingM) {
+            DeckCoverImage(url: coverURL(deck), symbol: role(deck).isFolder ? "folder" : DeckCoverSymbol.forDeck(id: deck.id))
+                .frame(width: 48, height: 48)
+            Text(deck.deckName)
+                .wireFont(.label)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(WireMetrics.spacingS)
+        .outlineSurface(radius: WireMetrics.radiusCard, fill: BentoTone.l2.fill)
+        .scaleEffect(1.05)
+        .shadow(color: .black.opacity(0.2), radius: 12, y: 6)
     }
 
     // MARK: - 動かす
@@ -297,6 +538,32 @@ struct DeckCarouselView: View {
     private func complete(at index: Int) {
         centerIndex = index
         if let deck = slots[index].deck { onSelect(deck) }
+    }
+}
+
+/// カードのタップ・長押し・位置の記録・読み上げを、デッキとフォルダで共通にまとめる。
+private struct CardInteractions: ViewModifier {
+    let deck: Deck
+    let isFolder: Bool
+    let progress: DeckProgressSummary
+    let onTap: () -> Void
+    let press: AnyGesture<Void>
+    let onFrame: (CGRect) -> Void
+    let onMenu: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .contentShape(Rectangle())
+            .onTapGesture(perform: onTap)
+            .gesture(press)
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { onFrame($0) }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(isFolder ? "フォルダ \(deck.deckName)" : deck.deckName)
+            .accessibilityValue("\(progress.totalCount) 語のうち \(progress.masteredCount) 語を習得")
+            .accessibilityHint("選んだ遊び方で開きます")
+            .accessibilityAddTraits(.isButton)
+            // ponytail: 支援技術からは名前付きの操作でメニューを開くだけの最低限。作り込みは後でまとめて行う。
+            .accessibilityAction(named: "メニュー", onMenu)
     }
 }
 

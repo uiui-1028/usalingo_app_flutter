@@ -41,6 +41,8 @@ struct LocalStudyLibrary: Codable {
     /// 中身を書き換えられないデッキ（公式デッキなど）に付けた、この端末だけの表示名。
     /// キーはデッキ番号の文字列。
     var displayNames: [String: String] = [:]
+    /// この端末の学習タブから外した配信中のデッキ。学習の記録は消さずに残す。
+    var hiddenDeckIds: [Int] = []
 }
 
 extension LocalStudyLibrary {
@@ -56,6 +58,7 @@ extension LocalStudyLibrary {
         folders = try container.decodeIfPresent([LocalDeckFolder].self, forKey: .folders) ?? []
         nextFolderId = try container.decodeIfPresent(Int.self, forKey: .nextFolderId) ?? 1
         displayNames = try container.decodeIfPresent([String: String].self, forKey: .displayNames) ?? [:]
+        hiddenDeckIds = try container.decodeIfPresent([Int].self, forKey: .hiddenDeckIds) ?? []
     }
 }
 
@@ -375,8 +378,9 @@ final class LocalStudyDataSource: StudyDataSource {
     static func cachedDeckId(remoteDeckId id: Int) -> Int { -id - 1 }
 
     func fetchDecks() async throws -> [Deck] {
-        cachedRemoteDecks.map { cached in
+        cachedRemoteDecks.compactMap { cached in
             let id = Self.cachedDeckId(remoteDeckId: cached.deck.id)
+            guard !library.hiddenDeckIds.contains(id) else { return nil }
             return Deck(id: id, deckName: library.displayNames[String(id)] ?? cached.deck.deckName,
                         description: cached.deck.description, ownerId: cached.deck.ownerId)
         } + decks().map(\.deck)
@@ -560,16 +564,21 @@ final class LocalStudyDataSource: StudyDataSource {
         return tree
     }
 
-    /// 一番上の階層の並びを置き換える。並び替え画面の「完了」で呼ぶ。
-    func saveLayout(_ entries: [DeckLayoutEntry]) throws {
-        library.layout = entries
-        try persistLibrary()
-    }
-
     /// 追加したデッキを、選んだ空き枠の側の端へ置く。
     func placeDeck(id: Int, atTop: Bool) throws {
-        var entries = (library.layout ?? []).filter { $0 != .deck(id) }
-        if atTop { entries.insert(.deck(id), at: 0) } else { entries.append(.deck(id)) }
+        try moveEntry(.deck(id), toTopLevelIndex: atTop ? 0 : Int.max)
+    }
+
+    /// デッキかフォルダを、一番上の階層の `index` 番目へ動かす。デッキはフォルダに入っていれば出す。
+    /// `index` は動かすものを除いた並びでの位置で、範囲の外なら端に寄せる。
+    func moveEntry(_ entry: DeckLayoutEntry, toTopLevelIndex index: Int) throws {
+        if case .deck(let deckId) = entry {
+            for folderIndex in library.folders.indices {
+                library.folders[folderIndex].deckIds.removeAll { $0 == deckId }
+            }
+        }
+        var entries = (library.layout ?? []).filter { $0 != entry }
+        entries.insert(entry, at: min(max(0, index), entries.count))
         library.layout = entries
         try persistLibrary()
     }
@@ -591,34 +600,18 @@ final class LocalStudyDataSource: StudyDataSource {
         return folder
     }
 
-    /// デッキを既存のフォルダの末尾へ入れる。ほかのフォルダや一番上の階層からは外す。
-    func moveDeck(_ deckId: Int, toFolder folderId: Int) throws {
+    /// デッキを既存のフォルダの `index` 番目（nil なら末尾）へ入れる。ほかのフォルダや一番上の階層からは外す。
+    /// `index` は動かすデッキを除いたフォルダの中での位置。
+    func moveDeck(_ deckId: Int, toFolder folderId: Int, at index: Int? = nil) throws {
         guard let target = library.folders.firstIndex(where: { $0.id == folderId }) else {
             throw LocalStudyError.deckNotFound
         }
-        for index in library.folders.indices {
-            library.folders[index].deckIds.removeAll { $0 == deckId }
+        for folderIndex in library.folders.indices {
+            library.folders[folderIndex].deckIds.removeAll { $0 == deckId }
         }
-        library.folders[target].deckIds.append(deckId)
+        let children = library.folders[target].deckIds
+        library.folders[target].deckIds.insert(deckId, at: min(max(0, index ?? children.count), children.count))
         library.layout = (library.layout ?? []).filter { $0 != .deck(deckId) }
-        try persistLibrary()
-    }
-
-    /// デッキをフォルダから出し、そのフォルダのすぐ下に置く。
-    func removeDeckFromFolder(_ deckId: Int) throws {
-        guard let index = library.folders.firstIndex(where: { $0.deckIds.contains(deckId) }) else { return }
-        library.folders[index].deckIds.removeAll { $0 == deckId }
-        var entries = library.layout ?? []
-        let position = entries.firstIndex(of: .folder(library.folders[index].id)).map { $0 + 1 } ?? entries.count
-        entries.insert(.deck(deckId), at: position)
-        library.layout = entries
-        try persistLibrary()
-    }
-
-    /// フォルダの中の並びを置き換える。
-    func reorderFolder(_ folderId: Int, deckIds: [Int]) throws {
-        guard let index = library.folders.firstIndex(where: { $0.id == folderId }) else { return }
-        library.folders[index].deckIds = deckIds
         try persistLibrary()
     }
 
@@ -635,6 +628,23 @@ final class LocalStudyDataSource: StudyDataSource {
         library.layout = entries
         library.folders.remove(at: index)
         try persistLibrary()
+    }
+
+    /// 配信中のデッキを、この端末の学習タブから外す。学習の記録は残し、ギャラリーから追加し直すと戻る。
+    func hideDeck(id: Int) throws {
+        guard !library.hiddenDeckIds.contains(id) else { return }
+        library.hiddenDeckIds.append(id)
+        try persistLibrary()
+    }
+
+    func unhideDeck(id: Int) throws {
+        guard library.hiddenDeckIds.contains(id) else { return }
+        library.hiddenDeckIds.removeAll { $0 == id }
+        try persistLibrary()
+    }
+
+    func isHidden(deckId: Int) -> Bool {
+        library.hiddenDeckIds.contains(deckId)
     }
 
     func renameFolder(_ folderId: Int, to name: String) throws {

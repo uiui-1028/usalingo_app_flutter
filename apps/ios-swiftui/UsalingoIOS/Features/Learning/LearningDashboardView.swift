@@ -47,9 +47,8 @@ struct LearningDashboardView: View {
     @State private var expandedFolderIds: Set<Int> = []
     @State private var renamingDeck: Deck?
     @State private var renameText = ""
-    @State private var movingDeck: Deck?
-    @State private var isReordering = false
     @State private var folderPendingDeletion: LocalDeckFolder?
+    @State private var deckPendingDeletion: Deck?
     @State private var menuTarget: DeckMenuTarget?
     /// メニューで選んだ操作。シートや確認を重ねないよう、メニューが閉じ切ってから行う。
     @State private var pendingMenuAction: (() -> Void)?
@@ -67,8 +66,6 @@ struct LearningDashboardView: View {
     @State private var choiceDeck: Deck?
     @AppStorage(DeckPlayStyle.storageKey) private var playStyle: DeckPlayStyle = .card
     @State private var errorMessage: String?
-    @State private var exportDocument: DeckDocument?
-    @State private var exportFileName = "deck"
 
     var body: some View {
         NavigationStack {
@@ -135,19 +132,6 @@ struct LearningDashboardView: View {
         .padding(.horizontal, WireMetrics.screenPadding)
         .padding(.top, WireMetrics.spacingM)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .fileExporter(
-            isPresented: Binding(
-                get: { exportDocument != nil },
-                set: { if !$0 { exportDocument = nil } }
-            ),
-            document: exportDocument,
-            contentType: .json,
-            defaultFilename: exportFileName
-        ) { result in
-            if case .failure(let error) = result {
-                errorMessage = "デッキを書き出せませんでした。\(UserFacingError.advice(for: error))"
-            }
-        }
     }
 
     private var carousel: some View {
@@ -163,8 +147,15 @@ struct LearningDashboardView: View {
                 isShowingLibrary = true
             },
             role: role(of:),
+            children: { deck in folder(of: deck).map(childDecks(of:)) ?? [] },
             onToggleFolder: toggleFolder,
-            onLongPress: presentMenu(for:cardFrame:)
+            onLongPress: presentMenu(for:cardFrame:),
+            onDragStart: { _ in
+                // 長押しのまま動かし始めたら、メニューを閉じて並べ替えに移る。
+                pendingMenuAction = nil
+                withoutAnimation { menuTarget = nil }
+            },
+            onDrop: drop
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         // 長押しメニューはタブバーまで覆うよう全画面に重ねる。下から出てくる動きは消し、中で薄く出す。
@@ -185,26 +176,6 @@ struct LearningDashboardView: View {
         } message: {
             Text(renameMessage)
         }
-        .sheet(item: $movingDeck) { deck in
-            DeckFolderPickerSheet(
-                deckName: deck.deckName,
-                folders: appState.localStudy.deckFolders,
-                currentFolderId: parentFolder(of: deck)?.id,
-                onCreate: { name in changeLayout { _ = try $0.createFolder(named: name, containing: deck.id) } },
-                onSelect: { folderId in changeLayout { try $0.moveDeck(deck.id, toFolder: folderId) } }
-            )
-            .presentationDetents([.medium, .large])
-        }
-        .sheet(isPresented: $isReordering) {
-            DeckReorderSheet(tree: tree) { layout, folderDeckIds in
-                changeLayout { source in
-                    try source.saveLayout(layout)
-                    for (folderId, deckIds) in folderDeckIds {
-                        try source.reorderFolder(folderId, deckIds: deckIds)
-                    }
-                }
-            }
-        }
         .confirmationDialog(
             "フォルダを削除しますか？",
             isPresented: Binding(
@@ -220,6 +191,21 @@ struct LearningDashboardView: View {
             }
         } message: { _ in
             Text("中のデッキは消えずに、フォルダの外へ出ます。")
+        }
+        .confirmationDialog(
+            "デッキを削除しますか？",
+            isPresented: Binding(
+                get: { deckPendingDeletion != nil },
+                set: { if !$0 { deckPendingDeletion = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: deckPendingDeletion
+        ) { deck in
+            Button("削除", role: .destructive) { delete(deck) }
+        } message: { deck in
+            Text(appState.studyDataSource.canManage(deck)
+                ? "このデッキのカードは端末から消えます。"
+                : "この端末の学習タブから外します。学習の記録は残り、ギャラリーから追加し直せます。")
         }
     }
 
@@ -251,6 +237,33 @@ struct LearningDashboardView: View {
             return folder
         }
         return nil
+    }
+
+    private func childDecks(of folder: LocalDeckFolder) -> [Deck] {
+        for case .folder(let candidate, let children) in tree where candidate.id == folder.id {
+            return children
+        }
+        return []
+    }
+
+    /// 長押しで運んだカードを落とした。並べ替えか、フォルダへの出し入れか、新しいフォルダにまとめる。
+    private func drop(dragged: Int, target: DeckDropTarget) {
+        let rows = DeckDrop.rows(for: tree, expandedFolderIds: expandedFolderIds)
+        guard let action = DeckDrop.action(rows: rows, dragged: dragged, target: target) else { return }
+        HapticFeedbackService.success()
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.86)) {
+            changeLayout { source in
+                switch action {
+                case .moveToTop(let entry, let index):
+                    try source.moveEntry(entry, toTopLevelIndex: index)
+                case .moveIntoFolder(let deckId, let folderId, let index):
+                    try source.moveDeck(deckId, toFolder: folderId, at: index)
+                case .makeFolder(let deckId, let targetId):
+                    let folder = try source.createFolder(named: DeckFolderNaming.defaultName, containing: targetId)
+                    try source.moveDeck(deckId, toFolder: folder.id)
+                }
+            }
+        }
     }
 
     private func role(of deck: Deck) -> DeckCardRole {
@@ -286,31 +299,16 @@ struct LearningDashboardView: View {
         withTransaction(transaction, change)
     }
 
-    /// 長押しメニュー。iOS の標準に合わせ、消す操作は最後に赤で置く。
+    /// 長押しメニュー。名前の変更と削除だけ。iOS の標準に合わせ、消す操作は最後に赤で置く。
+    /// 並べ替えとフォルダへの出し入れは、長押しのまま動かして行う。
     private func menuItems(for deck: Deck) -> [DeckMenuItem] {
-        var items = [
-            DeckMenuItem(title: "並び替え", systemImage: "arrow.up.arrow.down") { isReordering = true },
-            DeckMenuItem(title: "名前を変更", systemImage: "pencil") { beginRename(deck) }
+        let folder = folder(of: deck)
+        return [
+            DeckMenuItem(title: "名前を変更", systemImage: "pencil") { beginRename(deck) },
+            DeckMenuItem(title: "削除", systemImage: "trash", role: .destructive) {
+                if let folder { folderPendingDeletion = folder } else { deckPendingDeletion = deck }
+            }
         ]
-        if let folder = folder(of: deck) {
-            items.append(DeckMenuItem(title: "フォルダを削除", systemImage: "folder.badge.minus", role: .destructive) {
-                folderPendingDeletion = folder
-            })
-            return items
-        }
-        items.append(DeckMenuItem(title: "フォルダに移動", systemImage: "folder") { movingDeck = deck })
-        if parentFolder(of: deck) != nil {
-            items.append(DeckMenuItem(title: "フォルダから出す", systemImage: "arrow.up.forward.square") {
-                changeLayout { try $0.removeDeckFromFolder(deck.id) }
-            })
-        }
-        if canExport(deck) {
-            items.append(DeckMenuItem(title: "書き出す", systemImage: "square.and.arrow.up") { prepareExport(deck) })
-        }
-        if appState.studyDataSource.canManage(deck) {
-            items.append(DeckMenuItem(title: "削除", systemImage: "trash", role: .destructive) { delete(deck) })
-        }
-        return items
     }
 
     private func beginRename(_ deck: Deck) {
@@ -451,30 +449,8 @@ struct LearningDashboardView: View {
         covers = loadedCovers
     }
 
-    /// 書き出しは端末のデッキファイルが元になる。公式デッキには出さない。
-    private func canExport(_ deck: Deck) -> Bool {
-        appState.studyDataSource.supportsDeckFileTransfer && appState.studyDataSource.canManage(deck)
-    }
-
-    private func prepareExport(_ deck: Deck) {
-        do {
-            guard let localDeck = appState.localStudy.deck(id: deck.id) else {
-                throw LocalStudyError.deckNotFound
-            }
-            exportFileName = localDeck.key
-            exportDocument = DeckDocument(data: try appState.localStudy.exportData(deckId: deck.id))
-            errorMessage = nil
-        } catch {
-            errorMessage = UserFacingError.message(for: error)
-        }
-    }
-
     private func delete(_ deck: Deck) {
         let dataSource = appState.studyDataSource
-        guard dataSource.canManage(deck) else {
-            errorMessage = "配信中のデッキは削除できません。"
-            return
-        }
 
         // 中央のデッキを消したら、詰めて上がってくる下の隣を中央にする。下が無ければ上の隣。
         let order = deckOrder
@@ -483,6 +459,12 @@ struct LearningDashboardView: View {
             let neighbor = decks.indices.contains(index + 1) ? decks[index + 1]
                 : decks.indices.contains(index - 1) ? decks[index - 1] : nil
             order.selectedDeckId = neighbor?.id
+        }
+
+        // 配信中のデッキは、この端末の学習タブから外すだけ。学習の記録は残す。
+        guard dataSource.canManage(deck) else {
+            changeLayout { try $0.hideDeck(id: deck.id) }
+            return
         }
 
         Task {

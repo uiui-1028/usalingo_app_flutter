@@ -255,7 +255,12 @@ final class AppState: ObservableObject {
 
     /// ギャラリーに並べる公式デッキ。追加済みかどうかも一緒に返す。
     func fetchOfficialDecks() async throws -> [OfficialDeck] {
-        try await remoteStudy.fetchOfficialDecks(session: try connectedSession())
+        let decks = try await remoteStudy.fetchOfficialDecks(session: try connectedSession())
+        // この端末の学習タブから外したデッキは、追加し直せるよう「未追加」として見せる。
+        return decks.map { official in
+            let isHidden = localStudy.isHidden(deckId: LocalStudyDataSource.cachedDeckId(remoteDeckId: official.deck.id))
+            return OfficialDeck(deck: official.deck, isAdded: official.isAdded && !isHidden)
+        }
     }
 
     /// ギャラリーの詳細画面で見せる、公式デッキの収録単語。
@@ -266,6 +271,7 @@ final class AppState: ObservableObject {
     /// 公式デッキを学習タブへ追加し、端末の控えまで更新してから戻る。
     func addOfficialDeck(id: Int) async throws {
         let session = try connectedSession()
+        try localStudy.unhideDeck(id: LocalStudyDataSource.cachedDeckId(remoteDeckId: id))
         try await remoteStudy.addOfficialDeck(id: id, session: session)
         try await loadOfficialContent(session: session)
     }

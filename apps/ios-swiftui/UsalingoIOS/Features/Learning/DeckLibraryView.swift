@@ -1,24 +1,4 @@
 import SwiftUI
-import UniformTypeIdentifiers
-
-/// デッキJSONの書き出しに使う入れ物。書き出しに必要な最小限だけを実装する。
-struct DeckDocument: FileDocument {
-    static let readableContentTypes = [UTType.json]
-
-    let data: Data
-
-    init(data: Data) {
-        self.data = data
-    }
-
-    init(configuration: ReadConfiguration) throws {
-        data = configuration.file.regularFileContents ?? Data()
-    }
-
-    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
-        FileWrapper(regularFileWithContents: data)
-    }
-}
 
 /// ジャンル → 詳細から公式デッキを選んで、学習タブへ追加するギャラリー。
 /// 一覧はサーバーの公式デッキを毎回読む。学習タブの空き枠1つにつき1デッキを追加し、

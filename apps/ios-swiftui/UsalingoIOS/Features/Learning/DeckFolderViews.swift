@@ -79,74 +79,125 @@ enum DeckTree {
     }
 }
 
-// MARK: - 移動先を選ぶシート
+// MARK: - ドラッグで並べ替え・フォルダにまとめる
 
-/// 「フォルダに移動」で開く、ファイルAppの「移動」に倣ったシート。
-/// 新しいフォルダを作って入れるか、既存のフォルダを選ぶ。
-struct DeckFolderPickerSheet: View {
-    let deckName: String
-    let folders: [LocalDeckFolder]
-    /// いま入っているフォルダ。選べないようにする。
-    let currentFolderId: Int?
-    let onCreate: (String) -> Void
-    let onSelect: (Int) -> Void
+/// カルーセルに並ぶ1枚。フォルダの中のデッキは、フォルダを開いているときだけ並ぶ。
+enum DeckRow: Equatable {
+    case deck(Int, folder: Int?)
+    case folder(Int)
 
-    @Environment(\.dismiss) private var dismiss
-    @State private var isNamingNewFolder = false
-    @State private var newFolderName = ""
+    var entry: DeckLayoutEntry {
+        switch self {
+        case .deck(let id, _): return .deck(id)
+        case .folder(let id): return .folder(id)
+        }
+    }
 
-    var body: some View {
-        NavigationStack {
-            List {
-                Section {
-                    Button {
-                        newFolderName = ""
-                        isNamingNewFolder = true
-                    } label: {
-                        Label("新規フォルダ", systemImage: "folder.badge.plus")
-                    }
-                }
+    var isTopLevel: Bool {
+        if case .deck(_, let folder) = self { return folder == nil }
+        return true
+    }
 
-                if !folders.isEmpty {
-                    Section("フォルダ") {
-                        ForEach(folders) { folder in
-                            Button {
-                                onSelect(folder.id)
-                                dismiss()
-                            } label: {
-                                HStack {
-                                    Label(folder.name, systemImage: "folder")
-                                    Spacer()
-                                    if folder.id == currentFolderId {
-                                        Image(systemName: "checkmark")
-                                            .accessibilityHidden(true)
-                                    }
-                                }
-                            }
-                            .disabled(folder.id == currentFolderId)
-                            .accessibilityAddTraits(folder.id == currentFolderId ? .isSelected : [])
-                        }
-                    }
-                }
-            }
-            .navigationTitle("「\(deckName)」の移動先")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("キャンセル") { dismiss() }
-                }
-            }
-            .alert("新規フォルダ", isPresented: $isNamingNewFolder) {
-                TextField("フォルダ名", text: $newFolderName)
-                Button("キャンセル", role: .cancel) { }
-                Button("作成") {
-                    onCreate(DeckFolderNaming.name(from: newFolderName))
-                    dismiss()
-                }
-            } message: {
-                Text("このフォルダに「\(deckName)」を入れます。")
+    var parentFolder: Int? {
+        if case .deck(_, let folder) = self { return folder }
+        return nil
+    }
+}
+
+/// 指を離した場所。カードの上下の端なら、その前か後ろへ差し込む。真ん中なら重ねる。
+enum DeckDropTarget: Equatable {
+    enum Zone: Equatable { case before, onto, after }
+
+    case row(Int, Zone)
+    /// 先頭の空き枠。
+    case start
+    /// 末尾の空き枠。
+    case end
+}
+
+/// 落としたときに行う並びの変更。
+enum DeckDropAction: Equatable {
+    /// 一番上の階層の `index` 番目へ動かす（動かすものを除いた並びでの位置）。
+    case moveToTop(DeckLayoutEntry, index: Int)
+    /// フォルダの `index` 番目（nil なら末尾）へ入れる。
+    case moveIntoFolder(deckId: Int, folderId: Int, index: Int?)
+    /// 2つのデッキを新しいフォルダにまとめる。フォルダは `withDeckId` の場所にできる。
+    case makeFolder(deckId: Int, withDeckId: Int)
+}
+
+/// ホーム画面のアイコンのように、デッキを別のデッキへ重ねるとフォルダにまとめ、
+/// カードの間へ落とすと並べ替える。見た目と切り離してあるので、単体で確かめられる。
+enum DeckDrop {
+    static func rows(for tree: [DeckTreeItem], expandedFolderIds: Set<Int>) -> [DeckRow] {
+        tree.flatMap { item -> [DeckRow] in
+            switch item {
+            case .deck(let deck):
+                return [.deck(deck.id, folder: nil)]
+            case .folder(let folder, let decks):
+                let children = expandedFolderIds.contains(folder.id) ? decks.map { DeckRow.deck($0.id, folder: folder.id) } : []
+                return [.folder(folder.id)] + children
             }
         }
+    }
+
+    /// `dragged` 番目の1枚を `target` へ落としたときの変更。何も変わらないときは nil。
+    static func action(rows: [DeckRow], dragged: Int, target: DeckDropTarget) -> DeckDropAction? {
+        guard rows.indices.contains(dragged) else { return nil }
+        let moving = rows[dragged]
+        let topLevel = rows.enumerated().filter { $0.offset != dragged && $0.element.isTopLevel }.map(\.element)
+
+        switch target {
+        case .start:
+            return .moveToTop(moving.entry, index: 0)
+        case .end:
+            return .moveToTop(moving.entry, index: topLevel.count)
+        case .row(let index, var zone):
+            guard rows.indices.contains(index), index != dragged else { return nil }
+            let hovered = rows[index]
+
+            if zone == .onto, case .deck(let deckId, _) = moving {
+                switch hovered {
+                case .folder(let folderId):
+                    return .moveIntoFolder(deckId: deckId, folderId: folderId, index: nil)
+                case .deck(let targetId, nil):
+                    return .makeFolder(deckId: deckId, withDeckId: targetId)
+                case .deck(_, let folderId?):
+                    return .moveIntoFolder(deckId: deckId, folderId: folderId,
+                                           index: childIndex(of: index, in: rows, folder: folderId, dragged: dragged) + 1)
+                }
+            }
+            // フォルダは重ねられない。下半分なら後ろ、上半分なら前へ差し込む扱いにする。
+            if zone == .onto { zone = .after }
+
+            if case .deck(let deckId, _) = moving {
+                // 開いたフォルダの中のデッキの前後は、そのフォルダの中。
+                if let folderId = hovered.parentFolder {
+                    let position = childIndex(of: index, in: rows, folder: folderId, dragged: dragged)
+                    return .moveIntoFolder(deckId: deckId, folderId: folderId, index: zone == .before ? position : position + 1)
+                }
+                // 開いたフォルダの見出しのすぐ後ろは、そのフォルダの先頭。
+                if case .folder(let folderId) = hovered, zone == .after,
+                   rows.enumerated().contains(where: { $0.offset != dragged && $0.element.parentFolder == folderId }) {
+                    return .moveIntoFolder(deckId: deckId, folderId: folderId, index: 0)
+                }
+            }
+
+            // 一番上の階層へ。フォルダの中のデッキに重なったときは、そのフォルダの後ろへ。
+            let anchor: DeckRow
+            if let folderId = hovered.parentFolder {
+                anchor = .folder(folderId)
+                zone = .after
+            } else {
+                anchor = hovered
+            }
+            guard let position = topLevel.firstIndex(of: anchor) else { return nil }
+            return .moveToTop(moving.entry, index: zone == .before ? position : position + 1)
+        }
+    }
+
+    /// フォルダの中で、`row` 番目のデッキが何番目か。動かしているデッキは数えない。
+    private static func childIndex(of row: Int, in rows: [DeckRow], folder: Int, dragged: Int) -> Int {
+        rows[..<row].enumerated().filter { $0.offset != dragged && $0.element.parentFolder == folder }.count
     }
 }
 
@@ -157,86 +208,6 @@ enum DeckFolderNaming {
     static func name(from input: String) -> String {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? defaultName : trimmed
-    }
-}
-
-// MARK: - 並び替えシート
-
-/// 取っ手で並べ替える編集一覧。一番上の階層と、フォルダの中をそれぞれの区切りで並べ替える。
-/// 階層をまたぐ移動はしない（フォルダへの出し入れは長押しメニューで行う）。
-struct DeckReorderSheet: View {
-    let onSave: (_ layout: [DeckLayoutEntry], _ folderDeckIds: [Int: [Int]]) -> Void
-
-    @Environment(\.dismiss) private var dismiss
-    @State private var items: [DeckTreeItem]
-    @State private var folderChildren: [Int: [Deck]]
-
-    init(tree: [DeckTreeItem], onSave: @escaping (_ layout: [DeckLayoutEntry], _ folderDeckIds: [Int: [Int]]) -> Void) {
-        self.onSave = onSave
-        _items = State(initialValue: tree)
-        var children: [Int: [Deck]] = [:]
-        for case .folder(let folder, let decks) in tree {
-            children[folder.id] = decks
-        }
-        _folderChildren = State(initialValue: children)
-    }
-
-    var body: some View {
-        NavigationStack {
-            List {
-                Section("学習タブ") {
-                    ForEach(items) { item in
-                        row(for: item)
-                    }
-                    .onMove { items.move(fromOffsets: $0, toOffset: $1) }
-                }
-
-                ForEach(folders) { folder in
-                    Section(folder.name) {
-                        let decks = folderChildren[folder.id] ?? []
-                        if decks.isEmpty {
-                            Text("デッキはありません")
-                                .foregroundStyle(.secondary)
-                        }
-                        ForEach(decks) { deck in
-                            Label(deck.deckName, systemImage: "rectangle.stack")
-                        }
-                        .onMove { folderChildren[folder.id]?.move(fromOffsets: $0, toOffset: $1) }
-                    }
-                }
-            }
-            .environment(\.editMode, .constant(.active))
-            .navigationTitle("並び替え")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("キャンセル") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("完了") {
-                        onSave(items.map(\.layoutEntry), folderChildren.mapValues { $0.map(\.id) })
-                        dismiss()
-                    }
-                }
-            }
-        }
-    }
-
-    private var folders: [LocalDeckFolder] {
-        items.compactMap { item in
-            if case .folder(let folder, _) = item { return folder }
-            return nil
-        }
-    }
-
-    @ViewBuilder
-    private func row(for item: DeckTreeItem) -> some View {
-        switch item {
-        case .deck(let deck):
-            Label(deck.deckName, systemImage: "rectangle.stack")
-        case .folder(let folder, _):
-            Label(folder.name, systemImage: "folder")
-        }
     }
 }
 
