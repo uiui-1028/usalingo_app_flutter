@@ -100,6 +100,8 @@ struct DeckCarouselView: View {
     let onLongPress: (Deck, CGRect) -> Void
     /// 長押しのまま指を動かし始めた。呼ぶ側はメニューを閉じる。
     var onDragStart: (Deck) -> Void = { _ in }
+    /// 運び終えた（落とした・取りやめた）。
+    var onDragEnd: () -> Void = {}
     /// 一覧の上で指を離した。
     var onDrop: (DeckDragSource, DeckDropTarget) -> Void = { _, _ in }
     /// 開いたフォルダの中で並べ替えた。デッキ、フォルダ（学習用のデッキ番号）、動かした先の位置。
@@ -285,7 +287,10 @@ struct DeckCarouselView: View {
                 .opacity(drag?.source == .slot(index) ? 0 : 1)
                 .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: merging)
             case .empty(let edge):
+                // 運んでいる間は、デッキを足す空き枠を隠す。
                 emptyCard(edge, width: cardWidth, height: height)
+                    .opacity(isBandMode ? 0 : 1)
+                    .allowsHitTesting(!isBandMode)
             }
         }
         // ponytail: VoiceOver は中央の枠だけを読み、上下の操作で隣へ移すだけの最低限。
@@ -692,6 +697,7 @@ struct DeckCarouselView: View {
         withAnimation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.86)) {
             drag = nil
         }
+        onDragEnd()
     }
 
     /// 端へ寄せている間、1枚ずつ送る。送ったら、指の下の落とし先を選び直す。

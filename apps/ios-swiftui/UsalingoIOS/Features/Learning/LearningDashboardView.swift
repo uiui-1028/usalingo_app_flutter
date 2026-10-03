@@ -45,6 +45,8 @@ struct LearningDashboardView: View {
     @State private var tree: [DeckTreeItem] = []
     /// 「＋」で開いているフォルダ。一度に1つだけ開く。
     @State private var openFolderId: Int?
+    /// 長押しでデッキを運んでいる最中。タブバーと遊び方のバーを隠して、並べ替えに集中させる。
+    @State private var isArranging = false
     @State private var renamingDeck: Deck?
     @State private var renameText = ""
     @State private var folderPendingDeletion: LocalDeckFolder?
@@ -109,7 +111,12 @@ struct LearningDashboardView: View {
             // 隠すときだけ下へ滑らせる。戻すときは即座に出し、pop に合わせて
             // 浮き上がったり薄く現れたりしないようにする。
             withAnimation(isPresented ? .spring(response: 0.28, dampingFraction: 0.86) : nil) {
-                appState.isShellChromeHidden = isPresented
+                appState.isShellChromeHidden = isPresented || isArranging
+            }
+        }
+        .onChange(of: isArranging) { _, arranging in
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
+                appState.isShellChromeHidden = arranging || isCoveringScreenPresented
             }
         }
     }
@@ -154,7 +161,9 @@ struct LearningDashboardView: View {
                 // 長押しのまま動かし始めたら、メニューを閉じて並べ替えに移る。
                 pendingMenuAction = nil
                 withoutAnimation { menuTarget = nil }
+                isArranging = true
             },
+            onDragEnd: { isArranging = false },
             onDrop: drop(from:target:),
             onReorderInFolder: reorderInFolder(deckId:folderDeckId:index:)
         )
