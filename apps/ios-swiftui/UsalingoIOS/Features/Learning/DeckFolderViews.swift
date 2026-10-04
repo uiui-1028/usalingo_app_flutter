@@ -240,7 +240,7 @@ struct DeckMenuTarget: Identifiable {
 /// 長押しメニューのボタンの並び。指の場所を中心に扇形に置く。見た目と切り離してあるので、単体で確かめられる。
 ///
 /// 上に余白があれば上へ、なければ下へ開き、カードの中央の側へ傾けて画面の外へはみ出さないようにする。
-/// 指を離さずにボタンの方へ動かすと選び、離すと決まる（マーキングメニュー）。
+/// 指を離さずにボタンの方へ動かすと選び、そのまま待つと決まる（ドウェル選択）。
 struct DeckRadialMenuLayout {
     /// 指の場所からボタンの中心までの距離。
     static let radius: CGFloat = 84
@@ -255,6 +255,10 @@ struct DeckRadialMenuLayout {
     static let reach: CGFloat = radius + 44
     /// 指をこれだけ動かすまでは、向きにかかわらずメニューを続ける。指の小さな揺れで運び始めないため。
     static let reorderDistance: CGFloat = 20
+    /// 選んだボタンに指を置いたまま、決まるまで待つ時間。
+    static let dwellDuration = 0.5
+    /// 決まるまでの輪が、ボタンの何倍の大きさから縮み始めるか。
+    static let approachStartScale: CGFloat = 1.9
     /// ボタンの並ぶ扇の両側にこれだけ角度の余裕を持たせて、ボタンへ向かう途中とみなす。
     static let approachMargin: Double = 30
 
@@ -323,8 +327,9 @@ enum DeckMenuRelease: Equatable {
 /// 長押しメニュー。指の場所に輪を出し、そのまわりに丸いボタンを扇形に並べる（ラジアルメニュー）。
 /// 背景は強く暗くぼかし、押したカードの形だけ切り抜いて見せる。
 ///
-/// 指を離さずにボタンへ動かすと、そのボタンが大きくなり、指の場所の輪が中心へ縮む。そこで離すと決まる。
-/// ボタンを選ばずに離すと、開いたときの逆の動きで閉じる。支援技術から開いたときは、タップで選ぶ。
+/// 指を離さずにボタンへ動かすと、そのボタンが大きくなり、指の場所の輪が中心へ縮む。
+/// 選んだボタンのまわりには大きな輪が出てボタンのフチへ縮み、重なったら決まる（音ゲーのアプローチサークル）。
+/// 決まる前に離すと、開いたときの逆の動きで閉じる。支援技術から開いたときは、タップで選ぶ。
 struct DeckRadialMenuOverlay: View {
     /// 背景を暗くする濃さ。0...1。
     static let dimOpacity: Double = 0.6
@@ -369,6 +374,10 @@ struct DeckRadialMenuOverlay: View {
             }
 
             if let highlighted, target.items.indices.contains(highlighted) {
+                ApproachRing()
+                    .position(layout.centers[highlighted])
+                    .id(highlighted)
+
                 Text(target.items[highlighted].title)
                     .wireFont(.label, color: WireColor.ink)
                     .padding(.horizontal, WireMetrics.spacingM)
@@ -445,6 +454,29 @@ struct DeckRadialMenuOverlay: View {
         } completion: {
             onFinish(action)
         }
+    }
+}
+
+/// 選んだボタンのまわりに出て、`dwellDuration` かけてボタンのフチへ縮む輪。フチに重なったときにボタンが決まる。
+/// 「動きを減らす」では大きさを変えず、薄い輪をだんだん濃くする。
+private struct ApproachRing: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isClosed = false
+
+    var body: some View {
+        // 選んだボタンは 1.18 倍に大きくなるので、そのフチに重なる大きさで止める。
+        let size = DeckRadialMenuLayout.buttonSize * 1.18
+        Circle()
+            .strokeBorder(WireColor.surface, lineWidth: 3)
+            .frame(width: size, height: size)
+            .shadow(color: .black.opacity(0.35), radius: 4)
+            .scaleEffect(isClosed || reduceMotion ? 1 : DeckRadialMenuLayout.approachStartScale)
+            .opacity(isClosed ? 1 : 0.25)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+            .onAppear {
+                withAnimation(.linear(duration: DeckRadialMenuLayout.dwellDuration)) { isClosed = true }
+            }
     }
 }
 

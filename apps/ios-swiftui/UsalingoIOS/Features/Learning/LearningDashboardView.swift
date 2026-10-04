@@ -56,6 +56,12 @@ struct LearningDashboardView: View {
     @State private var menuHighlight: Int?
     /// 一度ボタンを選んだら、指を離すまでメニューを続け、運ぶ操作へ切り替えない。
     @State private var isMenuLocked = false
+    /// 選んだボタンに指を置いたまま待つ時間を数える。待ちきるとそのボタンに決まる。
+    @State private var dwellTask: Task<Void, Never>?
+    /// ボタンが決まった。指を離すまで、ほかのボタンを選んだり運び始めたりしない。
+    @State private var isMenuConfirmed = false
+    /// メニューで並び替えが決まったデッキ。カルーセルが指の下で持ち上げる。
+    @State private var liftDeckId: Int?
     /// 長押しメニューで指を離した結果。
     @State private var menuRelease: DeckMenuRelease?
     /// メニューで選んだ操作。シートや確認を重ねないよう、メニューが閉じ切ってから行う。
@@ -168,8 +174,15 @@ struct LearningDashboardView: View {
             onToggleFolder: toggleFolder,
             onLongPress: presentMenu(for:cardFrame:anchor:),
             onPressMove: trackMenu(at:),
-            onPressEnd: { menuRelease = menuHighlight.map { .choose($0) } ?? .dismiss },
+            onPressEnd: {
+                // 待ちきる前に離したら、何もせずに閉じる。
+                dwellTask?.cancel()
+                if menuTarget != nil, !isMenuConfirmed { menuRelease = .dismiss }
+            },
+            liftDeckId: liftDeckId,
             onDragStart: { _ in
+                dwellTask?.cancel()
+                liftDeckId = nil
                 // 長押しのまま動かし始めたら、メニューを閉じて並べ替えに移る。
                 pendingMenuAction = nil
                 withoutAnimation { menuTarget = nil }
@@ -336,23 +349,47 @@ struct LearningDashboardView: View {
         menuHighlight = nil
         menuRelease = nil
         isMenuLocked = false
+        isMenuConfirmed = false
+        liftDeckId = nil
+        dwellTask?.cancel()
         let target = DeckMenuTarget(deck: deck, cardFrame: cardFrame, anchor: anchor, items: menuItems(for: deck))
         withoutAnimation { menuTarget = target }
     }
 
     /// 長押しのまま動かした指の下のボタンを選ぶ。メニューを続けないなら false を返し、運ぶ操作に譲る。
-    /// 並べ替えのボタンに乗ったら、その場でデッキを持ち上げる。
+    /// 選んだボタンに指を置いたまま `dwellDuration` 待つと、そのボタンに決まる（ドウェル選択）。
+    /// 途中でボタンから外れたら数え直す。
     private func trackMenu(at location: CGPoint) -> Bool {
+        if isMenuConfirmed { return true }
         guard let target = menuTarget else { return false }
         let layout = target.layout
         let item = layout.item(at: location)
-        if let item, target.items[item].startsDrag { return false }
         if item != menuHighlight {
             menuHighlight = item
-            if item != nil { HapticFeedbackService.detent() }
+            dwellTask?.cancel()
+            if let item {
+                HapticFeedbackService.detent()
+                dwellTask = Task {
+                    try? await Task.sleep(for: .seconds(DeckRadialMenuLayout.dwellDuration))
+                    guard !Task.isCancelled else { return }
+                    confirmMenu(item)
+                }
+            }
         }
         if item != nil { isMenuLocked = true }
         return isMenuLocked || layout.keepsMenu(location)
+    }
+
+    /// 待ちきって決まったボタンを行う。並び替えは指の下でデッキを持ち上げ、ほかはメニューを閉じてから行う。
+    private func confirmMenu(_ index: Int) {
+        guard let target = menuTarget, target.items.indices.contains(index), menuHighlight == index else { return }
+        isMenuConfirmed = true
+        HapticFeedbackService.success()
+        if target.items[index].startsDrag {
+            liftDeckId = target.deck.id
+        } else {
+            menuRelease = .choose(index)
+        }
     }
 
     private func runPendingMenuAction() {
