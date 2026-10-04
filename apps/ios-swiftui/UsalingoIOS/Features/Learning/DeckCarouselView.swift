@@ -35,11 +35,13 @@ enum DeckCardRole: Equatable {
     }
 }
 
-/// 長押しメニューの1行。
+/// 長押しメニューの1つのボタン。
 struct DeckMenuItem: Identifiable {
     let title: String
     let systemImage: String
     var role: ButtonRole?
+    /// 決まったら、押さえている指の下でデッキを持ち上げて運び始める。
+    var startsDrag = false
     let action: () -> Void
 
     var id: String { title }
@@ -98,8 +100,15 @@ struct DeckCarouselView: View {
     var children: (Deck) -> [Deck] = { _ in [] }
     /// フォルダの「＋」「－」。
     var onToggleFolder: (Deck) -> Void = { _ in }
-    /// 長押し。押したカードの画面上の位置を渡し、呼ぶ側が自前のメニューを重ねる。
-    let onLongPress: (Deck, CGRect) -> Void
+    /// 長押し。押したカードと指の画面上の位置を渡し、呼ぶ側が自前のメニューを重ねる。
+    let onLongPress: (Deck, CGRect, CGPoint) -> Void
+    /// 長押しのまま指を動かした。指の画面上の位置を渡す。メニューを続けるなら true を返し、
+    /// そのときはデッキを運び始めない。
+    var onPressMove: (CGPoint) -> Bool = { _ in false }
+    /// 長押しのあと、デッキを運ばずに指を離した。呼ぶ側はメニューを閉じる。
+    var onPressEnd: () -> Void = {}
+    /// メニューで並び替えが決まったデッキ。押さえている指の下で持ち上げて運び始める。
+    var liftDeckId: Int?
     /// 長押しのまま指を動かし始めた。呼ぶ側はメニューを閉じる。
     var onDragStart: (Deck) -> Void = { _ in }
     /// 運び終えた（落とした・取りやめた）。
@@ -122,9 +131,15 @@ struct DeckCarouselView: View {
     @State private var cardFrames = CardFrameBox()
     /// 長押しが決まったデッキ。指を離すまで持つ。
     @State private var pressedDeckId: Int?
+    /// 長押しが決まったデッキと、その出どころ。メニューで並び替えが決まったときに持ち上げる。
+    @State private var pressedCard: (deck: Deck, source: CardDrag.Source)?
     /// 長押しのあと指で運んでいるカード。
     @State private var drag: CardDrag?
     @GestureState private var isPressing = false
+    /// 長押しの途中（メニューが出る前）で押さえているデッキ。そのカードを少し縮めて、押していることを見せる。
+    /// 指を離して長押しをやめたときは、ばねで元の大きさへ戻す。
+    @GestureState(resetTransaction: Transaction(animation: .spring(response: 0.25, dampingFraction: 0.7)))
+    private var holdingDeckId: Int?
     /// 端へ寄せて送っている向き。-1 で上、1 で下、0 で止める。
     @State private var autoScrollDirection = 0
     @State private var viewportSize: CGSize = .zero
@@ -186,8 +201,21 @@ struct DeckCarouselView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .contentShape(Rectangle())
             .gesture(dragGesture)
+            // 長押しは指の場所を教えてくれないので、触れた場所をここで覚えておき、メニューをその下に出す。
+            // 回すための `dragGesture` より外に付ける。内に付けると、こちらが指を先に取ってスクロールできなくなる。
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 0, coordinateSpace: .global)
+                    .onChanged { value in
+                        // 新しい指なら、前の指の目印が残っていても外す（指を取り上げられて onEnded が来なかったとき）。
+                        if cardFrames.touchDown != value.startLocation { cardFrames.isTapSuppressed = false }
+                        cardFrames.touchDown = value.startLocation
+                    }
+                    // 指を離したときのタップを除き終えてから、次の指のために目印を外す。
+                    .onEnded { _ in DispatchQueue.main.async { cardFrames.isTapSuppressed = false } }
+            )
             .overlay { floatingCard(size: proxy.size) }
             .coordinateSpace(name: Self.coordinateSpace)
+            .onGeometryChange(for: CGPoint.self) { $0.frame(in: .global).origin } action: { cardFrames.origin = $0 }
             .onAppear { viewportSize = proxy.size }
             .onChange(of: proxy.size) { _, size in viewportSize = size }
         }
@@ -204,6 +232,7 @@ struct DeckCarouselView: View {
             if !pressing { cancelPress() }
         }
         .task(id: autoScrollDirection) { await autoScroll() }
+        .onChange(of: liftDeckId) { _, id in lift(id) }
     }
 
     // MARK: - 並べ方
@@ -522,7 +551,8 @@ struct DeckCarouselView: View {
         .clipShape(shape)
         .overlay(shape.strokeBorder(WireColor.ink, lineWidth: WireMetrics.strokeBase))
         .contentShape(Rectangle())
-        .onTapGesture { onOpen(deck) }
+        .scaleEffect(holdScale(deck))
+        .onTapGesture { tap { onOpen(deck) } }
         .gesture(pressGesture(deck: deck, source: .child(folderSlot: folderSlot)))
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { cardFrames.frames[deck.id] = $0 }
         .accessibilityElement(children: .combine)
@@ -550,16 +580,24 @@ struct DeckCarouselView: View {
             deck: deck,
             isFolder: role(deck).isFolder,
             progress: summary(deck),
-            onTap: { index == centerIndex ? onOpen(deck) : snap(to: index) },
+            onTap: { tap { index == centerIndex ? onOpen(deck) : snap(to: index) } },
             press: pressGesture(deck: deck, source: .slot(index)),
+            holdScale: holdScale(deck),
             onFrame: { cardFrames.frames[deck.id] = $0 },
             onMenu: { presentMenu(for: deck) }
         )
     }
 
-    private func presentMenu(for deck: Deck) {
+    /// 指の場所が分からないとき（支援技術から開くときなど）は、カードの真ん中に出す。
+    private func presentMenu(for deck: Deck, at location: CGPoint? = nil) {
         HapticFeedbackService.swipeThresholdCrossed()
-        onLongPress(deck, cardFrames.frames[deck.id] ?? .zero)
+        let frame = cardFrames.frames[deck.id] ?? .zero
+        onLongPress(deck, frame, location ?? CGPoint(x: frame.midX, y: frame.midY))
+    }
+
+    /// このカルーセルの座標を、画面の座標に直す。
+    private func global(_ point: CGPoint) -> CGPoint {
+        CGPoint(x: point.x + cardFrames.origin.x, y: point.y + cardFrames.origin.y)
     }
 
     /// 中央でないフォルダの「＋」は、中央へ寄せてから開く。
@@ -596,28 +634,59 @@ struct DeckCarouselView: View {
 
     // MARK: - 長押しで運ぶ
 
+    /// 長押しが決まるまでの時間。
+    private static let holdDuration = 0.35
+    /// 長押しの途中で縮めるカードの大きさ。
+    private static let holdScale: CGFloat = 0.96
+
+    private func holdScale(_ deck: Deck) -> CGFloat {
+        holdingDeckId == deck.id && !reduceMotion ? Self.holdScale : 1
+    }
+
+    /// カードのタップ。長押しが決まった同じ指で離したときは、タップとみなさない。
+    /// タップは押していた長さを問わないので、そのままだとメニューを出したあと離したときにもデッキが開いてしまう。
+    /// ponytail: 長押しとタップを `exclusively` で組むと、長押しをやめたときにタップまで取れなくなるので、目印で除く。
+    private func tap(_ action: () -> Void) {
+        guard !cardFrames.isTapSuppressed else { return }
+        action()
+    }
+
+    /// 長押しと、そのあと指で運ぶ操作。
     private func pressGesture(deck: Deck, source: CardDrag.Source) -> AnyGesture<Void> {
-        AnyGesture(
-            LongPressGesture(minimumDuration: 0.45)
-                .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.coordinateSpace)))
-                .updating($isPressing) { _, state, _ in state = true }
-                .onChanged { value in
-                    guard case .second(true, let dragValue) = value else { return }
-                    if pressedDeckId != deck.id {
-                        pressedDeckId = deck.id
-                        presentMenu(for: deck)
-                    }
-                    guard let dragValue else { return }
-                    if drag == nil {
-                        // 指を少し動かしたら、メニューをやめて運び始める。
-                        guard hypot(dragValue.translation.width, dragValue.translation.height) > 8 else { return }
-                        beginDrag(deck, source: source, at: dragValue.location)
-                    }
-                    updateDrag(to: dragValue.location)
+        let press = LongPressGesture(minimumDuration: Self.holdDuration)
+            .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.coordinateSpace)))
+            .updating($isPressing) { _, state, _ in state = true }
+            .updating($holdingDeckId) { value, state, transaction in
+                // 押し始めから長押しが決まるまでゆっくり縮め、決まったらばねで戻してメニューを出す。
+                var holding: Int?
+                if case .first(true) = value { holding = deck.id }
+                guard state != holding else { return }
+                transaction.animation = holding == nil
+                    ? .spring(response: 0.25, dampingFraction: 0.7)
+                    : .easeOut(duration: Self.holdDuration)
+                state = holding
+            }
+            .onChanged { value in
+                guard case .second(true, let dragValue) = value else { return }
+                if pressedDeckId != deck.id {
+                    pressedDeckId = deck.id
+                    pressedCard = (deck, source)
+                    cardFrames.isTapSuppressed = true
+                    presentMenu(for: deck, at: cardFrames.touchDown)
                 }
-                .onEnded { _ in finishDrag() }
-                .map { _ in () }
-        )
+                guard let dragValue else { return }
+                cardFrames.pressLocation = dragValue.location
+                if drag == nil {
+                    // メニューのボタンの側へ向かう指は、選ぶ操作としてメニューへ渡す。
+                    // それ以外の向きへはっきり動かしたら、メニューをやめて運び始める。
+                    if onPressMove(global(dragValue.location)) { return }
+                    guard hypot(dragValue.translation.width, dragValue.translation.height) > 8 else { return }
+                    beginDrag(deck, source: source, at: dragValue.location)
+                }
+                updateDrag(to: dragValue.location)
+            }
+            .onEnded { _ in finishDrag() }
+        return AnyGesture(press.map { _ in () })
     }
 
     private func beginDrag(_ deck: Deck, source: CardDrag.Source, at location: CGPoint) {
@@ -729,8 +798,12 @@ struct DeckCarouselView: View {
 
     private func finishDrag() {
         let finished = drag
+        let wasPressed = pressedDeckId != nil
         cancelPress()
-        guard let finished else { return }
+        guard let finished else {
+            if wasPressed { onPressEnd() }
+            return
+        }
         switch finished.source {
         case .slot(let index):
             guard let target = finished.target else { return }
@@ -745,8 +818,16 @@ struct DeckCarouselView: View {
         }
     }
 
+    /// メニューで並び替えが決まった。指はまだ押さえているので、その場で持ち上げる。
+    private func lift(_ deckId: Int?) {
+        guard let deckId, drag == nil, let pressedCard, pressedCard.deck.id == deckId else { return }
+        beginDrag(pressedCard.deck, source: pressedCard.source, at: cardFrames.pressLocation)
+        updateDrag(to: cardFrames.pressLocation)
+    }
+
     private func cancelPress() {
         pressedDeckId = nil
+        pressedCard = nil
         autoScrollDirection = 0
         guard drag != nil else { return }
         withAnimation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.86)) {
@@ -842,12 +923,15 @@ private struct CardInteractions: ViewModifier {
     let progress: DeckProgressSummary
     let onTap: () -> Void
     let press: AnyGesture<Void>
+    /// 長押しの途中で縮める大きさ。
+    let holdScale: CGFloat
     let onFrame: (CGRect) -> Void
     let onMenu: () -> Void
 
     func body(content: Content) -> some View {
         content
             .contentShape(Rectangle())
+            .scaleEffect(holdScale)
             .onTapGesture(perform: onTap)
             .gesture(press)
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { onFrame($0) }
@@ -966,4 +1050,12 @@ struct DeckCoverImage: View {
 /// カードの位置を覚えておく入れ物。指で回している間は毎フレーム変わるので、描き直しの引き金にしない。
 private final class CardFrameBox {
     var frames: [Int: CGRect] = [:]
+    /// カルーセルそのものの画面上の左上。指の場所を画面の座標に直すのに使う。
+    var origin: CGPoint = .zero
+    /// 最後に指が触れた画面上の場所。
+    var touchDown: CGPoint?
+    /// いまの指で長押しが決まった。離したときのタップを無視する。
+    var isTapSuppressed = false
+    /// 長押しのあと指がいる場所（カルーセルの座標）。
+    var pressLocation: CGPoint = .zero
 }
