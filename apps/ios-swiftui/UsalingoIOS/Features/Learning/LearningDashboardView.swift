@@ -54,8 +54,10 @@ struct LearningDashboardView: View {
     @State private var menuTarget: DeckMenuTarget?
     /// 長押しのまま指を動かして選んでいるメニューのボタン。
     @State private var menuHighlight: Int?
-    /// 指を離して決まったメニューのボタン。
-    @State private var menuChoice: Int?
+    /// 一度ボタンを選んだら、指を離すまでメニューを続け、運ぶ操作へ切り替えない。
+    @State private var isMenuLocked = false
+    /// 長押しメニューで指を離した結果。
+    @State private var menuRelease: DeckMenuRelease?
     /// メニューで選んだ操作。シートや確認を重ねないよう、メニューが閉じ切ってから行う。
     @State private var pendingMenuAction: (() -> Void)?
     /// デッキごとの進み具合。カードを読み終えるまでは空のまま出す。
@@ -162,7 +164,7 @@ struct LearningDashboardView: View {
             onToggleFolder: toggleFolder,
             onLongPress: presentMenu(for:cardFrame:anchor:),
             onPressMove: trackMenu(at:),
-            onPressEnd: { if let menuHighlight { menuChoice = menuHighlight } },
+            onPressEnd: { menuRelease = menuHighlight.map { .choose($0) } ?? .dismiss },
             onDragStart: { _ in
                 // 長押しのまま動かし始めたら、メニューを閉じて並べ替えに移る。
                 pendingMenuAction = nil
@@ -176,10 +178,10 @@ struct LearningDashboardView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         // 長押しメニューはタブバーまで覆うよう全画面に重ねる。下から出てくる動きは消し、中で薄く出す。
         .fullScreenCover(item: $menuTarget, onDismiss: runPendingMenuAction) { target in
-            DeckRadialMenuOverlay(target: target, highlighted: menuHighlight, chosen: menuChoice) { action in
+            DeckRadialMenuOverlay(target: target, highlighted: menuHighlight, release: menuRelease) { action in
                 pendingMenuAction = action
                 menuHighlight = nil
-                menuChoice = nil
+                menuRelease = nil
                 withoutAnimation { menuTarget = nil }
             }
             .presentationBackground(.clear)
@@ -328,12 +330,13 @@ struct LearningDashboardView: View {
             return
         }
         menuHighlight = nil
-        menuChoice = nil
+        menuRelease = nil
+        isMenuLocked = false
         let target = DeckMenuTarget(deck: deck, cardFrame: cardFrame, anchor: anchor, items: menuItems(for: deck))
         withoutAnimation { menuTarget = target }
     }
 
-    /// 長押しのまま動かした指の下のボタンを選ぶ。ボタンへ向かっていなければ false を返し、運ぶ操作に譲る。
+    /// 長押しのまま動かした指の下のボタンを選ぶ。メニューを続けないなら false を返し、運ぶ操作に譲る。
     private func trackMenu(at location: CGPoint) -> Bool {
         guard let layout = menuTarget?.layout else { return false }
         let item = layout.item(at: location)
@@ -341,7 +344,8 @@ struct LearningDashboardView: View {
             menuHighlight = item
             if item != nil { HapticFeedbackService.detent() }
         }
-        return layout.isHeadingToItem(location)
+        if item != nil { isMenuLocked = true }
+        return isMenuLocked || layout.keepsMenu(location)
     }
 
     private func runPendingMenuAction() {

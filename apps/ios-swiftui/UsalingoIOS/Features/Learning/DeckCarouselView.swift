@@ -100,10 +100,10 @@ struct DeckCarouselView: View {
     var onToggleFolder: (Deck) -> Void = { _ in }
     /// 長押し。押したカードと指の画面上の位置を渡し、呼ぶ側が自前のメニューを重ねる。
     let onLongPress: (Deck, CGRect, CGPoint) -> Void
-    /// 長押しのまま指を動かした。指の画面上の位置を渡す。メニューのボタンへ向かっていれば true を返し、
+    /// 長押しのまま指を動かした。指の画面上の位置を渡す。メニューを続けるなら true を返し、
     /// そのときはデッキを運び始めない。
     var onPressMove: (CGPoint) -> Bool = { _ in false }
-    /// 長押しのあと、デッキを運ばずに指を離した。
+    /// 長押しのあと、デッキを運ばずに指を離した。呼ぶ側は選んだボタンを決めるか、メニューを閉じる。
     var onPressEnd: () -> Void = {}
     /// 長押しのまま指を動かし始めた。呼ぶ側はメニューを閉じる。
     var onDragStart: (Deck) -> Void = { _ in }
@@ -190,12 +190,13 @@ struct DeckCarouselView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .contentShape(Rectangle())
+            .gesture(dragGesture)
             // 長押しは指の場所を教えてくれないので、触れた場所をここで覚えておき、メニューをその下に出す。
+            // 回すための `dragGesture` より外に付ける。内に付けると、こちらが指を先に取ってスクロールできなくなる。
             .simultaneousGesture(
                 DragGesture(minimumDistance: 0, coordinateSpace: .global)
                     .onChanged { value in cardFrames.touchDown = value.startLocation }
             )
-            .gesture(dragGesture)
             .overlay { floatingCard(size: proxy.size) }
             .coordinateSpace(name: Self.coordinateSpace)
             .onGeometryChange(for: CGPoint.self) { $0.frame(in: .global).origin } action: { cardFrames.origin = $0 }
@@ -627,8 +628,8 @@ struct DeckCarouselView: View {
                     }
                     guard let dragValue else { return }
                     if drag == nil {
-                        // メニューのボタンへ向かう指は、選ぶ操作としてメニューへ渡す。
-                        // それ以外の向きへ少し動かしたら、メニューをやめて運び始める。
+                        // メニューのボタンの側へ向かう指は、選ぶ操作としてメニューへ渡す。
+                        // それ以外の向きへはっきり動かしたら、メニューをやめて運び始める。
                         if onPressMove(global(dragValue.location)) { return }
                         guard hypot(dragValue.translation.width, dragValue.translation.height) > 8 else { return }
                         beginDrag(deck, source: source, at: dragValue.location)

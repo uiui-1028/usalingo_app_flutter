@@ -313,18 +313,30 @@ final class DeckRadialMenuLayoutTests: XCTestCase {
         let layout = DeckRadialMenuLayout(anchor: anchor, cardFrame: card, count: 2)
         for (index, center) in layout.centers.enumerated() {
             XCTAssertEqual(layout.item(at: center), index)
-            XCTAssertTrue(layout.isHeadingToItem(center))
+            XCTAssertTrue(layout.keepsMenu(center))
         }
         XCTAssertNil(layout.item(at: CGPoint(x: anchor.x, y: anchor.y - 10)))
         XCTAssertNil(layout.item(at: CGPoint(x: anchor.x, y: anchor.y - 400)))
     }
 
-    /// ボタンと反対の向きへ動かした指は、メニューではなくデッキを運ぶ操作に譲る。
-    func testMovingAwayFromTheButtonsIsNotHeadingToAnItem() {
+    /// ボタンと反対の向きへはっきり動かした指は、メニューではなくデッキを運ぶ操作に譲る。
+    func testMovingAwayFromTheButtonsGivesWayToReordering() {
         let anchor = CGPoint(x: 200, y: 500)
         let layout = DeckRadialMenuLayout(anchor: anchor, cardFrame: card, count: 2)
-        let below = CGPoint(x: anchor.x, y: anchor.y + 20)
-        XCTAssertFalse(layout.isHeadingToItem(below))
+        let below = CGPoint(x: anchor.x, y: anchor.y + 30)
+        XCTAssertFalse(layout.keepsMenu(below))
         XCTAssertNil(layout.item(at: below))
+    }
+
+    /// 動かし始めの小さな揺れや、ボタンからずれた向きでも、ボタンの側なら運ぶ操作に切り替えない。
+    func testWobblingOnTheWayToAButtonKeepsTheMenu() {
+        let anchor = CGPoint(x: 200, y: 500)
+        let layout = DeckRadialMenuLayout(anchor: anchor, cardFrame: card, count: 2)
+        XCTAssertTrue(layout.keepsMenu(CGPoint(x: anchor.x, y: anchor.y + 12)))
+        // 2つのボタンの外側へ 30 度ずれた向き。どのボタンも選ばないが、メニューは続ける。
+        let outer = (layout.angles.last! + 30) * .pi / 180
+        let wobble = CGPoint(x: anchor.x + 60 * cos(outer), y: anchor.y + 60 * sin(outer))
+        XCTAssertNil(layout.item(at: wobble))
+        XCTAssertTrue(layout.keepsMenu(wobble))
     }
 }

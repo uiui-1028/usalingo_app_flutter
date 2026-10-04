@@ -252,6 +252,10 @@ struct DeckRadialMenuLayout {
     static let selectDistance: CGFloat = 36
     /// ボタンの外側にこれだけ余裕を持たせて、選んだままにする。
     static let reach: CGFloat = radius + 44
+    /// 指をこれだけ動かすまでは、向きにかかわらずメニューを続ける。指の小さな揺れで運び始めないため。
+    static let reorderDistance: CGFloat = 20
+    /// ボタンの並ぶ扇の両側にこれだけ角度の余裕を持たせて、ボタンへ向かう途中とみなす。
+    static let approachMargin: Double = 40
 
     let anchor: CGPoint
     /// ボタンごとの向き。度で、右が 0、下が 90（画面の座標と同じ向き）。
@@ -282,11 +286,14 @@ struct DeckRadialMenuLayout {
         return sector(of: location)
     }
 
-    /// 指がどれかのボタンの方へ向かっているか。向かっていなければ、呼ぶ側はデッキを運び始める。
-    func isHeadingToItem(_ location: CGPoint) -> Bool {
+    /// メニューを続けるか。まだ少ししか動いていないか、ボタンの並ぶ側の広い扇の中にいれば続ける。
+    /// 続けないときは、呼ぶ側がデッキを運び始める。
+    func keepsMenu(_ location: CGPoint) -> Bool {
         let distance = hypot(location.x - anchor.x, location.y - anchor.y)
         guard distance <= Self.reach else { return false }
-        return distance < 1 || sector(of: location) != nil
+        guard distance >= Self.reorderDistance, let first = angles.first, let last = angles.last else { return true }
+        let angle = atan2(location.y - anchor.y, location.x - anchor.x) * 180 / .pi
+        return abs(remainder(angle - (first + last) / 2, 360)) <= (last - first) / 2 + Self.approachMargin
     }
 
     /// 指の向きに最も近いボタン。角度の差が隣との中間を超えたら、どれでもない。
@@ -304,11 +311,19 @@ struct DeckRadialMenuLayout {
     }
 }
 
+/// 長押しメニューで指を離したときの結果。
+enum DeckMenuRelease: Equatable {
+    /// このボタンを選んだ。
+    case choose(Int)
+    /// どのボタンも選ばずに離した。
+    case dismiss
+}
+
 /// 長押しメニュー。指の場所に輪を出し、そのまわりに丸いボタンを扇形に並べる（ラジアルメニュー）。
 /// 背景は強く暗くぼかし、押したカードの形だけ切り抜いて見せる。
 ///
 /// 指を離さずにボタンへ動かすと、そのボタンが大きくなり、指の場所の輪が中心へ縮む。そこで離すと決まる。
-/// ボタンを選ばずに離したときは開いたままにし、タップでも選べる。外をタップすると閉じる。
+/// ボタンを選ばずに離すと、開いたときの逆の動きで閉じる。支援技術から開いたときは、タップで選ぶ。
 struct DeckRadialMenuOverlay: View {
     /// 背景を暗くする濃さ。0...1。
     static let dimOpacity: Double = 0.6
@@ -316,8 +331,8 @@ struct DeckRadialMenuOverlay: View {
     let target: DeckMenuTarget
     /// 指を離さずに選んでいるボタン。
     let highlighted: Int?
-    /// 指を離して決まったボタン。決まったら閉じてから、その操作を渡す。
-    let chosen: Int?
+    /// 指を離した結果。閉じてから、選んだ操作があれば渡す。
+    let release: DeckMenuRelease?
     /// 閉じ終えたときに呼ぶ。メニューで選んだ操作があれば渡す。
     let onFinish: ((() -> Void)?) -> Void
 
@@ -348,6 +363,7 @@ struct DeckRadialMenuOverlay: View {
                 .buttonStyle(RadialButtonStyle(isHighlighted: highlighted == index,
                                                isDestructive: item.role == .destructive))
                 .accessibilityLabel(item.title)
+                .scaleEffect(isShown || reduceMotion ? 1 : 0.3)
                 .position(isShown || reduceMotion ? layout.centers[index] : layout.anchor)
             }
 
@@ -369,15 +385,23 @@ struct DeckRadialMenuOverlay: View {
         .onAppear {
             withAnimation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.8)) { isShown = true }
         }
-        .onChange(of: chosen) { _, chosen in
-            guard let chosen, target.items.indices.contains(chosen) else { return }
-            close(then: target.items[chosen].action)
+        .onChange(of: release) { _, release in
+            switch release {
+            case .choose(let index) where target.items.indices.contains(index):
+                close(then: target.items[index].action)
+            case .dismiss:
+                close(then: nil)
+            default:
+                break
+            }
         }
     }
 
     /// 長押しした場所の輪。ボタンを選ぶと中心へ縮み、選んでいる先へ目を向けさせる。
+    /// 開くときは小さい輪から広がり、閉じるときはまた縮む。
     private var originRing: some View {
         let isSelecting = highlighted != nil
+        let scale: CGFloat = reduceMotion ? 1 : (!isShown ? 0.5 : (isSelecting ? 0.4 : 1))
         return ZStack {
             Circle()
                 .strokeBorder(WireColor.surface.opacity(0.8), lineWidth: 2)
@@ -387,7 +411,7 @@ struct DeckRadialMenuOverlay: View {
                 .frame(width: 56, height: 56)
         }
         .shadow(color: .black.opacity(0.3), radius: 6)
-        .scaleEffect(isSelecting && !reduceMotion ? 0.4 : 1)
+        .scaleEffect(scale)
         .opacity(isSelecting ? 0.5 : 1)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
@@ -412,9 +436,10 @@ struct DeckRadialMenuOverlay: View {
         .accessibilityHidden(true)
     }
 
+    /// ボタンを指の場所へ吸い込み、輪を縮めながら薄くして閉じる。開くときの逆の動き。
     private func close(then action: (() -> Void)?) {
         guard isShown else { return }
-        withAnimation(reduceMotion ? nil : .easeIn(duration: 0.15)) {
+        withAnimation(reduceMotion ? nil : .spring(response: 0.25, dampingFraction: 0.9)) {
             isShown = false
         } completion: {
             onFinish(action)
