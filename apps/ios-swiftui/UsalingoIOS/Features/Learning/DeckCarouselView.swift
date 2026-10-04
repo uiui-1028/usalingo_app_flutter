@@ -98,8 +98,13 @@ struct DeckCarouselView: View {
     var children: (Deck) -> [Deck] = { _ in [] }
     /// フォルダの「＋」「－」。
     var onToggleFolder: (Deck) -> Void = { _ in }
-    /// 長押し。押したカードの画面上の位置を渡し、呼ぶ側が自前のメニューを重ねる。
-    let onLongPress: (Deck, CGRect) -> Void
+    /// 長押し。押したカードと指の画面上の位置を渡し、呼ぶ側が自前のメニューを重ねる。
+    let onLongPress: (Deck, CGRect, CGPoint) -> Void
+    /// 長押しのまま指を動かした。指の画面上の位置を渡す。メニューのボタンへ向かっていれば true を返し、
+    /// そのときはデッキを運び始めない。
+    var onPressMove: (CGPoint) -> Bool = { _ in false }
+    /// 長押しのあと、デッキを運ばずに指を離した。
+    var onPressEnd: () -> Void = {}
     /// 長押しのまま指を動かし始めた。呼ぶ側はメニューを閉じる。
     var onDragStart: (Deck) -> Void = { _ in }
     /// 運び終えた（落とした・取りやめた）。
@@ -185,9 +190,15 @@ struct DeckCarouselView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .contentShape(Rectangle())
+            // 長押しは指の場所を教えてくれないので、触れた場所をここで覚えておき、メニューをその下に出す。
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 0, coordinateSpace: .global)
+                    .onChanged { value in cardFrames.touchDown = value.startLocation }
+            )
             .gesture(dragGesture)
             .overlay { floatingCard(size: proxy.size) }
             .coordinateSpace(name: Self.coordinateSpace)
+            .onGeometryChange(for: CGPoint.self) { $0.frame(in: .global).origin } action: { cardFrames.origin = $0 }
             .onAppear { viewportSize = proxy.size }
             .onChange(of: proxy.size) { _, size in viewportSize = size }
         }
@@ -557,9 +568,16 @@ struct DeckCarouselView: View {
         )
     }
 
-    private func presentMenu(for deck: Deck) {
+    /// 指の場所が分からないとき（支援技術から開くときなど）は、カードの真ん中に出す。
+    private func presentMenu(for deck: Deck, at location: CGPoint? = nil) {
         HapticFeedbackService.swipeThresholdCrossed()
-        onLongPress(deck, cardFrames.frames[deck.id] ?? .zero)
+        let frame = cardFrames.frames[deck.id] ?? .zero
+        onLongPress(deck, frame, location ?? CGPoint(x: frame.midX, y: frame.midY))
+    }
+
+    /// このカルーセルの座標を、画面の座標に直す。
+    private func global(_ point: CGPoint) -> CGPoint {
+        CGPoint(x: point.x + cardFrames.origin.x, y: point.y + cardFrames.origin.y)
     }
 
     /// 中央でないフォルダの「＋」は、中央へ寄せてから開く。
@@ -605,11 +623,13 @@ struct DeckCarouselView: View {
                     guard case .second(true, let dragValue) = value else { return }
                     if pressedDeckId != deck.id {
                         pressedDeckId = deck.id
-                        presentMenu(for: deck)
+                        presentMenu(for: deck, at: cardFrames.touchDown)
                     }
                     guard let dragValue else { return }
                     if drag == nil {
-                        // 指を少し動かしたら、メニューをやめて運び始める。
+                        // メニューのボタンへ向かう指は、選ぶ操作としてメニューへ渡す。
+                        // それ以外の向きへ少し動かしたら、メニューをやめて運び始める。
+                        if onPressMove(global(dragValue.location)) { return }
                         guard hypot(dragValue.translation.width, dragValue.translation.height) > 8 else { return }
                         beginDrag(deck, source: source, at: dragValue.location)
                     }
@@ -729,8 +749,12 @@ struct DeckCarouselView: View {
 
     private func finishDrag() {
         let finished = drag
+        let wasPressed = pressedDeckId != nil
         cancelPress()
-        guard let finished else { return }
+        guard let finished else {
+            if wasPressed { onPressEnd() }
+            return
+        }
         switch finished.source {
         case .slot(let index):
             guard let target = finished.target else { return }
@@ -966,4 +990,8 @@ struct DeckCoverImage: View {
 /// カードの位置を覚えておく入れ物。指で回している間は毎フレーム変わるので、描き直しの引き金にしない。
 private final class CardFrameBox {
     var frames: [Int: CGRect] = [:]
+    /// カルーセルそのものの画面上の左上。指の場所を画面の座標に直すのに使う。
+    var origin: CGPoint = .zero
+    /// 最後に指が触れた画面上の場所。
+    var touchDown: CGPoint?
 }

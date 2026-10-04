@@ -221,22 +221,103 @@ enum DeckFolderNaming {
 
 // MARK: - 長押しメニュー
 
-/// 長押しで開くメニューの中身と、押したカードの画面上の位置。
+/// 長押しで開くメニューの中身と、押したカードと指の画面上の位置。
 struct DeckMenuTarget: Identifiable {
     let deck: Deck
     let cardFrame: CGRect
+    /// 長押しした指の場所。ボタンはここを中心に扇形に並ぶ。
+    var anchor: CGPoint
     let items: [DeckMenuItem]
 
     var id: Int { deck.id }
+
+    var layout: DeckRadialMenuLayout {
+        DeckRadialMenuLayout(anchor: anchor, cardFrame: cardFrame, count: items.count)
+    }
 }
 
-/// 長押しメニュー。iOS 標準の長押しメニューより背景を強く暗くぼかすため、自前で重ねる。
-/// 押したカードの形だけ切り抜いて見せ、その上か下にメニューを置く。外をタップすると閉じる。
-struct DeckActionMenuOverlay: View {
+/// 長押しメニューのボタンの並び。指の場所を中心に扇形に置く。見た目と切り離してあるので、単体で確かめられる。
+///
+/// 上に余白があれば上へ、なければ下へ開き、カードの中央の側へ傾けて画面の外へはみ出さないようにする。
+/// 指を離さずにボタンの方へ動かすと選び、離すと決まる（マーキングメニュー）。
+struct DeckRadialMenuLayout {
+    /// 指の場所からボタンの中心までの距離。
+    static let radius: CGFloat = 84
+    static let buttonSize: CGFloat = 56
+    /// 隣どうしのボタンの角度の差。
+    static let spread: Double = 50
+    /// 指がここより上にあるときは下へ開く。
+    static let opensDownBelowY: CGFloat = 220
+    /// 指をこれだけ動かすまでは、どのボタンも選ばない。
+    static let selectDistance: CGFloat = 36
+    /// ボタンの外側にこれだけ余裕を持たせて、選んだままにする。
+    static let reach: CGFloat = radius + 44
+
+    let anchor: CGPoint
+    /// ボタンごとの向き。度で、右が 0、下が 90（画面の座標と同じ向き）。
+    let angles: [Double]
+
+    init(anchor: CGPoint, cardFrame: CGRect, count: Int) {
+        self.anchor = anchor
+        let opensUp = anchor.y >= Self.opensDownBelowY
+        let towardRight = anchor.x < cardFrame.midX
+        let base: Double = (opensUp ? -90 : 90) + (towardRight == opensUp ? 30 : -30)
+        angles = (0..<count).map { base + (Double($0) - Double(count - 1) / 2) * Self.spread }
+    }
+
+    var centers: [CGPoint] {
+        angles.map { point(at: $0, distance: Self.radius) }
+    }
+
+    /// 選んだボタンの名前を出す場所。扇の真ん中の外側。
+    var labelCenter: CGPoint {
+        let middle = angles.isEmpty ? -90 : (angles.first! + angles.last!) / 2
+        return point(at: middle, distance: Self.radius + Self.buttonSize / 2 + 28)
+    }
+
+    /// 指の下で選ばれているボタン。動かした距離が短すぎるときと、遠すぎるときは選ばない。
+    func item(at location: CGPoint) -> Int? {
+        let distance = hypot(location.x - anchor.x, location.y - anchor.y)
+        guard distance >= Self.selectDistance, distance <= Self.reach else { return nil }
+        return sector(of: location)
+    }
+
+    /// 指がどれかのボタンの方へ向かっているか。向かっていなければ、呼ぶ側はデッキを運び始める。
+    func isHeadingToItem(_ location: CGPoint) -> Bool {
+        let distance = hypot(location.x - anchor.x, location.y - anchor.y)
+        guard distance <= Self.reach else { return false }
+        return distance < 1 || sector(of: location) != nil
+    }
+
+    /// 指の向きに最も近いボタン。角度の差が隣との中間を超えたら、どれでもない。
+    private func sector(of location: CGPoint) -> Int? {
+        let angle = atan2(location.y - anchor.y, location.x - anchor.x) * 180 / .pi
+        let differences = angles.map { abs(remainder(angle - $0, 360)) }
+        guard let nearest = differences.indices.min(by: { differences[$0] < differences[$1] }),
+              differences[nearest] <= Self.spread / 2 else { return nil }
+        return nearest
+    }
+
+    private func point(at angle: Double, distance: CGFloat) -> CGPoint {
+        let radians = angle * .pi / 180
+        return CGPoint(x: anchor.x + distance * CGFloat(cos(radians)), y: anchor.y + distance * CGFloat(sin(radians)))
+    }
+}
+
+/// 長押しメニュー。指の場所に輪を出し、そのまわりに丸いボタンを扇形に並べる（ラジアルメニュー）。
+/// 背景は強く暗くぼかし、押したカードの形だけ切り抜いて見せる。
+///
+/// 指を離さずにボタンへ動かすと、そのボタンが大きくなり、指の場所の輪が中心へ縮む。そこで離すと決まる。
+/// ボタンを選ばずに離したときは開いたままにし、タップでも選べる。外をタップすると閉じる。
+struct DeckRadialMenuOverlay: View {
     /// 背景を暗くする濃さ。0...1。
     static let dimOpacity: Double = 0.6
 
     let target: DeckMenuTarget
+    /// 指を離さずに選んでいるボタン。
+    let highlighted: Int?
+    /// 指を離して決まったボタン。決まったら閉じてから、その操作を渡す。
+    let chosen: Int?
     /// 閉じ終えたときに呼ぶ。メニューで選んだ操作があれば渡す。
     let onFinish: ((() -> Void)?) -> Void
 
@@ -244,22 +325,72 @@ struct DeckActionMenuOverlay: View {
     @State private var isShown = false
 
     var body: some View {
-        GeometryReader { proxy in
-            ZStack {
-                backdrop
-                    .contentShape(Rectangle())
-                    .onTapGesture { close(then: nil) }
-                    .accessibilityAddTraits(.isButton)
-                    .accessibilityLabel("メニューを閉じる")
+        let layout = target.layout
+        ZStack {
+            backdrop
+                .contentShape(Rectangle())
+                .onTapGesture { close(then: nil) }
+                .accessibilityAddTraits(.isButton)
+                .accessibilityLabel("メニューを閉じる")
 
-                menu(in: proxy.size)
+            originRing
+                .position(layout.anchor)
+
+            ForEach(target.items.indices, id: \.self) { index in
+                let item = target.items[index]
+                Button {
+                    close(then: item.action)
+                } label: {
+                    Image(systemName: item.systemImage)
+                        .font(.system(size: 22, weight: .semibold))
+                        .accessibilityHidden(true)
+                }
+                .buttonStyle(RadialButtonStyle(isHighlighted: highlighted == index,
+                                               isDestructive: item.role == .destructive))
+                .accessibilityLabel(item.title)
+                .position(isShown || reduceMotion ? layout.centers[index] : layout.anchor)
+            }
+
+            if let highlighted, target.items.indices.contains(highlighted) {
+                Text(target.items[highlighted].title)
+                    .wireFont(.label, color: WireColor.ink)
+                    .padding(.horizontal, WireMetrics.spacingM)
+                    .padding(.vertical, WireMetrics.spacingS)
+                    .background(Capsule().fill(WireColor.surface))
+                    .fixedSize()
+                    .position(layout.labelCenter)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
             }
         }
         .ignoresSafeArea()
         .opacity(isShown ? 1 : 0)
+        .animation(reduceMotion ? nil : .spring(response: 0.25, dampingFraction: 0.75), value: highlighted)
         .onAppear {
-            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { isShown = true }
+            withAnimation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.8)) { isShown = true }
         }
+        .onChange(of: chosen) { _, chosen in
+            guard let chosen, target.items.indices.contains(chosen) else { return }
+            close(then: target.items[chosen].action)
+        }
+    }
+
+    /// 長押しした場所の輪。ボタンを選ぶと中心へ縮み、選んでいる先へ目を向けさせる。
+    private var originRing: some View {
+        let isSelecting = highlighted != nil
+        return ZStack {
+            Circle()
+                .strokeBorder(WireColor.surface.opacity(0.8), lineWidth: 2)
+                .frame(width: 84, height: 84)
+            Circle()
+                .fill(WireColor.surface.opacity(0.85))
+                .frame(width: 56, height: 56)
+        }
+        .shadow(color: .black.opacity(0.3), radius: 6)
+        .scaleEffect(isSelecting && !reduceMotion ? 0.4 : 1)
+        .opacity(isSelecting ? 0.5 : 1)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 
     /// 画面全体をぼかして暗くし、押したカードの形だけ抜く。
@@ -281,55 +412,6 @@ struct DeckActionMenuOverlay: View {
         .accessibilityHidden(true)
     }
 
-    /// カードが画面の上半分にあれば下へ、下半分にあれば上へ出す。入りきらないときはスクロールさせる。
-    private func menu(in size: CGSize) -> some View {
-        let card = target.cardFrame
-        let opensBelow = card.midY < size.height / 2
-        let gap = WireMetrics.spacingS
-        let margin = WireMetrics.spacingXL
-        let available = max(0, opensBelow ? size.height - card.maxY - gap - margin : card.minY - gap - margin)
-        let width = min(260, size.width - WireMetrics.screenPadding * 2)
-        let x = min(max(card.minX, WireMetrics.screenPadding), size.width - WireMetrics.screenPadding - width)
-
-        return ViewThatFits(in: .vertical) {
-            menuList
-            ScrollView { menuList }
-        }
-        .frame(width: width)
-        .frame(maxHeight: available, alignment: opensBelow ? .top : .bottom)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .shadow(color: .black.opacity(0.25), radius: 20, y: 8)
-        .scaleEffect(isShown || reduceMotion ? 1 : 0.9, anchor: opensBelow ? .top : .bottom)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: opensBelow ? .topLeading : .bottomLeading)
-        .padding(.leading, x)
-        .padding(opensBelow ? .top : .bottom, opensBelow ? card.maxY + gap : size.height - card.minY + gap)
-    }
-
-    private var menuList: some View {
-        VStack(spacing: 0) {
-            ForEach(Array(target.items.enumerated()), id: \.element.id) { index, item in
-                if index > 0 { Divider() }
-                Button {
-                    close(then: item.action)
-                } label: {
-                    HStack(spacing: WireMetrics.spacingM) {
-                        Text(item.title)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        Image(systemName: item.systemImage)
-                            .accessibilityHidden(true)
-                    }
-                    .foregroundStyle(item.role == .destructive ? Color.red : Color.primary)
-                    .padding(.horizontal, WireMetrics.spacingM)
-                    .frame(minHeight: 44)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .fixedSize(horizontal: false, vertical: true)
-    }
-
     private func close(then action: (() -> Void)?) {
         guard isShown else { return }
         withAnimation(reduceMotion ? nil : .easeIn(duration: 0.15)) {
@@ -337,5 +419,25 @@ struct DeckActionMenuOverlay: View {
         } completion: {
             onFinish(action)
         }
+    }
+}
+
+/// メニューの丸いボタン。ふだんは白地に黒い絵、選ぶと大きくなり黒地（消す操作は赤地）に白い絵になる。
+private struct RadialButtonStyle: ButtonStyle {
+    let isHighlighted: Bool
+    let isDestructive: Bool
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        let active = isHighlighted || configuration.isPressed
+        configuration.label
+            .foregroundStyle(active ? WireColor.surface : WireColor.ink)
+            .frame(width: DeckRadialMenuLayout.buttonSize, height: DeckRadialMenuLayout.buttonSize)
+            .background(Circle().fill(active ? (isDestructive ? Color.red : WireColor.ink) : WireColor.surface))
+            .overlay(Circle().strokeBorder(WireColor.ink, lineWidth: WireMetrics.strokeHair))
+            .shadow(color: .black.opacity(0.25), radius: 10, y: 4)
+            .scaleEffect(active && !reduceMotion ? 1.18 : 1)
+            .contentShape(Circle())
     }
 }

@@ -283,3 +283,48 @@ final class DeckDropTests: XCTestCase {
     }
 }
 
+
+/// 長押しメニューのボタンの並びと、指で選ぶ判定を確かめる。
+final class DeckRadialMenuLayoutTests: XCTestCase {
+    private let card = CGRect(x: 0, y: 200, width: 400, height: 400)
+
+    /// 画面の下の方で左寄りを押すと、上へ開き、カードの中央の側（右）へ傾く。
+    func testOpensUpAndTowardCardCenter() {
+        let layout = DeckRadialMenuLayout(anchor: CGPoint(x: 60, y: 500), cardFrame: card, count: 2)
+        for center in layout.centers {
+            XCTAssertLessThan(center.y, 500)
+            XCTAssertGreaterThan(center.x, 60)
+        }
+        XCTAssertLessThan(layout.centers[0].x, layout.centers[1].x)
+    }
+
+    /// 画面の上の方を押すと、下へ開く。
+    func testOpensDownNearTheTop() {
+        let layout = DeckRadialMenuLayout(anchor: CGPoint(x: 340, y: 120), cardFrame: card, count: 2)
+        for center in layout.centers {
+            XCTAssertGreaterThan(center.y, 120)
+            XCTAssertLessThan(center.x, 340)
+        }
+    }
+
+    /// ボタンの上へ指を動かすとそのボタンを選ぶ。動かし始めや遠すぎる場所では選ばない。
+    func testSelectsTheButtonUnderTheFinger() {
+        let anchor = CGPoint(x: 200, y: 500)
+        let layout = DeckRadialMenuLayout(anchor: anchor, cardFrame: card, count: 2)
+        for (index, center) in layout.centers.enumerated() {
+            XCTAssertEqual(layout.item(at: center), index)
+            XCTAssertTrue(layout.isHeadingToItem(center))
+        }
+        XCTAssertNil(layout.item(at: CGPoint(x: anchor.x, y: anchor.y - 10)))
+        XCTAssertNil(layout.item(at: CGPoint(x: anchor.x, y: anchor.y - 400)))
+    }
+
+    /// ボタンと反対の向きへ動かした指は、メニューではなくデッキを運ぶ操作に譲る。
+    func testMovingAwayFromTheButtonsIsNotHeadingToAnItem() {
+        let anchor = CGPoint(x: 200, y: 500)
+        let layout = DeckRadialMenuLayout(anchor: anchor, cardFrame: card, count: 2)
+        let below = CGPoint(x: anchor.x, y: anchor.y + 20)
+        XCTAssertFalse(layout.isHeadingToItem(below))
+        XCTAssertNil(layout.item(at: below))
+    }
+}

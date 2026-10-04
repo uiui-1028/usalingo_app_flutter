@@ -52,6 +52,10 @@ struct LearningDashboardView: View {
     @State private var folderPendingDeletion: LocalDeckFolder?
     @State private var deckPendingDeletion: Deck?
     @State private var menuTarget: DeckMenuTarget?
+    /// 長押しのまま指を動かして選んでいるメニューのボタン。
+    @State private var menuHighlight: Int?
+    /// 指を離して決まったメニューのボタン。
+    @State private var menuChoice: Int?
     /// メニューで選んだ操作。シートや確認を重ねないよう、メニューが閉じ切ってから行う。
     @State private var pendingMenuAction: (() -> Void)?
     /// デッキごとの進み具合。カードを読み終えるまでは空のまま出す。
@@ -156,7 +160,9 @@ struct LearningDashboardView: View {
             role: role(of:),
             children: { deck in folder(of: deck).map(childDecks(of:)) ?? [] },
             onToggleFolder: toggleFolder,
-            onLongPress: presentMenu(for:cardFrame:),
+            onLongPress: presentMenu(for:cardFrame:anchor:),
+            onPressMove: trackMenu(at:),
+            onPressEnd: { if let menuHighlight { menuChoice = menuHighlight } },
             onDragStart: { _ in
                 // 長押しのまま動かし始めたら、メニューを閉じて並べ替えに移る。
                 pendingMenuAction = nil
@@ -170,8 +176,10 @@ struct LearningDashboardView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         // 長押しメニューはタブバーまで覆うよう全画面に重ねる。下から出てくる動きは消し、中で薄く出す。
         .fullScreenCover(item: $menuTarget, onDismiss: runPendingMenuAction) { target in
-            DeckActionMenuOverlay(target: target) { action in
+            DeckRadialMenuOverlay(target: target, highlighted: menuHighlight, chosen: menuChoice) { action in
                 pendingMenuAction = action
+                menuHighlight = nil
+                menuChoice = nil
                 withoutAnimation { menuTarget = nil }
             }
             .presentationBackground(.clear)
@@ -313,9 +321,27 @@ struct LearningDashboardView: View {
         openFolderId = openFolderId == folder.id ? nil : folder.id
     }
 
-    private func presentMenu(for deck: Deck, cardFrame: CGRect) {
-        let target = DeckMenuTarget(deck: deck, cardFrame: cardFrame, items: menuItems(for: deck))
+    /// 同じデッキでもう一度呼ばれたときは、指の場所だけ置き直す。
+    private func presentMenu(for deck: Deck, cardFrame: CGRect, anchor: CGPoint) {
+        if menuTarget?.id == deck.id {
+            withoutAnimation { menuTarget?.anchor = anchor }
+            return
+        }
+        menuHighlight = nil
+        menuChoice = nil
+        let target = DeckMenuTarget(deck: deck, cardFrame: cardFrame, anchor: anchor, items: menuItems(for: deck))
         withoutAnimation { menuTarget = target }
+    }
+
+    /// 長押しのまま動かした指の下のボタンを選ぶ。ボタンへ向かっていなければ false を返し、運ぶ操作に譲る。
+    private func trackMenu(at location: CGPoint) -> Bool {
+        guard let layout = menuTarget?.layout else { return false }
+        let item = layout.item(at: location)
+        if item != menuHighlight {
+            menuHighlight = item
+            if item != nil { HapticFeedbackService.detent() }
+        }
+        return layout.isHeadingToItem(location)
     }
 
     private func runPendingMenuAction() {
@@ -330,7 +356,7 @@ struct LearningDashboardView: View {
         withTransaction(transaction, change)
     }
 
-    /// 長押しメニュー。名前の変更と削除だけ。iOS の標準に合わせ、消す操作は最後に赤で置く。
+    /// 長押しメニュー。名前の変更と削除だけ。消す操作は最後に置き、選ぶと赤くなる。
     /// 並べ替えとフォルダへの出し入れは、長押しのまま動かして行う。
     private func menuItems(for deck: Deck) -> [DeckMenuItem] {
         let folder = folder(of: deck)
