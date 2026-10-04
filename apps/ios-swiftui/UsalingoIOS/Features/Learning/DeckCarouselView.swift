@@ -635,7 +635,7 @@ struct DeckCarouselView: View {
     // MARK: - 長押しで運ぶ
 
     /// 長押しが決まるまでの時間。
-    private static let holdDuration = 0.45
+    private static let holdDuration = 0.35
     /// 長押しの途中で縮めるカードの大きさ。
     private static let holdScale: CGFloat = 0.96
 
