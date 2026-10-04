@@ -17,6 +17,7 @@ final class AuthTransportTests: XCTestCase {
             restoresSession: false,
             authService: AuthService(sessionStore: store, client: FakeAuthSupabaseClient(), session: network),
             remoteStudy: OfflineRemoteStudyImporter(),
+            connectionIsConfigured: true,
             localStudy: local
         )
         await state.retryStartup()
@@ -132,12 +133,28 @@ final class AuthTransportTests: XCTestCase {
         let transport = StubNetworkSession(data: Data(), statusCode: 503)
         let state = AppState(restoresSession: false,
                              authService: AuthService(sessionStore: store, client: FakeAuthSupabaseClient(), session: transport),
-                             remoteStudy: OfflineRemoteStudyImporter(), localStudy: LocalStudyDataSource(directoryURL: directory))
+                             remoteStudy: OfflineRemoteStudyImporter(), connectionIsConfigured: true,
+                             localStudy: LocalStudyDataSource(directoryURL: directory))
         await state.retryStartup()
         XCTAssertEqual(transport.requests.count, 1)
         XCTAssertEqual(transport.requests.first?.url?.lastPathComponent, "token")
         XCTAssertEqual(store.savedSession?.user.id, "user-1")
         XCTAssertNil(state.startupMessage, "Transient failure must remain quiet")
+    }
+
+    @MainActor
+    func testMissingConfigurationStopsBeforeAuthentication() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let transport = StubNetworkSession(data: Data(), statusCode: 200)
+        let state = AppState(restoresSession: false,
+                             authService: AuthService(sessionStore: FakeSessionStore(), client: FakeAuthSupabaseClient(), session: transport),
+                             remoteStudy: OfflineRemoteStudyImporter(), connectionIsConfigured: false,
+                             localStudy: LocalStudyDataSource(directoryURL: directory))
+        await state.retryStartup()
+        XCTAssertTrue(transport.requests.isEmpty)
+        XCTAssertNil(state.session)
+        XCTAssertEqual(state.startupMessage, ConnectionFailure.configuration.localizedDescription)
     }
 
     func testSignInSucceedsWithoutNetworkAndSavesSession() async throws {

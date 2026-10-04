@@ -38,6 +38,7 @@ final class AppState: ObservableObject {
     private var retryDelay = 2.0
     private var authGeneration = 0
 
+    private let connectionIsConfigured: Bool
     private let authService: AuthService
     private let remoteStudy: any RemoteStudyImporting
     private let accountDeletionService: any AccountDeletionServicing
@@ -56,6 +57,7 @@ final class AppState: ObservableObject {
         authService: AuthService = AuthService(),
         remoteStudy: any RemoteStudyImporting = StudyService(),
         accountDeletionService: any AccountDeletionServicing = AccountDeletionService(),
+        connectionIsConfigured: Bool = SupabaseConfig.isConfigured,
         localStudy: LocalStudyDataSource? = nil,
         makeBackupSyncer: @escaping @MainActor (LocalStudyDataSource) -> StudyBackupSyncer = { StudyBackupSyncer(localStudy: $0) }
     ) {
@@ -75,6 +77,7 @@ final class AppState: ObservableObject {
             self.localStudy = localStudy.forAccount(id: cachedUserId)
         }
         self.defaults = defaults
+        self.connectionIsConfigured = connectionIsConfigured
         self.authService = authService
         self.remoteStudy = remoteStudy
         self.accountDeletionService = accountDeletionService
@@ -322,7 +325,7 @@ final class AppState: ObservableObject {
         let generation = authGeneration
         defer { isRestoringSession = false }
         startupMessage = nil
-        guard SupabaseConfig.isConfigured else {
+        guard connectionIsConfigured else {
             recordConnectionFailure(ConnectionFailure.configuration)
             return
         }
