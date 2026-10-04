@@ -256,7 +256,7 @@ struct DeckRadialMenuLayout {
     /// 指をこれだけ動かすまでは、向きにかかわらずメニューを続ける。指の小さな揺れで運び始めないため。
     static let reorderDistance: CGFloat = 20
     /// 選んだボタンに指を置いたまま、決まるまで待つ時間。
-    static let dwellDuration = 0.5
+    static let dwellDuration = 1.0
     /// 決まるまでの輪が、ボタンの何倍の大きさから縮み始めるか。
     static let approachStartScale: CGFloat = 1.9
     /// ボタンの並ぶ扇の両側にこれだけ角度の余裕を持たせて、ボタンへ向かう途中とみなす。
