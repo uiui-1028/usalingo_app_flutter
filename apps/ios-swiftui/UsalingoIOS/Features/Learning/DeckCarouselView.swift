@@ -35,11 +35,13 @@ enum DeckCardRole: Equatable {
     }
 }
 
-/// 長押しメニューの1行。
+/// 長押しメニューの1つのボタン。
 struct DeckMenuItem: Identifiable {
     let title: String
     let systemImage: String
     var role: ButtonRole?
+    /// 指を離さずにこのボタンへ動かしたら、離すのを待たずにデッキを持ち上げて運び始める。
+    var startsDrag = false
     let action: () -> Void
 
     var id: String { title }

@@ -215,11 +215,16 @@ final class DeckTreeTests: XCTestCase {
         XCTAssertEqual(tree.map(\.layoutEntry), [.folder(7), .deck(2), .deck(3), .deck(4)])
     }
 
-    func testRemovedDecksDropOutOfFoldersButEmptyFoldersStay() {
-        let folders = [LocalDeckFolder(id: 7, name: "F", deckIds: [9, 2]), LocalDeckFolder(id: 8, name: "G", deckIds: [])]
-        let tree = DeckTree.build(decks: decks, layout: [.folder(7)], folders: folders)
-        XCTAssertEqual(DeckTree.folders(in: tree, keepingEmptyFrom: folders).map(\.deckIds), [[2], []])
-        XCTAssertEqual(tree.map(\.layoutEntry), [.folder(7), .folder(8), .deck(1), .deck(3), .deck(4)])
+    func testRemovedDecksDropOutOfFoldersAndEmptyFoldersDisappear() {
+        let folders = [
+            LocalDeckFolder(id: 7, name: "F", deckIds: [9, 2]),
+            LocalDeckFolder(id: 8, name: "G", deckIds: []),
+            LocalDeckFolder(id: 9, name: "H", deckIds: [99])
+        ]
+        let tree = DeckTree.build(decks: decks, layout: [.folder(7), .folder(9)], folders: folders)
+        XCTAssertEqual(DeckTree.folders(in: tree, from: folders).map(\.id), [7])
+        XCTAssertEqual(DeckTree.folders(in: tree, from: folders).map(\.deckIds), [[2]])
+        XCTAssertEqual(tree.map(\.layoutEntry), [.folder(7), .deck(1), .deck(3), .deck(4)])
     }
 }
 
@@ -333,8 +338,8 @@ final class DeckRadialMenuLayoutTests: XCTestCase {
         let anchor = CGPoint(x: 200, y: 500)
         let layout = DeckRadialMenuLayout(anchor: anchor, cardFrame: card, count: 2)
         XCTAssertTrue(layout.keepsMenu(CGPoint(x: anchor.x, y: anchor.y + 12)))
-        // 2つのボタンの外側へ 30 度ずれた向き。どのボタンも選ばないが、メニューは続ける。
-        let outer = (layout.angles.last! + 30) * .pi / 180
+        // 2つのボタンの外側へ 28 度ずれた向き。どのボタンも選ばないが、メニューは続ける。
+        let outer = (layout.angles.last! + 28) * .pi / 180
         let wobble = CGPoint(x: anchor.x + 60 * cos(outer), y: anchor.y + 60 * sin(outer))
         XCTAssertNil(layout.item(at: wobble))
         XCTAssertTrue(layout.keepsMenu(wobble))

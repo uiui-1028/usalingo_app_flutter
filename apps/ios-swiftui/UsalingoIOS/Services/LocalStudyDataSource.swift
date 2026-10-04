@@ -559,7 +559,7 @@ final class LocalStudyDataSource: StudyDataSource {
         let layout = library.layout ?? seed.map(DeckLayoutEntry.deck)
         let tree = DeckTree.build(decks: decks, layout: layout, folders: library.folders)
         let normalizedLayout = tree.map(\.layoutEntry)
-        let normalizedFolders = DeckTree.folders(in: tree, keepingEmptyFrom: library.folders)
+        let normalizedFolders = DeckTree.folders(in: tree, from: library.folders)
         if normalizedLayout != library.layout || normalizedFolders != library.folders {
             library.layout = normalizedLayout
             library.folders = normalizedFolders

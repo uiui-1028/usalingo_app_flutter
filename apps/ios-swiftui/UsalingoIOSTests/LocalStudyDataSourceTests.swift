@@ -570,6 +570,21 @@ final class LocalStudyDataSourceTests: XCTestCase {
         XCTAssertTrue(source.deckFolders.isEmpty)
     }
 
+    /// 中のデッキをすべて外へ運ぶと、フォルダは並びからも保存からも消える。
+    func testFolderDisappearsWhenItsLastDeckLeaves() async throws {
+        let source = makeDataSource()
+        let first = try source.importDeck(from: sampleDeckData(cardCount: 1, deckId: "first"))
+        let decks = try await source.fetchDecks()
+        _ = try source.arrangedDeckTree(for: decks)
+        let folder = try source.createFolder(named: "F", containing: first.id)
+
+        try source.moveEntry(.deck(first.id), toTopLevelIndex: 0)
+        let layout = try source.arrangedDeckTree(for: decks).map(\.layoutEntry)
+        XCTAssertFalse(layout.contains(.folder(folder.id)))
+        XCTAssertEqual(layout.first, .deck(first.id))
+        XCTAssertTrue(source.deckFolders.isEmpty)
+    }
+
     func testDeckMovesToTheChosenPlaceInsideAFolder() async throws {
         let source = makeDataSource()
         let first = try source.importDeck(from: sampleDeckData(cardCount: 1, deckId: "first"))

@@ -137,14 +137,18 @@ struct LearningDashboardView: View {
     }
 
     /// デッキのカードを上下に回すカルーセル。お知らせがあるときだけ下に足す。
+    /// カルーセルは画面全体を使い、常に画面の真ん中を中心にする。タブバーや遊び方のバーはその上に重なる層なので、
+    /// 出し入れしてもカルーセルの大きさと位置は変えない（並べ替えでバーを隠したときに跳ねないように）。
     private var content: some View {
-        VStack(spacing: WireMetrics.spacingM) {
-            carousel
-            notice
-        }
-        .padding(.horizontal, WireMetrics.screenPadding)
-        .padding(.top, WireMetrics.spacingM)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        carousel
+            .padding(.horizontal, WireMetrics.screenPadding)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .ignoresSafeArea(edges: .vertical)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                notice
+                    .padding(.horizontal, WireMetrics.screenPadding)
+                    .padding(.bottom, WireMetrics.spacingM)
+            }
     }
 
     private var carousel: some View {
@@ -337,9 +341,12 @@ struct LearningDashboardView: View {
     }
 
     /// 長押しのまま動かした指の下のボタンを選ぶ。メニューを続けないなら false を返し、運ぶ操作に譲る。
+    /// 並べ替えのボタンに乗ったら、その場でデッキを持ち上げる。
     private func trackMenu(at location: CGPoint) -> Bool {
-        guard let layout = menuTarget?.layout else { return false }
+        guard let target = menuTarget else { return false }
+        let layout = target.layout
         let item = layout.item(at: location)
+        if let item, target.items[item].startsDrag { return false }
         if item != menuHighlight {
             menuHighlight = item
             if item != nil { HapticFeedbackService.detent() }
@@ -360,12 +367,14 @@ struct LearningDashboardView: View {
         withTransaction(transaction, change)
     }
 
-    /// 長押しメニュー。名前の変更と削除だけ。消す操作は最後に置き、選ぶと赤くなる。
-    /// 並べ替えとフォルダへの出し入れは、長押しのまま動かして行う。
+    /// 長押しメニュー。名前の変更、並べ替え、削除。消す操作は最後に置き、選ぶと赤くなる。
+    /// 並べ替えのボタンへ指を動かすと、そのままデッキを運べる。ボタンを使わずに長押しのまま動かしても運べる。
     private func menuItems(for deck: Deck) -> [DeckMenuItem] {
         let folder = folder(of: deck)
         return [
             DeckMenuItem(title: "名前を変更", systemImage: "pencil") { beginRename(deck) },
+            // ponytail: 支援技術からタップしたときは何もせず閉じるだけ。並べ替えの代わりの操作は後でまとめて作る。
+            DeckMenuItem(title: "並び替え", systemImage: "arrow.up.arrow.down", startsDrag: true) {},
             DeckMenuItem(title: "削除", systemImage: "trash", role: .destructive) {
                 if let folder { folderPendingDeletion = folder } else { deckPendingDeletion = deck }
             }

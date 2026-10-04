@@ -26,6 +26,7 @@ enum DeckTreeItem: Hashable, Identifiable {
 enum DeckTree {
     /// 覚えた順に並べる。消えたデッキは詰め、覚えていないデッキは末尾へ足す。
     /// 1つのデッキは1か所にしか出さない。フォルダの中にあるデッキはフォルダ側を優先する。
+    /// 中のデッキがなくなったフォルダは並べない（自動で消える）。
     static func build(decks: [Deck], layout: [DeckLayoutEntry], folders: [LocalDeckFolder]) -> [DeckTreeItem] {
         let decksById = Dictionary(decks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         var placed = Set<Int>()
@@ -48,12 +49,12 @@ enum DeckTree {
             case .deck(let id):
                 if let deck = take(id) { items.append(.deck(deck)) }
             case .folder(let id):
-                if let folder = foldersById[id], placedFolders.insert(id).inserted {
+                if let folder = foldersById[id], children[id]?.isEmpty == false, placedFolders.insert(id).inserted {
                     items.append(.folder(folder, decks: children[id] ?? []))
                 }
             }
         }
-        for folder in folders where placedFolders.insert(folder.id).inserted {
+        for folder in folders where children[folder.id]?.isEmpty == false && placedFolders.insert(folder.id).inserted {
             items.append(.folder(folder, decks: children[folder.id] ?? []))
         }
         for deck in decks where !placed.contains(deck.id) {
@@ -63,17 +64,17 @@ enum DeckTree {
         return items
     }
 
-    /// 組み立てた並びに合わせて、フォルダの中身を消えたデッキの無い形へ整える。
-    static func folders(in tree: [DeckTreeItem], keepingEmptyFrom folders: [LocalDeckFolder]) -> [LocalDeckFolder] {
+    /// 組み立てた並びに合わせて、フォルダの中身を消えたデッキの無い形へ整える。並びにない（空になった）フォルダは捨てる。
+    static func folders(in tree: [DeckTreeItem], from folders: [LocalDeckFolder]) -> [LocalDeckFolder] {
         var deckIds: [Int: [Int]] = [:]
         for case .folder(let folder, let decks) in tree {
             deckIds[folder.id] = decks.map(\.id)
         }
         var seen = Set<Int>()
         return folders.compactMap { folder in
-            guard seen.insert(folder.id).inserted else { return nil }
+            guard let ids = deckIds[folder.id], seen.insert(folder.id).inserted else { return nil }
             var folder = folder
-            folder.deckIds = deckIds[folder.id] ?? []
+            folder.deckIds = ids
             return folder
         }
     }
@@ -255,7 +256,7 @@ struct DeckRadialMenuLayout {
     /// 指をこれだけ動かすまでは、向きにかかわらずメニューを続ける。指の小さな揺れで運び始めないため。
     static let reorderDistance: CGFloat = 20
     /// ボタンの並ぶ扇の両側にこれだけ角度の余裕を持たせて、ボタンへ向かう途中とみなす。
-    static let approachMargin: Double = 40
+    static let approachMargin: Double = 30
 
     let anchor: CGPoint
     /// ボタンごとの向き。度で、右が 0、下が 90（画面の座標と同じ向き）。
