@@ -397,7 +397,7 @@ struct WordListColumnHeader: View {
                 columns.wrappedValue = WordListColumn.rotatedLeft(columns.wrappedValue)
             }
         } label: {
-            Image(systemName: "xmark")
+            Image(systemName: "plus")
                 .font(.body.weight(.bold))
                 .foregroundStyle(.primary)
                 .frame(width: 44, height: 44)
