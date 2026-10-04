@@ -51,9 +51,11 @@ final class AppState: ObservableObject {
         authService: AuthService = AuthService(),
         remoteStudy: any RemoteStudyImporting = StudyService(),
         accountDeletionService: any AccountDeletionServicing = AccountDeletionService(),
-        localStudy: LocalStudyDataSource = LocalStudyDataSource(),
+        localStudy: LocalStudyDataSource? = nil,
         makeBackupSyncer: @escaping @MainActor (LocalStudyDataSource) -> StudyBackupSyncer = { StudyBackupSyncer(localStudy: $0) }
     ) {
+        // 既定値の式はメインスレッドの外で評価されるため、ここで作る。
+        let localStudy = localStudy ?? LocalStudyDataSource()
         let cachedUserId = authService.cachedUserId()
         // 認証保存の直後やファイルコピーの途中で終了した場合も、次の起動で
         // コピーを完了する。失敗時は元の棚を開き、記録を隠さない。

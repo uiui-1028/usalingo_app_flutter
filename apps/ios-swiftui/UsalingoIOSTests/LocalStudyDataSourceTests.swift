@@ -1,6 +1,7 @@
 import XCTest
 @testable import UsalingoIOS
 
+@MainActor
 final class LocalStudyDataSourceTests: XCTestCase {
     private var directoryURL: URL!
 
