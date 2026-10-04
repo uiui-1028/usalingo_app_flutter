@@ -140,6 +140,10 @@ enum LocalStudyError: LocalizedError, Equatable {
 /// 進捗は端末のファイルへ保存する。
 /// キューの組み立ては `StudyQueueRules` に任せ、SM-2 の計算は
 /// `LearningProgress.marking(isCorrect:)` に委ねる。
+/// 回答の保存と公式教材の取り込みが同じ辞書を同時に書き換えないよう、メインスレッドに固定する。
+// ponytail: StudyDataSource は nonisolated のままなので、同期の要件（supportsDeckReordering など）は
+// 画面から呼ぶ前提に頼り、準拠の警告が1件残る。Swift 6 へ上げるときにプロトコルごと @MainActor にする。
+@MainActor
 final class LocalStudyDataSource: StudyDataSource {
     static let guestUserId = "guest"
 
@@ -375,7 +379,7 @@ final class LocalStudyDataSource: StudyDataSource {
     // MARK: - StudyDataSource
 
     /// サーバーのデッキを端末の一覧に出すときの番号。端末で作ったデッキの番号と重ならないよう負にする。
-    static func cachedDeckId(remoteDeckId id: Int) -> Int { -id - 1 }
+    nonisolated static func cachedDeckId(remoteDeckId id: Int) -> Int { -id - 1 }
 
     func fetchDecks() async throws -> [Deck] {
         cachedRemoteDecks.compactMap { cached in
@@ -537,9 +541,9 @@ final class LocalStudyDataSource: StudyDataSource {
 
     /// フォルダを学習画面へ渡すときのデッキ番号。端末デッキ（正）とサーバーのデッキ（-1 から下）と
     /// 重ならない、十分に離れた負の範囲を使う。
-    static func folderDeckId(folderId: Int) -> Int { -1_000_000_000 - folderId }
+    nonisolated static func folderDeckId(folderId: Int) -> Int { -1_000_000_000 - folderId }
 
-    static func isFolderDeckId(_ deckId: Int) -> Bool { deckId < -1_000_000_000 }
+    nonisolated static func isFolderDeckId(_ deckId: Int) -> Bool { deckId < -1_000_000_000 }
 
     /// フォルダを、5つの遊び方へそのまま渡せるデッキの形にする。
     func folderDeck(_ folder: LocalDeckFolder) -> Deck {
