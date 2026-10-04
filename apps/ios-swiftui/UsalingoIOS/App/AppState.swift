@@ -33,6 +33,11 @@ final class AppState: ObservableObject {
     /// 学習記録のバックアップを裏側で行う係（G-3）。画面からは触らない。
     private lazy var backupSyncer = makeBackupSyncer(localStudy)
 
+    @Published private(set) var requiresSignIn = false
+    private var needsReconnect = false
+    private var retryDelay = 2.0
+    private var authGeneration = 0
+
     private let authService: AuthService
     private let remoteStudy: any RemoteStudyImporting
     private let accountDeletionService: any AccountDeletionServicing
@@ -87,6 +92,10 @@ final class AppState: ObservableObject {
     }
 
     func setSession(_ session: AuthSession) {
+        authGeneration += 1
+        requiresSignIn = false
+        needsReconnect = false
+        startupMessage = nil
         self.session = session
     }
 
@@ -96,8 +105,17 @@ final class AppState: ObservableObject {
             authMessage = UserFacingError.message(for: error)
             return
         }
-        try? authService.signOut()
+        do { try authService.signOut() }
+        catch {
+            authMessage = UserFacingError.message(for: error)
+            return
+        }
+        authGeneration += 1
+        requiresSignIn = false
+        startupMessage = nil
+        let hadSession = session != nil
         session = nil
+        if !hadSession { handleSessionChange() }
         isResettingPassword = false
         // サインアウト後も端末の学習は止めず、裏側で新しい匿名アカウントを作る。
         Task { await startAnonymousSession() }
@@ -107,11 +125,11 @@ final class AppState: ObservableObject {
         Task {
             do {
                 if let recovered = try await authService.recoverSession(from: url) {
-                    session = recovered
+                    setSession(recovered)
                     isResettingPassword = true
                     return
                 }
-                session = try await authService.sessionFromConfirmationCallback(url: url)
+                setSession(try await authService.sessionFromConfirmationCallback(url: url))
                 authMessage = "メール確認が完了しました。"
             } catch {
                 authMessage = UserFacingError.message(for: error)
@@ -191,7 +209,7 @@ final class AppState: ObservableObject {
 
     func handleAuthCallback(_ url: URL) async {
         do {
-            session = try await authService.sessionFromConfirmationCallback(url: url)
+            setSession(try await authService.sessionFromConfirmationCallback(url: url))
             authMessage = "メール確認が完了しました。"
         } catch {
             authMessage = UserFacingError.message(for: error)
@@ -204,7 +222,12 @@ final class AppState: ObservableObject {
         backupSyncer.scheduleUpload(session: session)
     }
 
-    /// アプリが背面へ回るときに、待機中のバックアップを出しきる。
+    /// アプリが非アクティブなら、待機中の送信は次の前面表示まで待つ。
+    func pauseStudyBackup() {
+        backupSyncer.pause()
+    }
+
+    /// 再接続後に、バックアップを取り直す。
     func flushStudyBackup() async {
         guard let session else { return }
         await backupSyncer.flush(session: session)
@@ -213,7 +236,7 @@ final class AppState: ObservableObject {
     /// ログイン・セッション復元で利用者が変わったときだけ、バックアップの同期をやり直す。
     private func handleSessionChange() {
         backupSyncer.stop()
-        localStudy = localStudy.forAccount(id: session?.user.id)
+        localStudy = localStudy.forAccount(id: session?.user.id ?? authService.cachedUserId())
         backupSyncer = makeBackupSyncer(localStudy)
         studyDataVersion += 1
         // 匿名アカウントへの端末スナップショット送信は、外部保存の範囲を
@@ -237,7 +260,16 @@ final class AppState: ObservableObject {
 
     private func refreshOfficialContent(session: AuthSession) async {
         // 失敗しても、最後に成功した端末版を使い続ける。学習と回答保存は止めない。
-        try? await loadOfficialContent(session: session)
+        do {
+            try await loadOfficialContent(session: session)
+        } catch {
+            guard self.session?.user.id == session.user.id else { return }
+            if case .response(status: 401, code: _) = error as? ConnectionFailure {
+                needsReconnect = true
+            } else {
+                recordConnectionFailure(error)
+            }
+        }
     }
 
     private func loadOfficialContent(session: AuthSession) async throws {
@@ -286,56 +318,90 @@ final class AppState: ObservableObject {
     }
 
     private func restoreSession() async {
-        startupMessage = nil
-        do {
-            if let restored = try await authService.restoreSession() {
-                do { try acceptSession(restored) }
-                catch {
-                    startupMessage = UserFacingError.message(for: error)
-                    isRestoringSession = false
-                    return
-                }
-                isRestoringSession = false
-                return
-            }
-        } catch {
-            // サーバーに拒否されて保存セッションが消えた場合、前の利用者の
-            // 教材・回答を匿名画面へ見せない。通信障害なら保存IDを維持する。
-            if authService.cachedUserId() == nil {
-                backupSyncer.stop()
-                localStudy = localStudy.forAccount(id: nil)
-                backupSyncer = makeBackupSyncer(localStudy)
-                studyDataVersion += 1
-            }
-        }
-
-        // 保存済みのセッションが無ければ、匿名アカウントで始める。
-        // 登録していない利用者にも、会員と同じデッキと同じ記録の置き場所を渡す。
-        await startAnonymousSession()
-    }
-
-    /// 新しい匿名アカウントを作って、そこから始める。
-    /// 起動時と、サインアウトの直後に通る。
-    private func startAnonymousSession() async {
         isRestoringSession = true
-        startupMessage = nil
+        let generation = authGeneration
         defer { isRestoringSession = false }
+        startupMessage = nil
+        guard SupabaseConfig.isConfigured else {
+            recordConnectionFailure(ConnectionFailure.configuration)
+            return
+        }
         do {
-            try acceptSession(try await authService.signInAnonymously())
+            let restored: AuthSession
+            if let saved = try await authService.restoreSession() {
+                restored = saved
+            } else {
+                restored = try await authService.signInAnonymously()
+            }
+            guard generation == authGeneration, !Task.isCancelled else { return }
+            try acceptSession(restored)
+            needsReconnect = false
+            requiresSignIn = false
         } catch {
-            // 端末側の学習経路へ黙って落とさない。始められない理由を出す。
-            session = nil
-            startupMessage = UserFacingError.message(for: error)
+            guard generation == authGeneration, !Task.isCancelled else { return }
+            // 回線やサーバーの一時的な失敗では、元の利用者の棚を開いたままにする。
+            recordConnectionFailure(error)
         }
     }
 
-    /// 匿名サインインに失敗したときだけ入る。通信できず学習を始められない理由。
+    private func startAnonymousSession() async {
+        await restoreSession()
+    }
+
     @Published var startupMessage: String?
 
-    /// 匿名サインインをやり直す。
+    private func recordConnectionFailure(_ error: Error) {
+        if error is CancellationError || (error as? URLError)?.code == .cancelled { return }
+        needsReconnect = ConnectionFailure.isTemporary(error)
+        if case .signInRequired = error as? ConnectionFailure {
+            requiresSignIn = true
+            backupSyncer.stop()
+            session = nil
+        }
+        // 一時的な切断は静かに回復する。対応が必要な失敗だけ案内する。
+        startupMessage = needsReconnect ? nil : UserFacingError.message(for: error)
+    }
+
     func retryStartup() async {
-        guard !isRestoringSession, session == nil else { return }
+        guard !isRestoringSession, !requiresSignIn else { return }
         await restoreSession()
+    }
+
+    /// SwiftUIのtaskに所有させ、アプリが非アクティブになると待機も取り消す。
+    func maintainForegroundConnection() async {
+        while !Task.isCancelled {
+            await reconnectIfNeeded()
+            let retrying = needsReconnect || backupSyncer.needsRetry
+            let delay = retrying ? retryDelay : 30
+            retryDelay = retrying ? min(retryDelay * 2, 60) : 2
+            do { try await Task.sleep(for: .seconds(delay + Double.random(in: 0...1))) }
+            catch { return }
+        }
+    }
+
+    func reconnectIfNeeded() async {
+        guard !isRestoringSession, !requiresSignIn, startupMessage == nil else { return }
+        if let failure = backupSyncer.lastFailure, !ConnectionFailure.isTemporary(failure) {
+            if case .response(status: 401, code: _) = failure as? ConnectionFailure {
+                needsReconnect = true
+            } else {
+                recordConnectionFailure(failure)
+                return
+            }
+        }
+        let expiring = session?.expiresAt.map { TimeInterval($0) <= Date().timeIntervalSince1970 + 60 } ?? false
+        guard session == nil || needsReconnect || expiring || backupSyncer.needsRetry else { return }
+        let reconnecting = needsReconnect || backupSyncer.needsRetry
+        let previousId = session?.user.id
+        await restoreSession()
+        if session != nil, !needsReconnect, previousId == session?.user.id, !Task.isCancelled {
+            await refreshOfficialContentIfConnected()
+            if reconnecting, let session {
+                await backupSyncer.retry(session: session) { [weak self] in
+                    self?.studyDataVersion += 1
+                }
+            }
+        }
     }
 
     private func acceptSession(_ restored: AuthSession) throws {

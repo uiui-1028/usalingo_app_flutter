@@ -60,7 +60,7 @@ final class AuthTransportTests: XCTestCase {
         }
     }
 
-    func testRestoreSessionClearsSavedSessionWhenServerRejectsRefresh() async {
+    func testInvalidRefreshPreservesAccountAndRequiresSignIn() async {
         let store = FakeSessionStore(savedSession: AuthSession(
             accessToken: "expired-access",
             refreshToken: "invalid-refresh",
@@ -70,17 +70,74 @@ final class AuthTransportTests: XCTestCase {
         let service = AuthService(
             sessionStore: store,
             client: FakeAuthSupabaseClient(),
-            session: StubNetworkSession(data: Data(), statusCode: 401)
+            session: StubNetworkSession(data: Data(#"{"code":"refresh_token_not_found"}"#.utf8), statusCode: 400)
         )
 
         do {
             _ = try await service.restoreSession()
             XCTFail("Expected rejected refresh to fail")
-        } catch is SupabaseError {
-            XCTAssertNil(store.savedSession)
+        } catch ConnectionFailure.signInRequired {
+            XCTAssertEqual(store.savedSession?.user.id, "user-1")
+            XCTAssertEqual(store.savedSession?.accessToken, "")
+            do {
+                _ = try await service.restoreSession()
+                XCTFail("Invalid session must remain blocked after restart")
+            } catch ConnectionFailure.signInRequired {} catch { XCTFail("Unexpected error: \(error)") }
         } catch {
             XCTFail("Unexpected error: \(error)")
         }
+    }
+
+    func testTemporaryServerFailureKeepsRefreshToken() async {
+        for status in [429, 500, 503] {
+            let saved = AuthSession(accessToken: "saved", refreshToken: "refresh", expiresAt: 0,
+                                    user: AuthUser(id: "user-1", email: "learner@example.com"))
+            let store = FakeSessionStore(savedSession: saved)
+            let service = AuthService(sessionStore: store, client: FakeAuthSupabaseClient(),
+                                      session: StubNetworkSession(data: Data(), statusCode: status))
+            do {
+                _ = try await service.restoreSession()
+                XCTFail("Expected failure")
+            } catch {
+                XCTAssertTrue(ConnectionFailure.isTemporary(error))
+                XCTAssertEqual(store.savedSession?.refreshToken, "refresh")
+            }
+        }
+    }
+
+    func testUnknownRejectionDoesNotDiscardAccount() async {
+        let store = FakeSessionStore(savedSession: AuthSession(accessToken: "saved", refreshToken: "refresh",
+                                    expiresAt: 0, user: AuthUser(id: "user-1", email: nil)))
+        let service = AuthService(sessionStore: store, client: FakeAuthSupabaseClient(),
+                                  session: StubNetworkSession(data: Data(), statusCode: 401))
+        do { _ = try await service.restoreSession(); XCTFail("Expected rejection") }
+        catch { XCTAssertEqual(store.savedSession?.refreshToken, "refresh") }
+    }
+
+    func testRotatedTokenSurvivesFailureAfterRefresh() async {
+        let store = FakeSessionStore(savedSession: AuthSession(accessToken: "old", refreshToken: "old-refresh",
+                                    expiresAt: 0, user: AuthUser(id: "user-1", email: nil)))
+        let service = AuthService(sessionStore: store, client: FailingStudySupabaseClient(),
+                                  session: StubNetworkSession(data: Data(#"{"access_token":"new","refresh_token":"new-refresh","user":{"id":"user-1"}}"#.utf8), statusCode: 200))
+        do { _ = try await service.restoreSession(); XCTFail("Expected RPC failure") }
+        catch { XCTAssertEqual(store.savedSession?.refreshToken, "new-refresh") }
+    }
+
+    @MainActor
+    func testOfflineRestoreDoesNotCreateAnotherAnonymousAccount() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = FakeSessionStore(savedSession: AuthSession(accessToken: "saved", refreshToken: "refresh",
+                                    expiresAt: 0, user: AuthUser(id: "user-1", email: "learner@example.com")))
+        let transport = StubNetworkSession(data: Data(), statusCode: 503)
+        let state = AppState(restoresSession: false,
+                             authService: AuthService(sessionStore: store, client: FakeAuthSupabaseClient(), session: transport),
+                             remoteStudy: OfflineRemoteStudyImporter(), localStudy: LocalStudyDataSource(directoryURL: directory))
+        await state.retryStartup()
+        XCTAssertEqual(transport.requests.count, 1)
+        XCTAssertEqual(transport.requests.first?.url?.lastPathComponent, "token")
+        XCTAssertEqual(store.savedSession?.user.id, "user-1")
+        XCTAssertNil(state.startupMessage, "Transient failure must remain quiet")
     }
 
     func testSignInSucceedsWithoutNetworkAndSavesSession() async throws {
@@ -179,8 +236,8 @@ final class AuthTransportTests: XCTestCase {
         do {
             let _: [String] = try await client.request(path: "user_card_progress", accessToken: "expired-token")
             XCTFail("Expected unauthorized response")
-        } catch let SupabaseError.badResponse(message) {
-            XCTAssertEqual(message, "expired token")
+        } catch ConnectionFailure.response(status: 401, code: _) {
+            // Preserve status without exposing the response body.
         } catch {
             XCTFail("Unexpected error: \(error)")
         }

@@ -32,6 +32,8 @@ enum UserFacingError {
     private static func known(_ error: Error) -> String? {
         switch error {
         // アプリが日本語で説明済みのもの。
+        case let error as ConnectionFailure:
+            return error.localizedDescription
         case let error as AuthError:
             return error.localizedDescription
         case let error as DeckFileError:

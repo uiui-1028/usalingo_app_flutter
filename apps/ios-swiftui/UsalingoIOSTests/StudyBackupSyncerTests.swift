@@ -62,7 +62,7 @@ final class StudyBackupSyncerTests: XCTestCase {
         XCTAssertEqual(service.saveCount, 0)
     }
 
-    /// 背面へ回るときの flush は、待たずに1回だけ預ける。
+    /// 再接続後の flush は、待たずに1回だけ預ける。
     func testFlushUploadsImmediately() async throws {
         let local = makeDataSource()
         let service = FakeBackupService(stored: nil)
@@ -72,6 +72,28 @@ final class StudyBackupSyncerTests: XCTestCase {
         await syncer.flush(session: session)
 
         XCTAssertEqual(service.saveCount, 1)
+    }
+
+    func testPauseDefersPendingUploadUntilForegroundRetry() async throws {
+        let service = FakeBackupService(stored: nil)
+        let syncer = StudyBackupSyncer(service: service, localStudy: makeDataSource(), uploadDelay: .seconds(60))
+        syncer.scheduleUpload(session: session)
+        syncer.pause()
+        XCTAssertTrue(syncer.needsRetry)
+        XCTAssertEqual(service.saveCount, 0)
+        await syncer.retry(session: session) { }
+        XCTAssertFalse(syncer.needsRetry)
+        XCTAssertEqual(service.saveCount, 1)
+    }
+
+    func testFailedInitialReadRetriesReadBeforeWritingBackup() async throws {
+        let service = FakeBackupService(stored: nil, failure: URLError(.notConnectedToInternet))
+        let syncer = StudyBackupSyncer(service: service, localStudy: makeDataSource())
+        await syncer.start(session: session) { }
+        await syncer.retry(session: session) { }
+        XCTAssertEqual(service.fetchCount, 2)
+        XCTAssertEqual(service.saveCount, 0)
+        XCTAssertTrue(syncer.needsRetry)
     }
 
     private func makeDataSource() -> LocalStudyDataSource {
@@ -125,6 +147,7 @@ final class StudyBackupSyncerTests: XCTestCase {
 /// 通信をしないバックアップ置き場。保存回数だけ数える。
 private final class FakeBackupService: GuestStudyBackupServicing {
     private(set) var saveCount = 0
+    private(set) var fetchCount = 0
     private var stored: GuestStudyBackup?
     private let failure: Error?
 
@@ -134,6 +157,7 @@ private final class FakeBackupService: GuestStudyBackupServicing {
     }
 
     func fetch(session: AuthSession) async throws -> GuestStudyBackup? {
+        fetchCount += 1
         if let failure { throw failure }
         return stored
     }

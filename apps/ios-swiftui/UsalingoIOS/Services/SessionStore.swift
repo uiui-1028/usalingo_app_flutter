@@ -7,8 +7,6 @@ final class SessionStore: SessionStoring {
 
     func save(_ session: AuthSession) throws {
         let data = try JSONEncoder().encode(session)
-        try clear()
-
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -17,7 +15,11 @@ final class SessionStore: SessionStoring {
             kSecValueData as String: data
         ]
 
-        let status = SecItemAdd(query as CFDictionary, nil)
+        var lookup = query
+        lookup.removeValue(forKey: kSecValueData as String)
+        lookup.removeValue(forKey: kSecAttrAccessible as String)
+        let updated = SecItemUpdate(lookup as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+        let status = updated == errSecItemNotFound ? SecItemAdd(query as CFDictionary, nil) : updated
         guard status == errSecSuccess else {
             throw KeychainError.unhandled(status)
         }

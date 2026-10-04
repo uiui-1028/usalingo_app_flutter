@@ -126,8 +126,8 @@ final class AuthService {
         guard let session = try await authRequest(path: "signup", query: [], body: EmptyAuthBody()) else {
             throw AuthError.anonymousSignInUnavailable
         }
-        try await ensureCurrentUserRow(session: session)
         try sessionStore.save(session)
+        try await ensureCurrentUserRow(session: session)
         return session
     }
 
@@ -189,21 +189,31 @@ final class AuthService {
 
     func restoreSession() async throws -> AuthSession? {
         guard let saved = try sessionStore.load() else { return nil }
-        guard let refreshToken = saved.refreshToken else { return saved }
+        guard let refreshToken = saved.refreshToken else {
+            if let expiry = saved.expiresAt, TimeInterval(expiry) <= Date().timeIntervalSince1970 {
+                throw ConnectionFailure.signInRequired
+            }
+            return saved
+        }
 
+        guard !saved.accessToken.isEmpty else { throw ConnectionFailure.signInRequired }
+        let refreshed: AuthSession
         do {
-            let session = try await refreshSession(refreshToken: refreshToken)
-            try await ensureCurrentUserRow(session: session)
-            try sessionStore.save(session)
-            return session
+            refreshed = try await refreshSession(refreshToken: refreshToken)
         } catch {
-            // 通信できないだけで復元用トークンを捨てると、回線復帰後に元の
-            // アカウントへ戻れない。サーバーが拒否したときだけ無効と判断する。
-            if error is SupabaseError {
-                try? sessionStore.clear()
+            guard try sessionStore.load()?.refreshToken == saved.refreshToken else { throw CancellationError() }
+            if let failure = error as? ConnectionFailure, failure.invalidRefresh {
+                // 利用者のIDは残す。再起動しても別のゲストへ切り替えない。
+                try sessionStore.save(AuthSession(accessToken: "", refreshToken: "", expiresAt: 0, user: saved.user))
+                throw ConnectionFailure.signInRequired
             }
             throw error
         }
+        // 更新された入場券は、教材用のRPCが失敗しても失わない。
+        guard try sessionStore.load()?.refreshToken == saved.refreshToken else { throw CancellationError() }
+        try sessionStore.save(refreshed)
+        try await ensureCurrentUserRow(session: refreshed)
+        return refreshed
     }
 
     /// 通信せず、端末に保存済みの利用者だけを確認する。
@@ -366,7 +376,7 @@ final class AuthService {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(["refresh_token": refreshToken])
 
-        // 復元の失敗は `SupabaseError` のままにする。`restoreSession` がそれを見て保存済みトークンを捨てる。
+        // 明示された無効な更新トークンだけを再ログイン扱いにする。
         let (data, _) = try await perform(request, fallbackMessage: "セッションの復元に失敗しました。", explainsAuthErrors: false)
 
         let responseBody = try JSONDecoder().decode(AuthResponse.self, from: data)
@@ -417,7 +427,7 @@ final class AuthService {
                let error = AuthError.fromServer(body: String(data: data, encoding: .utf8) ?? "", statusCode: status) {
                 throw error
             }
-            throw SupabaseError.badResponse(fallbackMessage)
+            throw ConnectionFailure.response(data: data, status: (response as? HTTPURLResponse)?.statusCode ?? 0)
         }
         return (data, response)
     }

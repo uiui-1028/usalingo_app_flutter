@@ -15,16 +15,14 @@ struct UsalingoIOSApp: App {
                 .onOpenURL { url in
                     appState.handleIncomingURL(url)
                 }
+                .task(id: scenePhase) {
+                    guard scenePhase == .active else { return }
+                    await appState.refreshOfficialContentIfConnected()
+                    await appState.maintainForegroundConnection()
+                }
                 .onChange(of: scenePhase) { _, phase in
-                    if phase == .active {
-                        Task {
-                            await appState.retryStartup()
-                            await appState.refreshOfficialContentIfConnected()
-                        }
-                        return
-                    }
-                    // 背面へ回る前に、待機中の学習記録バックアップを出しきる。
-                    Task { await appState.flushStudyBackup() }
+                    guard phase != .active else { return }
+                    appState.pauseStudyBackup()
                 }
         }
     }
@@ -33,6 +31,9 @@ struct UsalingoIOSApp: App {
 struct RootView: View {
     @EnvironmentObject private var appState: AppState
 
+    @State private var showsConnectionDetail = false
+    @State private var showsSignIn = false
+
     var body: some View {
         ZStack {
             if appState.isResettingPassword {
@@ -40,13 +41,34 @@ struct RootView: View {
             } else {
                 AppShellView()
                     .overlay(alignment: .top) {
-                        if appState.session == nil, !appState.isRestoringSession {
-                            OfflineStatusPill {
-                                Task { await appState.retryStartup() }
+                        if appState.startupMessage != nil {
+                            Button(appState.requiresSignIn ? "ログインが必要です" : "接続を確認してください") {
+                                showsConnectionDetail = true
                             }
+                            .wireFont(.caption)
+                            .padding(WireMetrics.spacingS)
+                            .background(WireColor.groupL3, in: Capsule())
+                            // ponytail: VoiceOverの詳細案内は後日。主ボタンの標準ラベルだけ使う。
                         }
                     }
             }
+        }
+        .onChange(of: appState.requiresSignIn) { _, required in
+            if !required { showsSignIn = false }
+        }
+        .sheet(isPresented: $showsSignIn) {
+            AuthView()
+                .environmentObject(appState)
+        }
+        .alert("接続について", isPresented: $showsConnectionDetail) {
+            if appState.requiresSignIn {
+                Button("ログイン") { showsSignIn = true }
+            } else {
+                Button("再試行") { Task { await appState.retryStartup() } }
+            }
+            Button("閉じる", role: .cancel) { }
+        } message: {
+            Text(appState.startupMessage ?? "接続は回復しました。")
         }
         .alert("アカウントを削除しました", isPresented: Binding(
             get: { appState.accountDeletionNotice != nil },
@@ -56,27 +78,6 @@ struct RootView: View {
         } message: {
             Text(appState.accountDeletionNotice ?? "")
         }
-    }
-}
-
-/// 通信できなくても学習は止めず、ノッチの下に小さく状態だけ出す。タップで再接続する。
-private struct OfflineStatusPill: View {
-    let retry: () -> Void
-
-    var body: some View {
-        Button(action: retry) {
-            Text("offline-MODE")
-                .wireFont(.caption)
-                .foregroundStyle(WireColor.ink)
-                .padding(.horizontal, WireMetrics.spacingL)
-                .padding(.vertical, WireMetrics.spacingXS)
-                .background(WireColor.groupL3, in: Capsule())
-                .overlay(Capsule().stroke(WireColor.ink, lineWidth: WireMetrics.strokeHair))
-        }
-        .buttonStyle(.plain)
-        .padding(.top, WireMetrics.spacingXS)
-        .accessibilityLabel("オフライン。学習記録は端末に保存されます。")
-        .accessibilityHint("ダブルタップで接続を試します。")
     }
 }
 
