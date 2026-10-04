@@ -5,7 +5,7 @@ import UIKit
 ///
 /// 学習の正は端末側のまま（G-D1）で、サーバは復元用の控えを1件だけ持つ（G-D2）。
 /// 利用者は1端末しか使わない前提のため、どちらを採るかを尋ねる画面は置かない。
-/// 失敗しても知らせず、次の機会に取り直す。記録も残さない。
+/// 一時的な失敗は静かに取り直し、前面に戻ったとき再試行する。
 @MainActor
 final class StudyBackupSyncer {
     private let service: any GuestStudyBackupServicing
@@ -14,6 +14,10 @@ final class StudyBackupSyncer {
 
     /// 学習の変化をまとめて1回の保存にするための待ち時間。
     private let uploadDelay: Duration
+
+    private(set) var needsRetry = false
+    private(set) var lastFailure: Error?
+    private var needsRestoreRetry = false
 
     private var pendingUpload: Task<Void, Never>?
     private var generation = 0
@@ -46,11 +50,18 @@ final class StudyBackupSyncer {
                 defer { isRestoring = false }
                 try localStudy.restore(backup.snapshot)
                 markStudyDataChanged()
+                needsRetry = false
+                needsRestoreRetry = false
+                lastFailure = nil
                 return
             }
             try await upload(session: session)
+            needsRestoreRetry = false
         } catch {
-            // 次の機会に取り直す。利用者には知らせない。
+            needsRestoreRetry = true
+            lastFailure = error
+            needsRetry = true
+            // 前面での再接続時に取り直す。利用者には知らせない。
         }
     }
 
@@ -72,6 +83,20 @@ final class StudyBackupSyncer {
         try? await upload(session: session)
     }
 
+    /// 最初の読み取りが失敗した場合、空の端末内容でサーバーの控えを上書きしない。
+    func retry(session: AuthSession, markStudyDataChanged: @escaping () -> Void) async {
+        if needsRestoreRetry {
+            await start(session: session, markStudyDataChanged: markStudyDataChanged)
+        } else {
+            await flush(session: session)
+        }
+    }
+
+    func pause() {
+        if pendingUpload != nil { needsRetry = true }
+        cancelPendingUpload()
+    }
+
     /// ログアウトしたときに呼ぶ。待機中の保存を取り消すだけで、預けた控えは消さない。
     func stop() {
         generation += 1
@@ -85,6 +110,14 @@ final class StudyBackupSyncer {
 
     private func upload(session: AuthSession) async throws {
         let snapshot = try localStudy.snapshot()
-        try await service.save(snapshot, deviceName: deviceName(), session: session)
+        do {
+            try await service.save(snapshot, deviceName: deviceName(), session: session)
+            needsRetry = false
+            lastFailure = nil
+        } catch {
+            needsRetry = true
+            lastFailure = error
+            throw error
+        }
     }
 }

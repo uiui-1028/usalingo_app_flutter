@@ -74,7 +74,7 @@ final class SupabaseClient: SupabaseRequesting {
 
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw SupabaseError.badResponse(String(data: data, encoding: .utf8) ?? "Unknown error")
+            throw ConnectionFailure.response(data: data, status: (response as? HTTPURLResponse)?.statusCode ?? 0)
         }
         return try decoder.decode(T.self, from: data)
     }
@@ -106,7 +106,7 @@ final class SupabaseClient: SupabaseRequesting {
 
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw SupabaseError.badResponse(String(data: data, encoding: .utf8) ?? "Unknown error")
+            throw ConnectionFailure.response(data: data, status: (response as? HTTPURLResponse)?.statusCode ?? 0)
         }
     }
 }
@@ -132,6 +132,49 @@ enum SupabaseError: LocalizedError {
         switch self {
         case .badResponse(let message):
             return message
+        }
+    }
+}
+
+/// HTTPの失敗と回線の失敗を分ける。サーバーの本文やトークンは画面へ出さない。
+enum ConnectionFailure: LocalizedError {
+    case response(status: Int, code: String?)
+    case signInRequired
+    case configuration
+
+    static func response(data: Data, status: Int) -> ConnectionFailure {
+        let body = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        return .response(status: status, code: body?["code"] as? String ?? body?["error_code"] as? String)
+    }
+
+    var invalidRefresh: Bool {
+        guard case let .response(status, code) = self, [400, 401, 403].contains(status) else { return false }
+        return ["refresh_token_not_found", "refresh_token_already_used", "session_not_found", "session_expired", "user_not_found", "user_banned"].contains(code ?? "")
+    }
+
+    static func isTemporary(_ error: Error) -> Bool {
+        if case AuthError.tooManyRequests = error { return true }
+        if let error = error as? URLError {
+            return [.notConnectedToInternet, .networkConnectionLost, .timedOut, .cannotConnectToHost,
+                    .cannotFindHost, .dnsLookupFailed, .dataNotAllowed].contains(error.code)
+        }
+        if case let .response(status, _) = error as? ConnectionFailure {
+            return status == 408 || status == 429 || status >= 500
+        }
+        return false
+    }
+
+    var errorDescription: String? {
+        switch self {
+        case .signInRequired:
+            return "ログインの期限が切れました。学習記録は端末に残っています。もう一度ログインしてください。"
+        case .configuration:
+            return "接続設定が入っていません。開発用の接続設定を確認してください。"
+        case .response(let status, _):
+            if status == 401 || status == 403 {
+                return "サーバーが接続を許可しませんでした。接続設定やアカウントの状態を確認してください。"
+            }
+            return "サーバーとの接続を完了できませんでした。時間をおいて再試行してください。"
         }
     }
 }

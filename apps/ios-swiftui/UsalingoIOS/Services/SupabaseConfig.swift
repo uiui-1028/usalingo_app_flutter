@@ -7,6 +7,13 @@ enum SupabaseConfig {
     static let supabaseURL = projectRef.isEmpty ? "" : "https://\(projectRef).supabase.co"
     static let supabaseAnonKey = Bundle.main.object(forInfoDictionaryKey: "SUPABASE_ANON_KEY") as? String ?? ""
 
+    static var isConfigured: Bool {
+        !projectRef.isEmpty && !projectRef.contains("$(") && projectRef != "YOUR_PROJECT_REF"
+            && projectRef.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }
+            && !supabaseAnonKey.isEmpty && !supabaseAnonKey.contains("$(")
+            && supabaseAnonKey != "YOUR_SUPABASE_ANON_KEY"
+    }
+
     static var restURL: URL {
         URL(string: "\(supabaseURL)/rest/v1")!
     }
