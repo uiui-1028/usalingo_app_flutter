@@ -39,6 +39,11 @@ struct StudySessionView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            if !isLoading, loadErrorMessage == nil, !cards.isEmpty {
+                StudyProgressPanel(progress: Double(index) / Double(cards.count))
+                    .zIndex(1)
+            }
+
             ZStack {
                 if isLoading {
                     ProgressView()
@@ -71,12 +76,6 @@ struct StudySessionView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            // 進み具合は中身より1つ上の層に浮かべ、中身を押し下げない。
-            .overlay(alignment: .top) {
-                if !isLoading, loadErrorMessage == nil, !cards.isEmpty {
-                    StudyProgressPanel(progress: Double(index) / Double(cards.count))
-                }
-            }
 
             saveFailureBanner
             actionBar
@@ -124,85 +123,91 @@ struct StudySessionView: View {
     /// つけないので、トップが抜けても次のカードは動かない。交代を待つアニメーションが
     /// 無く、現れた瞬間から捌ける。
     private var cardStack: some View {
-        ZStack {
-            if index + 1 < cards.count {
-                StudyCardView(card: cards[index + 1], showAnswer: false)
-                    .allowsHitTesting(false)
-                    .zIndex(0)
-            }
+        GeometryReader { proxy in
+            let width = max(0, min(350, proxy.size.width, proxy.size.height * 0.575))
 
-            StudyCardView(card: cards[index], showAnswer: showAnswer, isFlipped: isFlipped)
-                .id(cards[index].id)
-                .swipeAnswerTint(horizontalOffset: dragOffset.width)
-                .zIndex(1)
-                .backSwipeProtectedRegion()
-                .offset(dragOffset)
-                .rotationEffect(.degrees(Double(dragOffset.width / 24)))
-                // 裏面の ScrollView に横方向のドラッグを食われないよう、同時認識にする。
-                // どちらの操作かは動き出しの向きで決め、決めた後は最後まで変えない。
-                // 指が触れた瞬間に回答を出し、そのまま確定ラインまで滑らせれば、
-                // 1回のスワイプで回答まで済ませられる。
-                .simultaneousGesture(
-                    DragGesture(minimumDistance: 0)
-                        .onChanged { value in
-                            if !isTouchingCard {
-                                isTouchingCard = true
-                                didRevealOnTouch = !showAnswer
-                                if !showAnswer {
+            ZStack {
+                if index + 1 < cards.count {
+                    StudyCardView(card: cards[index + 1], showAnswer: false)
+                        .allowsHitTesting(false)
+                        .zIndex(0)
+                }
+
+                StudyCardView(card: cards[index], showAnswer: showAnswer, isFlipped: isFlipped)
+                    .id(cards[index].id)
+                    .swipeAnswerTint(horizontalOffset: dragOffset.width)
+                    .zIndex(1)
+                    .backSwipeProtectedRegion()
+                    .offset(dragOffset)
+                    .rotationEffect(.degrees(Double(dragOffset.width / 24)))
+                    // 裏面の ScrollView に横方向のドラッグを食われないよう、同時認識にする。
+                    // どちらの操作かは動き出しの向きで決め、決めた後は最後まで変えない。
+                    // 指が触れた瞬間に回答を出し、そのまま確定ラインまで滑らせれば、
+                    // 1回のスワイプで回答まで済ませられる。
+                    .simultaneousGesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { value in
+                                if !isTouchingCard {
+                                    isTouchingCard = true
+                                    didRevealOnTouch = !showAnswer
+                                    if !showAnswer {
+                                        HapticFeedbackService.swipeThresholdCrossed()
+                                        withAnimation(.easeInOut(duration: 0.2)) {
+                                            showAnswer = true
+                                        }
+                                    }
+                                }
+
+                                if dragAxis == nil {
+                                    dragAxis = DragAxis(translation: value.translation)
+                                }
+
+                                guard dragAxis == .horizontal else { return }
+                                dragOffset = value.translation
+                                let reachedCommit = abs(value.translation.width) > SwipeThreshold.commit
+                                if reachedCommit && !hasCrossedCommitThreshold {
                                     HapticFeedbackService.swipeThresholdCrossed()
-                                    withAnimation(.easeInOut(duration: 0.2)) {
-                                        showAnswer = true
+                                }
+                                hasCrossedCommitThreshold = reachedCommit
+                            }
+                            .onEnded { value in
+                                let axis = dragAxis
+                                dragAxis = nil
+                                isTouchingCard = false
+                                hasCrossedCommitThreshold = false
+                                guard axis == .horizontal else { return }
+                                if value.translation.width > SwipeThreshold.commit {
+                                    swipe(isCorrect: true)
+                                } else if value.translation.width < -SwipeThreshold.commit {
+                                    swipe(isCorrect: false)
+                                } else {
+                                    // タッチで出した回答は、ここで隠し直さない。
+                                    withAnimation(.spring(response: 0.3, dampingFraction: 0.78)) {
+                                        dragOffset = .zero
                                     }
                                 }
                             }
-
-                            if dragAxis == nil {
-                                dragAxis = DragAxis(translation: value.translation)
-                            }
-
-                            guard dragAxis == .horizontal else { return }
-                            dragOffset = value.translation
-                            let reachedCommit = abs(value.translation.width) > SwipeThreshold.commit
-                            if reachedCommit && !hasCrossedCommitThreshold {
-                                HapticFeedbackService.swipeThresholdCrossed()
-                            }
-                            hasCrossedCommitThreshold = reachedCommit
+                    )
+                    .onTapGesture {
+                        // タッチで回答を出した直後のタップは、表示だけで止める。
+                        if didRevealOnTouch {
+                            didRevealOnTouch = false
+                        } else {
+                            advanceCardFace()
                         }
-                        .onEnded { value in
-                            let axis = dragAxis
-                            dragAxis = nil
-                            isTouchingCard = false
-                            hasCrossedCommitThreshold = false
-                            guard axis == .horizontal else { return }
-                            if value.translation.width > SwipeThreshold.commit {
-                                swipe(isCorrect: true)
-                            } else if value.translation.width < -SwipeThreshold.commit {
-                                swipe(isCorrect: false)
-                            } else {
-                                // タッチで出した回答は、ここで隠し直さない。
-                                withAnimation(.spring(response: 0.3, dampingFraction: 0.78)) {
-                                    dragOffset = .zero
-                                }
-                            }
-                        }
-                )
-                .onTapGesture {
-                    // タッチで回答を出した直後のタップは、表示だけで止める。
-                    if didRevealOnTouch {
-                        didRevealOnTouch = false
-                    } else {
-                        advanceCardFace()
                     }
-                }
 
-            // 見送ったカードは独立した層で飛ばす。トップカードの入れ替えはこの演出を
-            // 待たないので、飛んでいる最中でも次のカードをスワイプできる。
-            ForEach(flyawayCards) { item in
-                FlyawayCardView(item: item) { finished in
-                    flyawayCards.removeAll { $0.id == finished.id }
+                // 見送ったカードは独立した層で飛ばす。トップカードの入れ替えはこの演出を
+                // 待たないので、飛んでいる最中でも次のカードをスワイプできる。
+                ForEach(flyawayCards) { item in
+                    FlyawayCardView(item: item) { finished in
+                        flyawayCards.removeAll { $0.id == finished.id }
+                    }
+                    .zIndex(2)
                 }
-                .zIndex(2)
             }
+            .frame(width: width, height: width / 0.575)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .padding(.horizontal, 18)
         // カードの影がアクションバーや進捗バーにかからないよう、上下に広めの余白を取る。
@@ -212,16 +217,11 @@ struct StudySessionView: View {
     @ViewBuilder
     private var actionBar: some View {
         if !isLoading, index < cards.count {
-            StudyAnswerActionBar(
-                incorrectLabel: showAnswer ? "不正解" : "答えを表示。もう一度押すと不正解",
-                correctLabel: showAnswer ? "正解" : "答えを表示。もう一度押すと正解",
-                isDisabled: isUndoingAnswer,
-                onIncorrect: { revealOrSubmitAnswer(isCorrect: false) },
-                onCorrect: { revealOrSubmitAnswer(isCorrect: true) }
-            ) {
-                toolbar
-                    .frame(maxWidth: .infinity)
-            }
+            toolbar
+                .padding(.horizontal, WireMetrics.screenPadding)
+                .padding(.top, WireMetrics.spacingXS)
+                .padding(.bottom, WireMetrics.screenPadding)
+                .backSwipeProtectedRegion()
         }
     }
 
@@ -385,18 +385,6 @@ struct StudySessionView: View {
     private func retryAnswer() {
         saveErrorMessage = nil
         drainAnswerQueue()
-    }
-
-    /// 答えを見ないまま正誤を保存しない。1回目は表示だけ、表示後の2回目で保存する。
-    private func revealOrSubmitAnswer(isCorrect: Bool) {
-        if showAnswer {
-            submitAnswer(isCorrect: isCorrect)
-        } else {
-            HapticFeedbackService.tap()
-            withAnimation(.easeInOut(duration: 0.2)) {
-                showAnswer = true
-            }
-        }
     }
 
     private func swipe(isCorrect: Bool) {
