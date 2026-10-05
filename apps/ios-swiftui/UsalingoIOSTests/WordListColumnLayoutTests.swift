@@ -2,6 +2,31 @@ import XCTest
 @testable import UsalingoIOS
 
 final class WordListColumnLayoutTests: XCTestCase {
+    func testLeadingBlankSplitsIntoIndividualRowsWithoutChangingTotalHeightOrDividers() {
+        XCTAssertEqual(WordListRowSnapping.emptyRowHeights(totalHeight: 400), Array(repeating: 80, count: 5))
+        XCTAssertEqual(WordListRowSnapping.emptyRowHeights(totalHeight: 480), Array(repeating: 80, count: 6))
+        let partial = WordListRowSnapping.emptyRowHeights(totalHeight: 350)
+        XCTAssertEqual(partial, [30, 80, 80, 80, 80])
+        XCTAssertEqual(partial.reduce(0, +), 350)
+        XCTAssertEqual(WordListRowSnapping.emptyRowHeights(totalHeight: 0), [])
+        XCTAssertEqual(WordListRowSnapping.emptyRowHeights(totalHeight: -10), [])
+    }
+
+    func testMovingRedSheetMovesCurrentRowByTheSameDistanceInBothAnswerStates() {
+        let height: CGFloat = 800
+        let rowHeight: CGFloat = 120
+        for visible in [false, true] {
+            let before = RedSheetPosition.rowAnchor(availableHeight: height, rowHeight: rowHeight, ratio: 0.55, isAnswerVisible: visible)
+            let after = RedSheetPosition.rowAnchor(availableHeight: height, rowHeight: rowHeight, ratio: 0.70, isAnswerVisible: visible)
+            XCTAssertEqual((after - before) * (height - rowHeight), 120, accuracy: 0.001)
+            XCTAssertEqual(before * (height - rowHeight), 440 - (visible ? rowHeight : 0), accuracy: 0.001)
+        }
+    }
+
+    func testRedSheetAnchorClampsForVeryTallRowsAndSmallViewports() {
+        XCTAssertEqual(RedSheetPosition.rowAnchor(availableHeight: 100, rowHeight: 200, ratio: 0.3, isAnswerVisible: true), 0)
+        XCTAssertEqual(RedSheetPosition.rowAnchor(availableHeight: 100, rowHeight: 200, ratio: 0.3, isAnswerVisible: false), 1)
+    }
     func testChoosingSwapsWithTheColumnThatAlreadyShowsIt() {
         let columns: [WordListColumn] = [.word, .partOfSpeech, .meaning]
 

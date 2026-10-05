@@ -9,7 +9,7 @@ struct StudyAnswerQueue {
         let cardIndex: Int
         let card: WordCard
         let isCorrect: Bool
-        let attempt = AnswerSaveAttempt()
+        let attempt: AnswerSaveAttempt
     }
 
     private(set) var pending: [PendingAnswer] = []
@@ -18,8 +18,8 @@ struct StudyAnswerQueue {
     var isEmpty: Bool { pending.isEmpty }
     var next: PendingAnswer? { pending.first }
 
-    mutating func enqueue(cardIndex: Int, card: WordCard, isCorrect: Bool) {
-        pending.append(PendingAnswer(cardIndex: cardIndex, card: card, isCorrect: isCorrect))
+    mutating func enqueue(cardIndex: Int, card: WordCard, isCorrect: Bool, attempt: AnswerSaveAttempt = AnswerSaveAttempt()) {
+        pending.append(PendingAnswer(cardIndex: cardIndex, card: card, isCorrect: isCorrect, attempt: attempt))
     }
 
     /// 排出役は1本だけ立てる。すでに走っていれば新しい回答は既存のループが拾う。

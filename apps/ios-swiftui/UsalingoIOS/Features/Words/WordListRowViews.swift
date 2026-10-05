@@ -124,8 +124,8 @@ struct WordRow: View {
         }
         .frame(minHeight: 80)
         .fixedSize(horizontal: false, vertical: true)
-        // 行はすべて白。チェック中の行（答えを隠している／評価待ち）だけ灰色にする。
-        .background(word.isSuspended ? Color(white: 0.78) : (isCheckTarget ? WireColor.ink.opacity(0.04) : WireColor.surface))
+        // チェック中の行だけ、正解色を薄めたピンクにする。
+        .background(word.isSuspended ? Color(white: 0.78) : (isCheckTarget ? WireColor.answerCorrect.opacity(0.10) : WireColor.surface))
         .overlay(alignment: .bottom) {
             Rectangle().fill(WireColor.ink.opacity(0.12)).frame(height: 1)
         }

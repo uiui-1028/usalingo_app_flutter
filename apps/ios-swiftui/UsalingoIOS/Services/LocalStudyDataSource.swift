@@ -490,6 +490,7 @@ final class LocalStudyDataSource: StudyDataSource {
             prepared = SavedAnswer(progress: current.marking(isCorrect: isCorrect), previousProgress: previous)
             attempt.prepared = prepared
         }
+        try attempt.didPrepare?()
         progressByCardId[String(cardId)] = prepared.progress
         try persist(progressByCardId, to: FileName.progress)
         return prepared

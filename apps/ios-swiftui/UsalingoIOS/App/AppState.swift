@@ -16,6 +16,11 @@ final class AppState: ObservableObject {
     @Published private(set) var studyDataVersion = 0
     /// 単語リストのバナーで最後に選んだデッキ。画面を出入りしても同じデッキを開く。
     var wordListDeckID: Int?
+
+    func redSheetCheckpointStore(deckId: Int?) -> RedSheetCheckpointStore {
+        RedSheetCheckpointStore(accountId: session?.user.id ?? authService.cachedUserId() ?? "guest",
+                                deckId: deckId, defaults: defaults)
+    }
     @Published private(set) var isDeletingAccount = false
     @Published var accountDeletionNotice: String?
 
@@ -195,6 +200,7 @@ final class AppState: ObservableObject {
         }
         designSettings.reset()
         DeckOrderStore(accountId: session.user.id, defaults: defaults).removeAll()
+        RedSheetCheckpointStore(accountId: session.user.id, deckId: nil, defaults: defaults).removeAll()
         self.session = nil
         isResettingPassword = false
         isShellChromeHidden = false

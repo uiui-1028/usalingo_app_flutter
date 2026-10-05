@@ -108,6 +108,61 @@ final class WordListViewModelTests: XCTestCase {
     }
 
     @MainActor
+    func testEachDeckEntryLoadsItsOwnWordsInsteadOfRememberedOrFirstDeck() async {
+        let decks = [1, 2, 4].map { Deck(id: $0, deckName: "Deck \($0)", description: nil) }
+        let source = FakeStudyDataSource(
+            deckCards: [1: [makeWord(id: 10, text: "a")], 2: [makeWord(id: 20, text: "b")], 4: [makeWord(id: 40, text: "d")]],
+            decks: decks
+        )
+        for remembered in [nil, 1] as [Int?] {
+            for deck in decks {
+                let model = WordListViewModel(deck: deck)
+                await model.loadDecks(dataSource: source, preferredDeckID: remembered)
+                XCTAssertEqual(model.deck?.id, deck.id)
+                XCTAssertEqual(model.words.map(\.id), [deck.id * 10])
+            }
+        }
+    }
+
+    @MainActor
+    func testExplicitEntryCanLoadAllDecksAndFoldersAbsentFromDeckCatalog() async {
+        let first = Deck(id: 1, deckName: "A", description: nil)
+        let folderID = LocalStudyDataSource.folderDeckId(folderId: 1)
+        let source = FakeStudyDataSource(
+            deckCards: [1: [makeWord(id: 10, text: "a")], -1: [makeWord(id: 90, text: "all")], folderID: [makeWord(id: 80, text: "folder")]],
+            decks: [first]
+        )
+        for (id, wordID) in [(-1, 90), (folderID, 80)] {
+            let model = WordListViewModel(deck: Deck(id: id, deckName: "集約", description: nil))
+            await model.loadDecks(dataSource: source, preferredDeckID: 1)
+            XCTAssertEqual(model.deck?.id, id)
+            XCTAssertEqual(model.words.map(\.id), [wordID])
+        }
+    }
+
+    @MainActor
+    func testSpecifiedDeckDoesNotDependOnLoadingDeckCatalog() async {
+        let deck = Deck(id: 2, deckName: "B", description: nil)
+        let source = FakeStudyDataSource(deckCards: [2: [makeWord(id: 20, text: "b")]], deckError: LocalStudyError.deckNotFound)
+        let model = WordListViewModel(deck: deck)
+        await model.loadDecks(dataSource: source, preferredDeckID: nil)
+        XCTAssertEqual(model.deck?.id, 2)
+        XCTAssertEqual(model.words.map(\.id), [20])
+        XCTAssertTrue(model.message.isEmpty)
+    }
+
+    @MainActor
+    func testSpecifiedDeckLoadFailureKeepsRequestedDeckAndShowsError() async {
+        let deck = Deck(id: 2, deckName: "B", description: nil)
+        let source = FakeStudyDataSource(error: LocalStudyError.deckNotFound, decks: [Deck(id: 1, deckName: "A", description: nil)])
+        let model = WordListViewModel(deck: deck)
+        await model.loadDecks(dataSource: source, preferredDeckID: 1)
+        XCTAssertEqual(model.deck?.id, 2)
+        XCTAssertTrue(model.words.isEmpty)
+        XCTAssertFalse(model.message.isEmpty)
+    }
+
+    @MainActor
     func testLoadDecksWithoutDecksShowsNoWords() async {
         let dataSource = FakeStudyDataSource(wordList: [makeWord(id: 1, text: "other")])
         let viewModel = WordListViewModel()
@@ -232,6 +287,182 @@ final class WordListViewModelTests: XCTestCase {
 
 @MainActor
 final class RedSheetCheckTests: XCTestCase {
+    func testRelaunchRestoresOrderJudgmentsAndGeometryWithoutSavingAgain() async {
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        let store = RedSheetCheckpointStore(accountId: "a", deckId: 1, defaults: defaults)
+        defer { store.removeAll() }
+        let source = FakeStudyDataSource()
+        var saves = 0
+        source.saveHandler = { card, correct in
+            saves += 1
+            return self.saved(card: card, correct: correct)
+        }
+        let first = RedSheetCheckModel()
+        first.resume(words: words, availableWords: words, source: source, store: store) { _ in }
+        answer(first, true)
+        await settle(first)
+        first.sheetTopRatio = 0.7
+        first.coveredColumns = 2
+        first.rememberSheetPosition()
+        first.revealAnswer()
+
+        let restored = RedSheetCheckModel()
+        restored.resume(words: Array(words.reversed()), availableWords: Array(words.reversed()), source: source, store: store) { _ in }
+        XCTAssertEqual(restored.words.map(\.id), [1, 2, 3])
+        XCTAssertEqual(restored.current?.id, 2)
+        XCTAssertEqual(restored.answers[1], true)
+        XCTAssertEqual(restored.sheetTopRatio, 0.7)
+        XCTAssertEqual(restored.coveredColumns, 2)
+        XCTAssertFalse(restored.isAnswerVisible)
+        XCTAssertEqual(saves, 1)
+    }
+
+    func testResumeKeepsOriginalMembershipAndSkipsMissingAndSuspendedWords() {
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        let store = RedSheetCheckpointStore(accountId: "a", deckId: 1, defaults: defaults)
+        defer { store.removeAll() }
+        let first = RedSheetCheckModel()
+        first.resume(words: words, availableWords: words, source: FakeStudyDataSource(), store: store) { _ in }
+        let newWord = words[0].withSuspension(true)
+        let restored = RedSheetCheckModel()
+        restored.resume(words: [words[2]], availableWords: [words[2], newWord], source: FakeStudyDataSource(), store: store) { _ in }
+        XCTAssertEqual(restored.words.map(\.id), [1, 3])
+        XCTAssertEqual(restored.current?.id, 3)
+        XCTAssertTrue(restored.words[0].isSuspended)
+    }
+
+    func testSameScreenResumeHidesAnswerAndResetKeepsGeometryAndLearningHistory() async {
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        let store = RedSheetCheckpointStore(accountId: "a", deckId: 1, defaults: defaults)
+        defer { store.removeAll() }
+        let source = FakeStudyDataSource()
+        var saves = 0
+        source.saveHandler = { card, correct in
+            saves += 1
+            return self.saved(card: card, correct: correct)
+        }
+        let model = RedSheetCheckModel()
+        model.resume(words: words, availableWords: words, source: source, store: store) { _ in }
+        answer(model, false)
+        await settle(model)
+        model.sheetTopRatio = 0.4
+        model.coveredColumns = 2
+        model.revealAnswer()
+        model.resume(words: [words[2]], availableWords: words, source: source, store: store) { _ in }
+        XCTAssertEqual(model.current?.id, 2)
+        XCTAssertFalse(model.isAnswerVisible)
+        model.start(words: [words[2]], source: source) { _ in }
+        XCTAssertEqual(model.current?.id, 3)
+        XCTAssertTrue(model.answers.isEmpty)
+        XCTAssertEqual(model.index, 0)
+        XCTAssertEqual(model.sheetTopRatio, 0.4)
+        XCTAssertEqual(model.coveredColumns, 2)
+        XCTAssertEqual(store.load()?.wordIDs, [3])
+        XCTAssertEqual(saves, 1, "再開とリセットは学習履歴を変更しない")
+    }
+
+    func testCheckpointIsolationAndInvalidDataFallback() throws {
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        let store = RedSheetCheckpointStore(accountId: "a", deckId: 1, defaults: defaults)
+        defer { store.removeAll() }
+        let model = RedSheetCheckModel()
+        model.resume(words: words, availableWords: words, source: FakeStudyDataSource(), store: store) { _ in }
+        XCTAssertNotNil(store.load())
+        XCTAssertNil(RedSheetCheckpointStore(accountId: "b", deckId: 1, defaults: defaults).load())
+        XCTAssertNil(RedSheetCheckpointStore(accountId: "a", deckId: 2, defaults: defaults).load())
+        XCTAssertNil(RedSheetCheckpointStore(accountId: "a", deckId: nil, defaults: defaults).load())
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(try XCTUnwrap(store.load()))) as? [String: Any])
+        object["index"] = -1
+        defaults.set(try JSONSerialization.data(withJSONObject: object), forKey: store.key)
+        XCTAssertNil(store.load())
+        defaults.set(Data("broken".utf8), forKey: store.key)
+        XCTAssertNil(store.load())
+    }
+
+    func testPendingAnswerSurvivesRelaunchWithPreparedResultAndDoesNotCountTwice() async {
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        let store = RedSheetCheckpointStore(accountId: "a", deckId: 1, defaults: defaults)
+        defer { store.removeAll() }
+        let source = FakeStudyDataSource()
+        var fail = true
+        var preparations = 0
+        source.attemptSaveHandler = { card, correct, attempt in
+            if attempt.prepared == nil {
+                preparations += 1
+                attempt.prepared = self.saved(card: card, correct: correct)
+            }
+            try attempt.didPrepare?()
+            if fail { throw URLError(.cannotWriteToFile) }
+            return try XCTUnwrap(attempt.prepared)
+        }
+        let first = RedSheetCheckModel()
+        first.resume(words: words, availableWords: words, source: source, store: store) { _ in }
+        answer(first, true)
+        await settle(first)
+        XCTAssertEqual(store.load()?.pending.count, 1)
+        XCTAssertNotNil(store.load()?.pending.first?.prepared)
+        fail = false
+        let restored = RedSheetCheckModel()
+        restored.resume(words: words, availableWords: words, source: source, store: store) { _ in }
+        await settle(restored)
+        XCTAssertEqual(preparations, 1)
+        XCTAssertEqual(restored.current?.id, 2)
+        XCTAssertEqual(restored.pendingCount, 0)
+        XCTAssertEqual(store.load()?.pending.count, 0)
+    }
+
+    func testDeletedOriginalSessionDoesNotAutomaticallyIncludeNewWords() {
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        let store = RedSheetCheckpointStore(accountId: "a", deckId: 1, defaults: defaults)
+        defer { store.removeAll() }
+        let first = RedSheetCheckModel()
+        first.resume(words: [words[0]], availableWords: words, source: FakeStudyDataSource(), store: store) { _ in }
+        let restored = RedSheetCheckModel()
+        restored.resume(words: [words[2]], availableWords: [words[2]], source: FakeStudyDataSource(), store: store) { _ in }
+        XCTAssertTrue(restored.isComplete)
+        XCTAssertTrue(restored.words.isEmpty)
+        XCTAssertNil(restored.current)
+    }
+
+    func testAccountCheckpointCleanupDoesNotDeleteOtherAccountsOrRecreateDeletedRecord() {
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        let firstStore = RedSheetCheckpointStore(accountId: "a", deckId: 1, defaults: defaults)
+        let secondStore = RedSheetCheckpointStore(accountId: "a", deckId: 2, defaults: defaults)
+        let otherStore = RedSheetCheckpointStore(accountId: "b", deckId: 1, defaults: defaults)
+        defer { firstStore.removeAll(); otherStore.removeAll() }
+        let first = RedSheetCheckModel()
+        first.resume(words: words, availableWords: words, source: FakeStudyDataSource(), store: firstStore) { _ in }
+        let second = RedSheetCheckModel()
+        second.resume(words: words, availableWords: words, source: FakeStudyDataSource(), store: secondStore) { _ in }
+        let other = RedSheetCheckModel()
+        other.resume(words: words, availableWords: words, source: FakeStudyDataSource(), store: otherStore) { _ in }
+        firstStore.removeAll()
+        first.detach()
+        second.detach()
+        XCTAssertNil(firstStore.load())
+        XCTAssertNil(secondStore.load())
+        XCTAssertNotNil(otherStore.load())
+    }
+
+    func testDetachPreventsOldAccountSaveFromChangingNewSession() async {
+        let source = FakeStudyDataSource()
+        var continuation: CheckedContinuation<SavedAnswer, Error>?
+        source.saveHandler = { _, _ in
+            try await withCheckedThrowingContinuation { continuation = $0 }
+        }
+        let model = RedSheetCheckModel()
+        model.start(words: words, source: source) { _ in XCTFail("前アカウントの結果を新画面へ渡さない") }
+        answer(model, true)
+        for _ in 0..<1000 where continuation == nil { await Task.yield() }
+        model.detach()
+        model.start(words: [words[2]], source: FakeStudyDataSource()) { _ in }
+        continuation?.resume(returning: saved(card: words[0], correct: true))
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertEqual(model.current?.id, 3)
+        XCTAssertTrue(model.answers.isEmpty)
+        XCTAssertEqual(model.pendingCount, 0)
+    }
+
     func testSuspendedRowsStayVisibleButAreSkippedAndUndoReturnsToAnsweredWord() async {
         let source = FakeStudyDataSource()
         let model = RedSheetCheckModel()
@@ -475,6 +706,7 @@ final class RedSheetCheckTests: XCTestCase {
 }
 
 private final class FakeStudyDataSource: StudyDataSource {
+    var attemptSaveHandler: ((WordCard, Bool, AnswerSaveAttempt) async throws -> SavedAnswer)?
     var saveHandler: ((WordCard, Bool) async throws -> SavedAnswer)?
     var restoreHandler: ((Int, LearningProgress?) async throws -> Void)?
     private let wordList: [WordCard]
@@ -519,6 +751,10 @@ private final class FakeStudyDataSource: StudyDataSource {
     func saveAnswerWithUndo(card: WordCard, isCorrect: Bool) async throws -> SavedAnswer {
         guard let saveHandler else { throw LocalStudyError.missingCardId }
         return try await saveHandler(card, isCorrect)
+    }
+    func saveAnswerWithUndo(card: WordCard, isCorrect: Bool, attempt: AnswerSaveAttempt) async throws -> SavedAnswer {
+        if let attemptSaveHandler { return try await attemptSaveHandler(card, isCorrect, attempt) }
+        return try await saveAnswerWithUndo(card: card, isCorrect: isCorrect)
     }
     func restoreLearningProgress(cardId: Int, previousProgress: LearningProgress?) async throws {
         try await restoreHandler?(cardId, previousProgress)
