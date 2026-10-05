@@ -234,6 +234,10 @@ final class StudyFlowTests: XCTestCase {
 
         XCTAssertEqual(decks.map(\.id), [1, 2, 3])
         XCTAssertEqual(decks.map(\.isAdded), [true, true, false])
+        // 同期が入れた容量・易しさ・世界観は読み、入っていないデッキは nil のまま。
+        XCTAssertEqual(decks.map(\.mediaBytes), [nil, nil, 11_480_246])
+        XCTAssertEqual(decks.map(\.difficulty), [nil, nil, .medium])
+        XCTAssertEqual(decks.map(\.conceptName), [nil, nil, "シンプル"])
     }
 
     func testAddingOfficialDeckRecordsItForTheSignedInUser() async throws {
@@ -487,7 +491,8 @@ private final class FakeStudySupabaseClient: SupabaseRequesting {
                 ["id": 2, "deck_name": "発展", "description": NSNull(), "owner_id": NSNull(),
                  "is_starter": false, "user_added_decks": [["deck_id": 2]]],
                 ["id": 3, "deck_name": "応用", "description": NSNull(), "owner_id": NSNull(),
-                 "is_starter": false, "user_added_decks": []],
+                 "is_starter": false, "user_added_decks": [], "media_bytes": 11_480_246, "difficulty": "medium",
+                 "concept": ["concept_name": "シンプル"]],
                 ["id": 4, "deck_name": "自分のデッキ", "description": NSNull(), "owner_id": "user-1",
                  "is_starter": false, "user_added_decks": []]
             ])

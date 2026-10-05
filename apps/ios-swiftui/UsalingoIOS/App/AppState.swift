@@ -295,8 +295,10 @@ final class AppState: ObservableObject {
         let decks = try await remoteStudy.fetchOfficialDecks(session: try connectedSession())
         // この端末の学習タブから外したデッキは、追加し直せるよう「未追加」として見せる。
         return decks.map { official in
-            let isHidden = localStudy.isHidden(deckId: LocalStudyDataSource.cachedDeckId(remoteDeckId: official.deck.id))
-            return OfficialDeck(deck: official.deck, isAdded: official.isAdded && !isHidden)
+            var official = official
+            official.isAdded = official.isAdded
+                && !localStudy.isHidden(deckId: LocalStudyDataSource.cachedDeckId(remoteDeckId: official.deck.id))
+            return official
         }
     }
 

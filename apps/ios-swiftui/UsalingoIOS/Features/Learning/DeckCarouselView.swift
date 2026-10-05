@@ -60,8 +60,8 @@ enum DeckSlotEdge: Hashable {
 /// 見せる。ほかは表紙と名前だけの細い帯にする。両端の空き枠をタップするとデッキを足せる。
 /// 空き枠も中央では同じだけ広げる。高さがそろうので、どの枠の間でも1枠ぶんの移動量が同じになる。
 struct DeckCarouselView: View {
-    /// 見た目の寸法。帯と中央の大きさはここだけで決める。
-    private enum Metrics {
+    /// 見た目の寸法。帯と中央の大きさはここだけで決める。デッキ追加画面のカルーセルも同じ寸法を使う。
+    enum Metrics {
         static let bandHeight: CGFloat = 64
         static let expandedHeight: CGFloat = 240
         static let spacing: CGFloat = 10

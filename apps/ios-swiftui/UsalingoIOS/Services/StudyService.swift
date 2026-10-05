@@ -57,11 +57,37 @@ private struct CardIdRecord: Decodable {
 }
 
 /// ギャラリーに並べる公式デッキ。`isAdded` は、この利用者の学習タブに出ているか。
+/// 容量・易しさ・世界観の名前は教材の同期が前もって入れた値で、入っていなければ nil。
 struct OfficialDeck: Identifiable, Equatable {
     let deck: Deck
-    let isAdded: Bool
+    var isAdded: Bool
+    var mediaBytes: Int64? = nil
+    var difficulty: DeckDifficulty? = nil
+    var conceptName: String? = nil
 
     var id: Int { deck.id }
+}
+
+/// デッキの易しさ。`decks.difficulty` の値。
+enum DeckDifficulty: String, Decodable {
+    case easy, medium, hard
+
+    var title: String {
+        switch self {
+        case .easy: return "易"
+        case .medium: return "中"
+        case .hard: return "難"
+        }
+    }
+
+    /// 3段階のうちいくつ目か。点で示すのに使う。
+    var level: Int {
+        switch self {
+        case .easy: return 1
+        case .medium: return 2
+        case .hard: return 3
+        }
+    }
 }
 
 /// 学習タブに出すかどうかを決める列を足したデッキ行。
@@ -72,6 +98,9 @@ private struct DeckCatalogRecord: Decodable {
     let ownerId: String?
     let isStarter: Bool
     let addedBy: [AddedDeckRecord]
+    let mediaBytes: Int64?
+    let difficulty: DeckDifficulty?
+    let concept: ConceptRecord?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -80,9 +109,24 @@ private struct DeckCatalogRecord: Decodable {
         case ownerId = "owner_id"
         case isStarter = "is_starter"
         case addedBy = "user_added_decks"
+        case mediaBytes = "media_bytes"
+        case difficulty
+        case concept
+    }
+
+    struct ConceptRecord: Decodable {
+        let conceptName: String?
+
+        enum CodingKeys: String, CodingKey {
+            case conceptName = "concept_name"
+        }
     }
 
     var deck: Deck { Deck(id: id, deckName: deckName, description: description, ownerId: ownerId) }
+    var officialDeck: OfficialDeck {
+        OfficialDeck(deck: deck, isAdded: isOnStudyList, mediaBytes: mediaBytes,
+                     difficulty: difficulty, conceptName: concept?.conceptName)
+    }
     /// RLS で本人の追加記録しか返らないので、空でなければ本人が追加済み。
     var isOnStudyList: Bool { ownerId != nil || isStarter || !addedBy.isEmpty }
 }
@@ -201,7 +245,7 @@ final class StudyService: RemoteStudyImporting {
     func fetchOfficialDecks(session: AuthSession) async throws -> [OfficialDeck] {
         try await fetchDeckCatalog(session: session)
             .filter { $0.ownerId == nil }
-            .map { OfficialDeck(deck: $0.deck, isAdded: $0.isOnStudyList) }
+            .map(\.officialDeck)
     }
 
     /// 公式デッキを本人の学習タブへ追加する。追加済みなら何もしない。
@@ -221,7 +265,7 @@ final class StudyService: RemoteStudyImporting {
         try await fetchAllPages(
             path: "decks",
             queryItems: [
-                URLQueryItem(name: "select", value: "id,deck_name,description,owner_id,is_starter,user_added_decks(deck_id)"),
+                URLQueryItem(name: "select", value: "id,deck_name,description,owner_id,is_starter,media_bytes,difficulty,concept:content_concepts(concept_name),user_added_decks(deck_id)"),
                 URLQueryItem(name: "order", value: "id.asc")
             ],
             accessToken: session.accessToken
