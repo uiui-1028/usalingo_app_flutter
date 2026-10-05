@@ -3,6 +3,7 @@ import SwiftUI
 struct WordListView: View {
     /// 詳細ページへ組み込むときは、バナーを省いて単語シートだけを表示する。
     private let sheetOnly: Bool
+    private let usesPreviewWords: Bool
     /// シートが画面の高さに占める割合。デッキ選択バナーを戻すときに再び使う。
     private static let sheetHeightRatio: CGFloat = 0.75
     /// 浮動バーの高さと下余白のぶん、最後の行が隠れないように空ける量。
@@ -17,9 +18,6 @@ struct WordListView: View {
     @AppStorage(WordListColumn.middleStorageKey) private var middleColumn: WordListColumn?
     /// 上のパネル（と端末上端の余白）のぶん、一覧の先頭を下げる量。
     @State private var headerClearance: CGFloat = 0
-    @State private var redSheetTopRatio = Self.initialRedSheetTopRatio
-    /// 赤シートが右端から覆う列の数。オンにするたびに1列へ戻す。
-    @State private var redSheetCoveredColumns = 1
     /// 赤シート中に指で引っ張った分だけ一覧をずらす量。離すと 0 へ戻す。
     @State private var rubberBandOffset: CGFloat = 0
     @State private var rowFrames: [Int: CGRect] = [:]
@@ -40,6 +38,7 @@ struct WordListView: View {
     @State private var dwellTask: Task<Void, Never>?
     @State private var rowActionError: String?
     @State private var wantsToLeave = false
+    @State private var wantsToReset = false
 
     init(
         deck: Deck? = nil,
@@ -50,6 +49,7 @@ struct WordListView: View {
         sheetOnly: Bool = false
     ) {
         self.sheetOnly = sheetOnly
+        usesPreviewWords = previewWords != nil
         _check = StateObject(wrappedValue: previewCheck ?? RedSheetCheckModel())
         _isRedSheetEnabled = State(initialValue: previewWords != nil && previewRedSheetEnabled && displayMode == .list)
         _viewModel = StateObject(wrappedValue: WordListViewModel(
@@ -102,15 +102,20 @@ struct WordListView: View {
             get: { rowActionError != nil }, set: { if !$0 { rowActionError = nil } }
         )) { Button("閉じる", role: .cancel) { rowActionError = nil } }
         message: { Text(rowActionError ?? "") }
+        .alert("赤シートを最初から始めますか？", isPresented: $wantsToReset) {
+            Button("キャンセル", role: .cancel) { }
+            Button("最初から", role: .destructive) { resetCheck() }
+        } message: {
+            Text("今回の進行と判定表示をリセットします。保存済みの学習履歴は消えません。")
+        }
         .onChange(of: isRedSheetEnabled) { _, enabled in
             openedRowID = nil
             rubberBandOffset = 0
             if enabled {
-                redSheetTopRatio = Self.initialRedSheetTopRatio
-                redSheetCoveredColumns = 1
                 startCheck()
             } else {
-                check.reset()
+                check.isAnswerVisible = false
+                check.rememberSheetPosition()
             }
         }
         .fullScreenCover(item: $selectedWord) { word in
@@ -134,6 +139,10 @@ struct WordListView: View {
             .presentationDetents([.medium])
         }
         .task(id: appState.session?.user.id ?? "guest") {
+            if !usesPreviewWords {
+                isRedSheetEnabled = false
+                check.detach()
+            }
             if sheetOnly {
                 await viewModel.load(dataSource: appState.studyDataSource)
             } else {
@@ -207,13 +216,14 @@ struct WordListView: View {
                     let columnWidth = proxy.size.width / CGFloat(columns.count)
                     let sheetWidth = columnWidth * CGFloat(effectiveRedSheetColumns) + RedSheetLayer.leadingOverlap
                     RedSheetLayer(
-                        topRatio: $redSheetTopRatio,
+                        topRatio: $check.sheetTopRatio,
                         availableHeight: proxy.size.height,
                         minimumTopRatio: Self.minimumRedSheetTopRatio,
                         maximumTopRatio: Self.maximumRedSheetTopRatio,
-                        coveredColumns: $redSheetCoveredColumns,
+                        coveredColumns: $check.coveredColumns,
                         maximumCoveredColumns: maximumRedSheetColumns,
-                        columnWidth: columnWidth
+                        columnWidth: columnWidth,
+                        onHeightChangeEnded: check.rememberSheetPosition
                     )
                     .frame(
                         width: sheetWidth,
@@ -357,8 +367,13 @@ struct WordListView: View {
                         }
                         .padding(WireMetrics.screenPadding)
                     } else {
-                        if isRedSheetEnabled && check.isStarted {
-                            RedSheetEmptyRecords(height: max(0, redSheetTop(in: viewportHeight) - headerClearance))
+                        let emptyRows = WordListRowSnapping.emptyRowHeights(totalHeight: leadingBlankHeight(in: viewportHeight))
+                            .enumerated().map { (id: "word-list-empty-record-\($0.offset)", height: $0.element) }
+                        // 空行も単語行と同じ階層へ置き、それぞれを位置調整の対象にする。
+                        // ForEach 自体の ID も文字列にし、整数の単語 ID と重ならないようにする。
+                        ForEach(emptyRows, id: \.id) { row in
+                            WordListEmptyRecord(height: row.height)
+                                .id(row.id)
                         }
                         ForEach(Array(displayedWords.enumerated()), id: \.element.id) { index, word in
                             wordRow(word, index: index)
@@ -382,30 +397,57 @@ struct WordListView: View {
             // 赤シート中の位置合わせは判定ごとの自動スクロールにまかせ、指では動かさない。
             .scrollDisabled(isRedSheetEnabled)
             .scrollTargetBehavior(WordListRowScrollBehavior(
-                isEnabled: viewModel.selectedDisplayMode == .list,
+                isEnabled: viewModel.selectedDisplayMode == .list && !isRedSheetEnabled,
                 topInset: headerClearance
             ))
-            .onChange(of: check.isAnswerVisible) { _, visible in
-                guard visible, let id = check.current?.id else { return }
-                let rowHeight = rowFrames[id]?.height ?? lastRowHeight
-                let anchorY = max(0, min(1,
-                    (redSheetTop(in: viewportHeight) - rowHeight) / max(1, viewportHeight - rowHeight)
-                ))
-                // 赤シートは固定し、答えの行だけをシートの上へ送る。
+            .onChange(of: check.isAnswerVisible) { _, _ in
                 withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
-                    reader.scrollTo(id, anchor: UnitPoint(x: 0, y: anchorY))
+                    alignCurrentWord(reader: reader, viewportHeight: viewportHeight)
                 }
             }
-            .onChange(of: check.current?.id) { _, id in
-                guard let id else { return }
-                let rowHeight = rowFrames[id]?.height ?? lastRowHeight
-                let anchorY = min(1, redSheetTop(in: viewportHeight) / max(1, viewportHeight - rowHeight))
-                // 判定のたびに次の単語を赤シートの基準位置まで1行ずつ上げる。
+            .onChange(of: check.current?.id) { _, _ in
                 withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
-                    reader.scrollTo(id, anchor: UnitPoint(x: 0, y: anchorY))
+                    alignCurrentWord(reader: reader, viewportHeight: viewportHeight)
                 }
+            }
+            .onChange(of: check.sheetTopRatio) { _, _ in
+                // フックに指が追従している間は、現在行もアニメーションなしで同じ位置関係を保つ。
+                var transaction = Transaction(animation: nil)
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    alignCurrentWord(reader: reader, viewportHeight: viewportHeight)
+                }
+            }
+            .onChange(of: isRedSheetEnabled) { _, enabled in
+                if enabled { alignCurrentWord(reader: reader, viewportHeight: viewportHeight) }
+            }
+            .onChange(of: check.words.map(\.id)) { _, _ in
+                alignCurrentWord(reader: reader, viewportHeight: viewportHeight)
+            }
+            .onChange(of: rowFrames[check.current?.id ?? -1]?.height) { _, _ in
+                alignCurrentWord(reader: reader, viewportHeight: viewportHeight)
+            }
+            .onChange(of: viewportHeight) { _, _ in
+                alignCurrentWord(reader: reader, viewportHeight: viewportHeight)
             }
         }
+    }
+
+    private func leadingBlankHeight(in viewportHeight: CGFloat) -> CGFloat {
+        guard viewModel.selectedDisplayMode == .list else { return 0 }
+        if isRedSheetEnabled && check.isStarted {
+            return max(0, redSheetTop(in: viewportHeight) - headerClearance)
+        }
+        guard !isRedSheetEnabled && !sheetOnly else { return 0 }
+        return max(0, RedSheetPosition.top(availableHeight: viewportHeight, ratio: Self.initialRedSheetTopRatio) - headerClearance)
+    }
+
+    private func alignCurrentWord(reader: ScrollViewProxy, viewportHeight: CGFloat) {
+        guard isRedSheetEnabled, let id = check.current?.id else { return }
+        let rowHeight = rowFrames[id]?.height ?? lastRowHeight
+        let anchorY = RedSheetPosition.rowAnchor(availableHeight: viewportHeight, rowHeight: rowHeight,
+                                                ratio: check.sheetTopRatio, isAnswerVisible: check.isAnswerVisible)
+        reader.scrollTo(id, anchor: UnitPoint(x: 0, y: anchorY))
     }
 
     @ViewBuilder
@@ -415,9 +457,9 @@ struct WordListView: View {
         let row = WordRow(
             word: word,
             hidesAnswerFromAccessibility: answerIsHidden(at: studyIndex) && !isFocused,
-            checkResult: check.answers[word.id],
-            reservesCheckResultSpace: check.isStarted,
-            isCheckTarget: check.current?.id == word.id,
+            checkResult: isRedSheetEnabled ? check.answers[word.id] : nil,
+            reservesCheckResultSpace: isRedSheetEnabled && check.isStarted,
+            isCheckTarget: isRedSheetEnabled && check.current?.id == word.id,
             leftColumn: leftColumn, middleColumn: middleColumn, rightColumn: rightColumn,
             hidesMiddleFromAccessibility: effectiveRedSheetColumns > 1 && answerIsHidden(at: studyIndex) && !isFocused
         )
@@ -440,7 +482,7 @@ struct WordListView: View {
     }
 
     private var displayedWords: [WordCard] {
-        check.isStarted ? check.words.filter { !check.removedIDs.contains($0.id) } : viewModel.filteredWords
+        isRedSheetEnabled && check.isStarted ? check.words.filter { !check.removedIDs.contains($0.id) } : viewModel.filteredWords
     }
 
     private func studyIndex(for word: WordCard, fallback: Int) -> Int {
@@ -468,7 +510,7 @@ struct WordListView: View {
     private var maximumRedSheetColumns: Int { columns.count - 1 }
 
     /// 3列から2列に戻したときも、覆う列が左端まで届かないようにする。
-    private var effectiveRedSheetColumns: Int { min(redSheetCoveredColumns, maximumRedSheetColumns) }
+    private var effectiveRedSheetColumns: Int { min(check.coveredColumns, maximumRedSheetColumns) }
 
     /// 上のパネルの進み具合。赤シートのチェック中は判定した数、リストはパネルのすぐ下の行、
     /// カードは画面に見えている最後のカードの位置で測る。
@@ -476,7 +518,7 @@ struct WordListView: View {
         let count = displayedWords.count
         guard count > 0 else { return 0 }
         if isRedSheetEnabled && check.isStarted {
-            return Double(check.index) / Double(check.words.count)
+            return Double(check.index) / Double(max(1, check.words.count))
         }
         let visible = displayedWords.indices.filter { index in
             guard let frame = rowFrames[displayedWords[index].id] else { return false }
@@ -487,7 +529,7 @@ struct WordListView: View {
         return Double(position + 1) / Double(count)
     }
     private func redSheetTop(in viewportHeight: CGFloat) -> CGFloat {
-        RedSheetPosition.top(availableHeight: viewportHeight, ratio: redSheetTopRatio)
+        RedSheetPosition.top(availableHeight: viewportHeight, ratio: check.sheetTopRatio)
     }
 
     private func answerIsHidden(at index: Int) -> Bool {
@@ -497,6 +539,18 @@ struct WordListView: View {
     }
 
     private func startCheck() {
+        check.resume(words: viewModel.filteredWords, availableWords: viewModel.words,
+                     source: appState.studyDataSource,
+                     store: usesPreviewWords ? nil : appState.redSheetCheckpointStore(deckId: viewModel.deck?.id)) { word in
+            viewModel.replaceWord(word)
+            appState.markStudyDataChanged()
+        }
+    }
+
+    private func resetCheck() {
+        guard check.canLeave else { return }
+        openedRowID = nil
+        rubberBandOffset = 0
         check.start(words: viewModel.filteredWords, source: appState.studyDataSource) { word in
             viewModel.replaceWord(word)
             appState.markStudyDataChanged()
@@ -592,14 +646,14 @@ struct WordListView: View {
 
     @ViewBuilder
     private var redSheetSaveStatus: some View {
-        if let error = check.errorMessage {
+        if let error = check.errorMessage ?? check.resumeErrorMessage {
             VStack(spacing: WireMetrics.spacingS) {
                 Text(error)
                     .font(.caption)
                     .foregroundStyle(.red)
                 Button("もう一度保存", action: check.retry)
                     .buttonStyle(.wireSecondary)
-                    .disabled(check.pendingCount == 0 || check.isSaving || check.isUndoing)
+                    .disabled(check.isSaving || check.isUndoing)
             }
             .padding(.horizontal, WireMetrics.screenPadding)
         }
@@ -625,6 +679,13 @@ struct WordListView: View {
             .buttonStyle(.plain)
             .disabled(check.current == nil)
             .accessibilityLabel("単語を編集")
+
+            Button { wantsToReset = true } label: {
+                WordListActionBarIcon(symbol: "arrow.counterclockwise", isActive: false)
+            }
+            .buttonStyle(.plain)
+            .disabled(!check.canLeave || viewModel.filteredWords.isEmpty)
+            .accessibilityLabel("赤シートを最初から")
         }
         .wordListBarChrome()
     }
@@ -686,6 +747,13 @@ private struct WordListRowScrollBehavior: ScrollTargetBehavior {
 }
 
 enum WordListRowSnapping {
+    static func emptyRowHeights(totalHeight: CGFloat) -> [CGFloat] {
+        guard totalHeight > 0 else { return [] }
+        let rowHeight: CGFloat = 80
+        let count = Int(ceil(totalHeight / rowHeight))
+        // 従来どおり、端数は先頭の空行に残し、全体の高さと区切り線の位置を保つ。
+        return [totalHeight - CGFloat(count - 1) * rowHeight] + Array(repeating: rowHeight, count: count - 1)
+    }
     static func bottomPadding(viewportHeight: CGFloat, lastRowHeight: CGFloat) -> CGFloat {
         max(0, viewportHeight - lastRowHeight)
     }
@@ -711,26 +779,18 @@ enum RedSheetTapAction: Equatable {
     }
 }
 
-/// 最初の単語を赤シート位置から始めるための、番号も文字もない空レコード。
-private struct RedSheetEmptyRecords: View {
+/// 最初の単語を赤シートの基準位置から始めるための、番号も文字もない空レコード。
+private struct WordListEmptyRecord: View {
     let height: CGFloat
-    private let rowHeight: CGFloat = 80
 
     var body: some View {
-        let count = max(1, Int(ceil(height / rowHeight)))
-        VStack(spacing: 0) {
-            ForEach(0..<count, id: \.self) { index in
-                Rectangle()
-                    .fill(WireColor.surface)
-                    .frame(height: rowHeight)
-                    .overlay(alignment: .bottom) {
-                        Rectangle().fill(WireColor.ink.opacity(0.12)).frame(height: 1)
-                    }
+        Rectangle()
+            .fill(WireColor.surface)
+            .frame(height: height)
+            .overlay(alignment: .bottom) {
+                Rectangle().fill(WireColor.ink.opacity(0.12)).frame(height: 1)
             }
-        }
-        .frame(height: height, alignment: .bottom)
-        .clipped()
-        .accessibilityHidden(true)
+            .accessibilityHidden(true)
     }
 }
 

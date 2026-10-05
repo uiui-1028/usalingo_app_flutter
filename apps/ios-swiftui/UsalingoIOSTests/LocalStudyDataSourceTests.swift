@@ -238,6 +238,31 @@ final class LocalStudyDataSourceTests: XCTestCase {
         XCTAssertNil(repeated.previousProgress)
     }
 
+    func testPreparedAnswerIsCheckpointedBeforeLocalWriteAndCanBeRestoredIdempotently() async throws {
+        let source = makeDataSource()
+        let deck = try source.importDeck(from: sampleDeckData(cardCount: 1))
+        let cards = try await source.fetchCards(deckId: deck.id)
+        let card = try XCTUnwrap(cards.first)
+        let attempt = AnswerSaveAttempt()
+        var savedPreparation: Data?
+        attempt.didPrepare = { [weak attempt] in
+            savedPreparation = try JSONEncoder().encode(try XCTUnwrap(attempt?.prepared))
+            throw URLError(.cannotWriteToFile)
+        }
+        do {
+            _ = try await source.saveAnswerWithUndo(card: card, isCorrect: false, attempt: attempt)
+            XCTFail("控えを保存できない間は学習履歴も変更しない")
+        } catch { XCTAssertNotNil(savedPreparation) }
+        let reopened = makeDataSource()
+        let beforeRetry = try await reopened.fetchCards(deckId: deck.id)
+        XCTAssertNil(beforeRetry.first?.learning)
+        let restoredAttempt = AnswerSaveAttempt()
+        restoredAttempt.prepared = try JSONDecoder().decode(SavedAnswer.self, from: XCTUnwrap(savedPreparation))
+        _ = try await reopened.saveAnswerWithUndo(card: card, isCorrect: false, attempt: restoredAttempt)
+        let repeated = try await makeDataSource().saveAnswerWithUndo(card: card, isCorrect: false, attempt: restoredAttempt)
+        XCTAssertEqual(repeated.progress.incorrectCount, 1)
+    }
+
     func testDueCardComesFirstInQueue() async throws {
         let dataSource = makeDataSource()
         let deck = try dataSource.importDeck(from: sampleDeckData(cardCount: 3))

@@ -149,7 +149,7 @@ private struct AddedDeckPayload: Encodable {
     }
 }
 
-struct SavedAnswer {
+struct SavedAnswer: Codable {
     let progress: LearningProgress
     let previousProgress: LearningProgress?
 }

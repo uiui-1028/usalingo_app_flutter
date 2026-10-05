@@ -52,6 +52,8 @@ struct StudyDeckCounts: Equatable {
 /// 通信の応答だけが失われても、再送で学習回数を重ねないための1判定分の控え。
 final class AnswerSaveAttempt {
     var prepared: SavedAnswer?
+    /// ローカル保存の直前に控えを永続化し、再起動後の再送も同じ判定として扱う。
+    var didPrepare: (@MainActor () throws -> Void)?
 }
 
 extension StudyDataSource {

@@ -352,14 +352,19 @@ final class WordCardTests: XCTestCase {
         _ = try renderedWordList(words: words, displayMode: .list, redSheetEnabled: true, check: model) { root in
             let scroll = try XCTUnwrap(self.descendants(of: root).compactMap { $0 as? UIScrollView }
                 .first { $0.contentSize.height > 1500 })
-            let before = try self.settledRedSheetImage(in: root)
-            let beforeOffset = scroll.contentOffset.y
+            // 空行の旧 ForEach インデックスと重なる単語 ID でも、単語行へ移動する。
+            for id in 1...3 {
+                XCTAssertEqual(model.current?.id, id)
+                let before = try self.settledRedSheetImage(in: root)
+                let beforeOffset = scroll.contentOffset.y
 
-            model.revealAnswer()
-            let after = try self.settledRedSheetImage(in: root)
+                model.revealAnswer()
+                let after = try self.settledRedSheetImage(in: root)
 
-            XCTAssertEqual(try self.firstRedY(in: after), try self.firstRedY(in: before), accuracy: 1)
-            XCTAssertEqual(scroll.contentOffset.y - beforeOffset, 80, accuracy: 2)
+                XCTAssertEqual(try self.firstRedY(in: after), try self.firstRedY(in: before), accuracy: 1)
+                XCTAssertEqual(scroll.contentOffset.y - beforeOffset, 80, accuracy: 2, "word ID \(id)")
+                model.submit(isCorrect: true)
+            }
         }
     }
 

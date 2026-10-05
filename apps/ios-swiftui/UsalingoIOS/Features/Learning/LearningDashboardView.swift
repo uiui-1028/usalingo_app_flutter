@@ -92,6 +92,7 @@ struct LearningDashboardView: View {
                 }
                 .navigationDestination(item: $wordListDeck) { deck in
                     WordListView(deck: deck)
+                        .id(deck.id)
                 }
                 .navigationDestination(item: $radioDeck) { deck in
                     AudioRadioView(deck: deck)

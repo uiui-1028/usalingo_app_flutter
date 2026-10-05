@@ -19,6 +19,7 @@ struct RedSheetLayer: View {
     @Binding var coveredColumns: Int
     let maximumCoveredColumns: Int
     let columnWidth: CGFloat
+    let onHeightChangeEnded: () -> Void
     @State private var dragStartTop: CGFloat?
     @State private var dragStartColumns: Int?
 
@@ -59,6 +60,7 @@ struct RedSheetLayer: View {
                         }
                         .onEnded { _ in
                             dragStartTop = nil
+                            onHeightChangeEnded()
                         }
                 )
                 .onTapGesture { }
@@ -73,6 +75,7 @@ struct RedSheetLayer: View {
                         topRatio = RedSheetPosition.clampedRatio(topRatio + 0.01, minimum: minimumTopRatio, maximum: maximumTopRatio)
                     @unknown default: break
                     }
+                    onHeightChangeEnded()
                 }
                 .offset(y: restingTop + Self.topOffset)
                 .backSwipeProtectedRegion()
@@ -128,6 +131,11 @@ extension RedSheetLayer {
 }
 
 enum RedSheetPosition {
+    /// 答えを隠す時は行の上端、表示中は下端をシート上端に合わせる。
+    static func rowAnchor(availableHeight: CGFloat, rowHeight: CGFloat, ratio: CGFloat, isAnswerVisible: Bool) -> CGFloat {
+        let rowTop = top(availableHeight: availableHeight, ratio: ratio) - (isAnswerVisible ? rowHeight : 0)
+        return min(1, max(0, rowTop / max(1, availableHeight - rowHeight)))
+    }
     /// 横に引いた量から覆う列数を決める。左へ引くほど広がり、1列から `maximum` 列の間に収める。
     static func coveredColumns(start: Int, translation: CGFloat, columnWidth: CGFloat, maximum: Int) -> Int {
         let step = Int((-translation / max(1, columnWidth)).rounded())
