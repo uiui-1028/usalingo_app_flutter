@@ -88,7 +88,11 @@ struct LearningDashboardView: View {
                     StudySessionView(deck: launch.deck, studyMode: launch.mode)
                 }
                 .navigationDestination(isPresented: $isShowingLibrary) {
-                    DeckLibraryView(onAdded: placeAddedDeck)
+                    DeckLibraryView { official, coverURL in
+                        // 追加と画像・音声のダウンロードは裏で進め、すぐ学習タブへ戻る（要件 R4・R5）。
+                        appState.beginAddingDeck(official, coverURL: coverURL, atTop: addEdge == .top)
+                        isShowingLibrary = false
+                    }
                 }
                 .navigationDestination(item: $wordListDeck) { deck in
                     WordListView(deck: deck)
@@ -191,7 +195,12 @@ struct LearningDashboardView: View {
             },
             onDragEnd: { isArranging = false },
             onDrop: drop(from:target:),
-            onReorderInFolder: reorderInFolder(deckId:folderDeckId:index:)
+            onReorderInFolder: reorderInFolder(deckId:folderDeckId:index:),
+            // 読み直しでデッキが並びに出たら、同じデッキの追加の途中の枠は出さない。
+            adding: appState.addingDecks.filter { pending in !decks.contains { $0.id == pending.localDeckId } },
+            downloadState: { appState.downloadState(forDeckId: $0.id) },
+            onRetryAdding: appState.retryAdding,
+            onRetryDownload: { appState.retryDownload(deckId: $0.id) }
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         // 長押しメニューはタブバーまで覆うよう全画面に重ねる。下から出てくる動きは消し、中で薄く出す。
@@ -244,6 +253,18 @@ struct LearningDashboardView: View {
             Text(appState.studyDataSource.canManage(deck)
                 ? "このデッキのカードは端末から消えます。"
                 : "この端末の学習タブから外します。学習の記録は残り、ギャラリーから追加し直せます。")
+        }
+        // モバイル回線で、持っているデッキの画像・音声をダウンロードしてよいか（要件 B4）。
+        .alert("画像と音声をダウンロードしますか？", isPresented: Binding(
+            get: { appState.isAskingMediaConsent },
+            set: { if !$0 && appState.isAskingMediaConsent { appState.answerMediaConsent(allow: false) } }
+        )) {
+            Button("あとで", role: .cancel) { appState.answerMediaConsent(allow: false) }
+            Button("ダウンロード") { appState.answerMediaConsent(allow: true) }
+        } message: {
+            Text(appState.mediaConsentBytes.map {
+                "モバイル回線で約\(ByteCountFormatter.string(fromByteCount: $0, countStyle: .file))を使います。"
+            } ?? "モバイル回線を使います。")
         }
     }
 
@@ -407,16 +428,20 @@ struct LearningDashboardView: View {
 
     /// 長押しメニュー。名前の変更、並べ替え、削除。消す操作は最後に置き、選ぶと赤くなる。
     /// 並べ替えのボタンへ指を動かすと、そのままデッキを運べる。ボタンを使わずに長押しのまま動かしても運べる。
+    /// ダウンロード中のデッキでは「削除」を出さない（取りやめにあたるため。要件 R5・T4）。
     private func menuItems(for deck: Deck) -> [DeckMenuItem] {
         let folder = folder(of: deck)
-        return [
+        var items = [
             DeckMenuItem(title: "名前を変更", systemImage: "pencil") { beginRename(deck) },
             // ponytail: 支援技術からタップしたときは何もせず閉じるだけ。並べ替えの代わりの操作は後でまとめて作る。
-            DeckMenuItem(title: "並び替え", systemImage: "arrow.up.arrow.down", startsDrag: true) {},
-            DeckMenuItem(title: "削除", systemImage: "trash", role: .destructive) {
-                if let folder { folderPendingDeletion = folder } else { deckPendingDeletion = deck }
-            }
+            DeckMenuItem(title: "並び替え", systemImage: "arrow.up.arrow.down", startsDrag: true) {}
         ]
+        if appState.downloadState(forDeckId: deck.id) == nil {
+            items.append(DeckMenuItem(title: "削除", systemImage: "trash", role: .destructive) {
+                if let folder { folderPendingDeletion = folder } else { deckPendingDeletion = deck }
+            })
+        }
+        return items
     }
 
     private func beginRename(_ deck: Deck) {
@@ -471,8 +496,9 @@ struct LearningDashboardView: View {
         }
     }
 
-    /// デッキ全体を学習開始の入口にする。
+    /// デッキ全体を学習開始の入口にする。画像・音声をダウンロード中の新しいデッキは開かない（要件 D3）。
     private func open(_ deck: Deck) {
+        guard appState.downloadState(forDeckId: deck.id) == nil else { return }
         switch playStyle {
         case .card:
             studyLaunch = StudyLaunch(deck: deck, mode: .all)
@@ -485,20 +511,6 @@ struct LearningDashboardView: View {
         case .match:
             matchingDeck = deck
         }
-    }
-
-    /// ライブラリで追加した公式デッキを、選んだ空き枠の端へ入れて中央に置き、学習タブへ戻る。
-    private func placeAddedDeck(remoteDeckId: Int) {
-        let deckId = LocalStudyDataSource.cachedDeckId(remoteDeckId: remoteDeckId)
-        do {
-            try appState.localStudy.placeDeck(id: deckId, atTop: addEdge == .top)
-        } catch {
-            errorMessage = "デッキの並びを保存できませんでした。\(UserFacingError.advice(for: error))"
-        }
-        deckOrder.selectedDeckId = deckId
-        isShowingLibrary = false
-        // 読み直しは追加の時点で上がる `studyDataVersion` にまかせる。ここでも呼ぶと、
-        // 全デッキのカードを2回読むことになる。
     }
 
     /// 並び順と最後に選んだデッキ。利用者ごとに分けて覚える。
@@ -524,6 +536,7 @@ struct LearningDashboardView: View {
             // 並びを初めて作るときだけ、以前この端末に覚えていた並び順から始める。
             let seed = dataSource.hasDeckLayout ? [] : order.arranged(fetched).map(\.id)
             tree = try dataSource.arrangedDeckTree(for: fetched, seed: seed)
+            appState.clearPlacedAdds(presentDeckIds: Set(fetched.map(\.id)))
             errorMessage = nil
             let folderDecks = dataSource.deckFolders.map(dataSource.folderDeck)
             await loadDeckDetails(for: fetched + folderDecks, from: dataSource)

@@ -98,7 +98,6 @@ struct StudySessionView: View {
         .onDisappear {
             audioPlaybackService.stop()
             CardImageCache.stopPrefetching()
-            Task { await CardAudioCache.shared.stopPrefetching() }
         }
         .sheet(item: $editingWord) { word in
             WordEditSheet(word: word) { savedWord in
@@ -448,14 +447,11 @@ struct StudySessionView: View {
 
     /// 現在のカードから数枚先までを温める。1枚消費するたびに窓が1つ先へずれるので、
     /// 常に読み込み済みの控えが残る。取得済みのものは各キャッシュ側で弾かれる。
-    /// 音声も同じ窓で先に取っておき、電波が切れても学習を続けられるようにする。
     private func prefetchUpcomingMedia() {
         let upcoming = cards
             .dropFirst(index)
             .prefix(CardImageCache.prefetchWindow)
         CardImageCache.prefetch(urls: upcoming.compactMap(\.illustrationURL))
-        let audioURLs = upcoming.flatMap { [$0.wordAudioURL, $0.audioURL].compactMap { $0 } }
-        Task { await CardAudioCache.shared.prefetch(urls: audioURLs) }
     }
 
     private func editCurrentCard() {

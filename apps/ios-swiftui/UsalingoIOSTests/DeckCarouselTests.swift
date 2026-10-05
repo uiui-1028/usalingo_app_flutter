@@ -39,6 +39,23 @@ final class DeckCarouselLayoutTests: XCTestCase {
         XCTAssertEqual(DeckSlot.slots(for: decks), [.empty(.top), .deck(decks[0]), .deck(decks[1]), .empty(.bottom)])
         XCTAssertEqual(DeckSlot.slots(for: []), [.empty(.bottom)])
     }
+
+    /// 追加の途中のデッキは選んだ空き枠のすぐ内側に置き、あとから押したものほど空き枠の側にする（要件 R5）。
+    func testAddingDecksSitInsideTheChosenEmptySlot() {
+        let decks = [makeDeck(1)]
+        func pending(_ id: Int, atTop: Bool) -> PendingDeckAdd {
+            PendingDeckAdd(official: OfficialDeck(deck: makeDeck(id), isAdded: false), coverURL: nil, atTop: atTop)
+        }
+        let first = pending(10, atTop: true)
+        let second = pending(11, atTop: true)
+        let below = pending(12, atTop: false)
+
+        XCTAssertEqual(DeckSlot.slots(for: decks, adding: [first, second, below]),
+                       [.empty(.top), .adding(second), .adding(first), .deck(decks[0]), .adding(below), .empty(.bottom)])
+        XCTAssertEqual(DeckSlot.slots(for: [], adding: [below]), [.empty(.top), .adding(below), .empty(.bottom)])
+        // 学習タブに入ったあとと同じ番号で中央に置くので、入っても中央から動かない。
+        XCTAssertEqual(DeckSlot.adding(below).centerKey, LocalStudyDataSource.cachedDeckId(remoteDeckId: 12))
+    }
 }
 
 final class DeckOrderStoreTests: XCTestCase {

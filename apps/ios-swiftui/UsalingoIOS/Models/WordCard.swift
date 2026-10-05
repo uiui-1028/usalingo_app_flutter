@@ -158,9 +158,19 @@ struct WordCard: Identifiable, Codable, Hashable {
         Self.assetURL(for: wordAudioAssetPath)
     }
 
+    /// 端末へ先取りするファイル（Storage のパス）。画像・例文音声・単語音声のうち、配信元にあるものだけ。
+    var mediaPaths: [String] {
+        [imageAssetPath, audioAssetPath, wordAudioAssetPath].compactMap { path in
+            guard let path, !path.isEmpty, URL(string: path)?.scheme == nil else { return nil }
+            return path
+        }
+    }
+
+    /// 先取りして端末にあれば端末のファイル、無ければ配信元の URL。
     private static func assetURL(for path: String?) -> URL? {
         guard let path, !path.isEmpty else { return nil }
         if let url = URL(string: path), url.scheme != nil { return url }
+        if let local = MediaStore.shared.localURL(for: path) { return local }
         return SupabaseConfig.publicStorageURL(for: path)
     }
 

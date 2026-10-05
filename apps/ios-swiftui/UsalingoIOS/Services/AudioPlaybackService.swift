@@ -1,75 +1,41 @@
 import AVFoundation
 import Foundation
-import Nuke
 
-/// 学習音声を端末へ保存し、2回目からは通信せずに渡す。
+/// 学習音声を読み込む。
 ///
-/// 保存先は画像と同じ Nuke の `DataCache`。容量を超えた分は、最後に使った日時が古いものから
-/// `DataCache` が自動で片付ける。1本約30KB × 約2000本（約60MB）が収まる上限にしている。
+/// 追加したデッキの音声は先取りして端末にある（`MediaStore`）ので、その端末のファイルを読む。
+/// 端末に無いときだけ配信元から取る。一時キャッシュは持たない（要件 C1）。同じ URL の同時取得は1本にまとめる。
 actor CardAudioCache {
     typealias Loader = @Sendable (URL) async throws -> Data
 
-    static let diskCacheSizeLimit = 100 * 1024 * 1024
     static let shared = CardAudioCache()
 
-    private let storage: DataCache?
     private let load: Loader
     private var inFlight: [URL: Task<Data, Error>] = [:]
-    private var prefetchTask: Task<Void, Never>?
 
-    init(storage: DataCache? = CardAudioCache.makeStorage(), load: @escaping Loader = CardAudioCache.download) {
-        self.storage = storage
+    init(load: @escaping Loader = CardAudioCache.download) {
         self.load = load
     }
 
-    /// 保存済みならそれを返し、無ければ取得して保存する。同じ URL の同時取得は1本にまとめる。
     func data(for url: URL) async throws -> Data {
-        let key = url.absoluteString
-        if let cached = storage?.cachedData(for: key) {
-            return cached
-        }
         if let running = inFlight[url] {
             return try await running.value
         }
-
         let task = Task { try await load(url) }
         inFlight[url] = task
         defer { inFlight[url] = nil }
-        let data = try await task.value
-        storage?.storeData(data, for: key)
-        return data
+        return try await task.value
     }
 
-    /// 画像と同じく、次に来るカードの音声を先に取っておく。前の先読みは打ち切る。
-    func prefetch(urls: [URL]) {
-        prefetchTask?.cancel()
-        prefetchTask = Task {
-            for url in urls {
-                guard !Task.isCancelled else { return }
-                _ = try? await data(for: url)
-            }
-        }
+    /// 以前の一時キャッシュ（最大100MB）を片付ける。もう使わないので、起動のたびに残っていれば消す。
+    nonisolated static func removeLegacyStorage(fileManager: FileManager = .default) {
+        guard let caches = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first else { return }
+        try? fileManager.removeItem(at: caches.appendingPathComponent("jp.usalingo.card-audio", isDirectory: true))
     }
 
-    func stopPrefetching() {
-        prefetchTask?.cancel()
-        prefetchTask = nil
-    }
-
-    func removeAll() {
-        stopPrefetching()
-        storage?.removeAll()
-    }
-
-    /// 保存箱を作れない端末でも再生は止めない。そのときは毎回取得する。
-    private static func makeStorage() -> DataCache? {
-        let cache = try? DataCache(name: "jp.usalingo.card-audio")
-        cache?.sizeLimit = diskCacheSizeLimit
-        return cache
-    }
-
-    /// エラー応答の本文を音声として保存しないよう、2xx 以外は失敗にする。
-    private static func download(_ url: URL) async throws -> Data {
+    /// エラー応答の本文を音声として扱わないよう、2xx 以外は失敗にする。端末のファイルはそのまま読む。
+    @Sendable private static func download(_ url: URL) async throws -> Data {
+        if url.isFileURL { return try Data(contentsOf: url) }
         let (data, response) = try await URLSession.shared.data(from: url)
         if let response = response as? HTTPURLResponse, !(200..<300).contains(response.statusCode) {
             throw URLError(.badServerResponse)

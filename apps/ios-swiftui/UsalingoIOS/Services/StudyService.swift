@@ -58,7 +58,7 @@ private struct CardIdRecord: Decodable {
 
 /// ギャラリーに並べる公式デッキ。`isAdded` は、この利用者の学習タブに出ているか。
 /// 容量・易しさ・世界観の名前は教材の同期が前もって入れた値で、入っていなければ nil。
-struct OfficialDeck: Identifiable, Equatable {
+struct OfficialDeck: Identifiable, Hashable {
     let deck: Deck
     var isAdded: Bool
     var mediaBytes: Int64? = nil

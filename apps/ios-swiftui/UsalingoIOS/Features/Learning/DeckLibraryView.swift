@@ -5,12 +5,13 @@ import SwiftUI
 /// 上にジャンルのセグメント、真ん中に学習タブと同じ縦のカルーセル、下に標準のシートを置く。
 /// シートは頭（収録語数・容量・レベル）と約7割（詳しい情報と単語一覧）の2段で、中身はカルーセルの
 /// 中央のデッキに合わせて変わる。要件は docs/plans/deck-gallery-redesign-requirements.md。
-/// 追加できたら `onAdded` にサーバーのデッキ番号を渡す。戻るのは呼び出し側が決める。
+/// ダウンロードを押したら、すぐ `onAdded` にデッキと表紙を渡す。追加と画像・音声のダウンロードは呼び出し側が裏で進め、
+/// 進み具合は学習タブの枠に出す（要件 R4・R5）。戻るのも呼び出し側が決める。
 struct DeckLibraryView: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    let onAdded: (Int) -> Void
+    let onAdded: (OfficialDeck, URL?) -> Void
 
     @State private var genre = GalleryGenre.exam
     @State private var decks: [OfficialDeck] = []
@@ -25,8 +26,8 @@ struct DeckLibraryView: View {
     @State private var ownedWords: [Int: Set<Int>] = [:]
     @State private var isSheetPresented = false
     @State private var detent = GallerySheetDetent.peek
-    @State private var isDownloading = false
-    @State private var downloadMessage: String?
+    /// モバイル回線で押したときに、確認を出しているデッキ（要件 D7）。
+    @State private var deckAwaitingCellularConsent: OfficialDeck?
     /// シートを閉じ切ってから行うこと。シートを出したまま戻ると、画面だけが先に消えてしまう。
     @State private var afterSheetDismiss: (() -> Void)?
 
@@ -62,7 +63,6 @@ struct DeckLibraryView: View {
         .task { await reload() }
         .onChange(of: genre) { _, _ in selectFirstDeckIfNeeded() }
         .onChange(of: selectedDeck?.id) { _, _ in updateSheetPresence() }
-        .onChange(of: selectedId) { _, _ in downloadMessage = nil }
         .onDisappear { isSheetPresented = false }
     }
 
@@ -127,14 +127,24 @@ struct DeckLibraryView: View {
                     deck: deck,
                     words: cardsByDeck[deck.id],
                     overlap: overlapCount(for: deck),
-                    isDownloading: isDownloading,
-                    message: downloadMessage,
                     isExpanded: isFocused,
                     onDownload: { download(deck) }
                 )
             } else {
                 Color.clear
             }
+        }
+        // シートが出ている間は、確認もシートの上に出す。
+        .alert("モバイル回線でダウンロードしますか？", isPresented: Binding(
+            get: { deckAwaitingCellularConsent != nil },
+            set: { if !$0 { deckAwaitingCellularConsent = nil } }
+        ), presenting: deckAwaitingCellularConsent) { deck in
+            Button("やめる", role: .cancel) {}
+            Button("ダウンロード") { startAdding(deck) }
+        } message: { deck in
+            Text(deck.mediaBytes.map {
+                "約\(ByteCountFormatter.string(fromByteCount: $0, countStyle: .file))を使います。"
+            } ?? "画像と音声をダウンロードします。")
         }
         .presentationDetents([GallerySheetDetent.peek, GallerySheetDetent.expanded], selection: $detent)
         // 7割でも後ろを暗くしない。上に出したカードを明るいまま見せる。カルーセルは7割の間は止めてある。
@@ -233,20 +243,19 @@ struct DeckLibraryView: View {
         )
     }
 
+    /// モバイル回線なら、使う大きさを伝えてから始める（要件 D7）。
     private func download(_ deck: OfficialDeck) {
-        guard !isDownloading, !deck.isAdded else { return }
-        isDownloading = true
-        downloadMessage = nil
-        Task { @MainActor in
-            defer { isDownloading = false }
-            do {
-                try await appState.addOfficialDeck(id: deck.id)
-                afterSheetDismiss = { onAdded(deck.id) }
-                isSheetPresented = false
-            } catch {
-                downloadMessage = UserFacingError.message(for: error)
-            }
+        guard !deck.isAdded else { return }
+        if appState.mediaDownloader?.isExpensiveNetwork == true {
+            deckAwaitingCellularConsent = deck
+        } else {
+            startAdding(deck)
         }
+    }
+
+    private func startAdding(_ deck: OfficialDeck) {
+        afterSheetDismiss = { onAdded(deck, covers[deck.id]) }
+        isSheetPresented = false
     }
 }
 
@@ -455,8 +464,6 @@ private struct DeckGallerySheet: View {
     let deck: OfficialDeck
     let words: [WordCard]?
     let overlap: Int?
-    let isDownloading: Bool
-    let message: String?
     /// 7割まで上がっているか。頭だけのときは3項目だけを見せ、ボタンの周りに下の情報を透かさない。
     let isExpanded: Bool
     let onDownload: () -> Void
@@ -582,32 +589,19 @@ private struct DeckGallerySheet: View {
     }
 
     private var downloadArea: some View {
-        VStack(spacing: WireMetrics.spacingS) {
-            if let message {
-                Text(message)
-                    .wireFont(.caption)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, WireMetrics.spacingS)
-                    .background(.regularMaterial, in: Capsule())
-                    .accessibilityIdentifier("galleryDownloadMessage")
-            }
-            Button(action: onDownload) {
-                HStack(spacing: WireMetrics.spacingS) {
-                    if isDownloading { ProgressView().tint(.white) }
-                    Text(deck.isAdded ? "追加済み" : isDownloading ? "追加中…" : "ダウンロード")
-                }
+        Button(action: onDownload) {
+            Text(deck.isAdded ? "追加済み" : "ダウンロード")
                 .font(.headline)
                 // 白い文字は #FF5D97 の上では基準のコントラストに届かない。利用者の判断で今はこのまま（要件 G5）。
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity, minHeight: 52)
                 .contentShape(Capsule())
-            }
-            .buttonStyle(.plain)
-            .pinkGlassSurface(in: Capsule())
-            .disabled(isDownloading || deck.isAdded)
-            // 追加済みは透かさずに色を抜いて示す。薄くすると、後ろの一覧がボタン越しに透けて読みにくい。
-            .saturation(deck.isAdded ? 0 : 1)
         }
+        .buttonStyle(.plain)
+        .pinkGlassSurface(in: Capsule())
+        .disabled(deck.isAdded)
+        // 追加済みは透かさずに色を抜いて示す。薄くすると、後ろの一覧がボタン越しに透けて読みにくい。
+        .saturation(deck.isAdded ? 0 : 1)
         .padding(.horizontal, WireMetrics.screenPadding)
         .padding(.bottom, WireMetrics.spacingS)
         // 利用者の希望で、ふつうの置き場所より10pt下げる。
