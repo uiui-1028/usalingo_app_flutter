@@ -122,6 +122,13 @@ class RenderSqlTest(unittest.TestCase):
         self.assertIn("U&'\\4F5C\\308A\\51FA\\3059'", sql)  # 作り出す
         self.assertIn("'{\"past\":\"created\"}'::jsonb", sql)
 
+    def test_fills_deck_size_and_difficulty_for_official_decks(self) -> None:
+        sql = MODULE.render_sql(MODULE.build_document(csvs()), dry_run=False)
+
+        self.assertIn("update public.decks d set\n  media_bytes =", sql)
+        self.assertIn("join storage.objects o on o.bucket_id = split_part(p.path, '/', 1)", sql)
+        self.assertLess(sql.index("media_bytes ="), sql.index("commit;"))
+
     def test_dry_run_rolls_back_with_an_exception(self) -> None:
         sql = MODULE.render_sql(MODULE.build_document(csvs()), dry_run=True)
 

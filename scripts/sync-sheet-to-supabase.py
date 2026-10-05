@@ -419,12 +419,14 @@ create temp table sync_deck_words (deck_id integer, word_id integer, meaning_id 
   primary key (deck_id, word_id));
 """
 
-# Storage にファイルがあるか。path は "<bucket>/<object name>"。
+# storage.objects の行 o が path を指すか。path は "<bucket>/<object name>"。
+def object_matches(path_sql: str) -> str:
+    return f"o.bucket_id = split_part({path_sql}, '/', 1) and o.name = substr({path_sql}, strpos({path_sql}, '/') + 1)"
+
+
+# Storage にファイルがあるか。
 def object_exists(path_sql: str) -> str:
-    return (
-        "exists (select 1 from storage.objects o where o.bucket_id = split_part("
-        f"{path_sql}, '/', 1) and o.name = substr({path_sql}, strpos({path_sql}, '/') + 1))"
-    )
+    return f"exists (select 1 from storage.objects o where {object_matches(path_sql)})"
 
 
 APPLY = f"""
@@ -518,6 +520,50 @@ update public.cards c set is_active = false
 where c.is_active
   and c.deck_id in (select id from sync_decks)
   and not exists (select 1 from sync_deck_words d where d.deck_id = c.deck_id and d.word_id = c.word_id);
+
+-- Deck facts for the deck gallery, so the app only reads them (docs/plans/deck-gallery-redesign-requirements.md).
+-- media_bytes: the image and example audio of the deck-concept example of each primary meaning, plus the word audio.
+-- difficulty: share of B2+ primary meanings; under 20% easy, under 50% medium, otherwise hard.
+with deck_cards as (
+  select distinct d.id as deck_id, d.concept_id, c.word_id,
+    coalesce(c.primary_meaning_id, (select m.id from public.word_meanings m where m.word_id = c.word_id
+      order by m.priority, m.id limit 1)) as meaning_id
+  from public.decks d
+  join public.cards c on c.deck_id = d.id and c.is_active
+  where d.owner_id is null
+), paths as (
+  select dc.deck_id, unnest(array[e.image_asset_path, e.audio_asset_path]) as path
+  from deck_cards dc
+  cross join lateral (
+    select x.image_asset_path, x.audio_asset_path from public.example_contents x
+    where x.meaning_id = dc.meaning_id and x.concept_id = dc.concept_id
+    order by x.display_order, x.id limit 1
+  ) e
+  union
+  select dc.deck_id, p.audio_asset_path
+  from deck_cards dc
+  join public.word_pronunciations p on p.word_id = dc.word_id and p.is_primary
+), media as (
+  select p.deck_id, sum((o.metadata->>'size')::bigint) as bytes
+  from paths p
+  join storage.objects o on {object_matches('p.path')}
+  group by p.deck_id
+), levels as (
+  select dc.deck_id, count(m.cefr_level) as rated,
+    count(*) filter (where m.cefr_level in ('B2', 'C1', 'C2')) as hard
+  from deck_cards dc
+  join public.word_meanings m on m.id = dc.meaning_id
+  group by dc.deck_id
+)
+update public.decks d set
+  media_bytes = coalesce((select bytes from media where media.deck_id = d.id), 0),
+  difficulty = (select case
+      when l.rated = 0 then null
+      when l.hard * 5 < l.rated then 'easy'
+      when l.hard * 2 < l.rated then 'medium'
+      else 'hard'
+    end from levels l where l.deck_id = d.id)
+where d.owner_id is null;
 
 select setval(pg_get_serial_sequence('public.' || t, 'id'), greatest(m, 1))
 from (values
