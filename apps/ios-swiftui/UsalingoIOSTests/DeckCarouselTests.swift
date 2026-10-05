@@ -345,3 +345,47 @@ final class DeckRadialMenuLayoutTests: XCTestCase {
         XCTAssertTrue(layout.keepsMenu(wobble))
     }
 }
+
+/// デッキ追加画面の詳細に出す数え方を確かめる。
+final class DeckGalleryFactsTests: XCTestCase {
+    private func word(_ id: Int, partOfSpeech: String?) -> WordCard {
+        WordCard(id: id, cardId: id, text: "word\(id)",
+                 senses: [WordSense(meaning: "意味\(id)", partOfSpeech: partOfSpeech)],
+                 sentenceEnglish: nil, sentenceJapanese: nil, imageAssetPath: nil, audioAssetPath: nil,
+                 tags: [], learningStatus: nil, learning: nil)
+    }
+
+    /// 主の意味の品詞で数え、多い順に並べる。分からない品詞は「その他」として最後に置く。
+    func testPartsOfSpeechAreCountedByPrimarySenseMostFirst() {
+        let words = [word(1, partOfSpeech: "verb"), word(2, partOfSpeech: "noun"), word(3, partOfSpeech: "v"),
+                     word(4, partOfSpeech: nil), word(5, partOfSpeech: "adjective")]
+
+        XCTAssertEqual(DeckGalleryFacts.partsOfSpeech(words), [
+            .init(title: "動詞", count: 2),
+            .init(title: "名詞", count: 1),
+            .init(title: "形容詞", count: 1),
+            .init(title: "その他", count: 1),
+        ])
+    }
+
+    /// 学習タブのほかのデッキと同じ単語だけを1回ずつ数え、追加済みのそのデッキ自身は数えない。
+    func testOverlapCountsWordsInOtherOwnedDecksOnce() {
+        let words = [1, 2, 3, 4].map { word($0, partOfSpeech: "noun") }
+        let owned: [Int: Set<Int>] = [-2: [1, 2, 3, 4], -3: [2, 3], 5: [3, 9]]
+
+        XCTAssertEqual(DeckGalleryFacts.overlapCount(words: words, ownedWords: owned, excludingDeckId: -2), 2)
+        XCTAssertEqual(DeckGalleryFacts.overlapText(0), "重なりなし")
+        XCTAssertEqual(DeckGalleryFacts.overlapText(2), "追加済みのデッキと2語重なる")
+    }
+
+    /// 同期がまだ値を入れていない容量は「—」にする。
+    func testSizeTextShowsDashUntilTheSyncFillsIt() {
+        XCTAssertEqual(DeckGalleryFacts.sizeText(nil), "—")
+        XCTAssertTrue(DeckGalleryFacts.sizeText(11_480_246).contains("11.5"))
+    }
+
+    func testDifficultyShowsThreeSteps() {
+        XCTAssertEqual([DeckDifficulty.easy, .medium, .hard].map(\.title), ["易", "中", "難"])
+        XCTAssertEqual([DeckDifficulty.easy, .medium, .hard].map(\.level), [1, 2, 3])
+    }
+}
