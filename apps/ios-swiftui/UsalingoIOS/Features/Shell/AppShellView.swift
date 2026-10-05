@@ -20,6 +20,7 @@ struct AppShellView: View {
                         playStyleBar
                             .padding(.horizontal, WireMetrics.screenPadding)
                             .padding(.bottom, WireMetrics.spacingM)
+                            .background { bottomFade }
                     }
                 }
                 .tabItem { Label("Game", systemImage: "bolt") }
@@ -64,6 +65,26 @@ struct AppShellView: View {
         let verticalMovement = value.translation.height - previousVerticalDragTranslation
         guard abs(verticalMovement) > 0.5 else { return }
         isTabBarHiddenByScroll = verticalMovement < 0
+    }
+
+    /// 重なるデッキでバーが見えにくくならないよう、遊び方バーの少し上から画面の下端へ、すりガラスと地の色を薄く敷く。
+    /// ponytail: すりガラスはぼかしの強さが一定で、見える量だけを下へ増やす。下ほど強くぼかすには
+    /// デッキ一覧へシェーダーが要るが、フォルダの中の ScrollView（UIKit）がシェーダーで描けないので見送った。
+    private var bottomFade: some View {
+        Rectangle()
+            .fill(.ultraThinMaterial)
+            .mask(LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom))
+            .overlay(
+                LinearGradient(
+                    colors: [Color(.systemBackground).opacity(0), Color(.systemBackground).opacity(0.6)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+            .padding(.top, -WireMetrics.spacingXL)
+        .ignoresSafeArea(edges: .bottom)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 
     private var playStyleBar: some View {
