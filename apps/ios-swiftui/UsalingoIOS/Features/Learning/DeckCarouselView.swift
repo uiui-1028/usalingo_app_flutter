@@ -55,7 +55,7 @@ struct DeckMenuItem: Identifiable {
     let title: String
     let systemImage: String
     var role: ButtonRole?
-    /// 決まったら、押さえている指の下でデッキを持ち上げて運び始める。
+    /// 並び替えのボタン。ドウェル選択で決まったら、押さえている指の下でデッキを持ち上げて運び始める。
     var startsDrag = false
     let action: () -> Void
 
@@ -122,7 +122,8 @@ struct DeckCarouselView: View {
     var onPressMove: (CGPoint) -> Bool = { _ in false }
     /// 長押しのあと、デッキを運ばずに指を離した。呼ぶ側はメニューを閉じる。
     var onPressEnd: () -> Void = {}
-    /// メニューで並び替えが決まったデッキ。押さえている指の下で持ち上げて運び始める。
+    /// メニューで並び替えが決まったデッキ。指で押さえていればその下で持ち上げて運び始める。
+    /// 指を離したあとなら、元の場所で浮かせて待ち、次に触って運ぶと置く。
     var liftDeckId: Int?
     /// 長押しのまま指を動かし始めた。呼ぶ側はメニューを閉じる。
     var onDragStart: (Deck) -> Void = { _ in }
@@ -138,6 +139,9 @@ struct DeckCarouselView: View {
     var downloadState: (Deck) -> DeckDownloadState? = { _ in nil }
     var onRetryAdding: (PendingDeckAdd) -> Void = { _ in }
     var onRetryDownload: (Deck) -> Void = { _ in }
+
+    /// 並べ替えに入る・出るときの動き。一覧を帯に縮める動きと、タブバーなどを隠す動きをこれでそろえる。
+    static let arrangeAnimation = Animation.spring(response: 0.28, dampingFraction: 0.86)
 
     private static let coordinateSpace = "deckCarousel"
     private static let gridCoordinateSpace = "deckFolderGrid"
@@ -156,6 +160,14 @@ struct DeckCarouselView: View {
     @State private var pressedCard: (deck: Deck, source: CardDrag.Source)?
     /// 長押しのあと指で運んでいるカード。
     @State private var drag: CardDrag?
+    /// メニューで指を離して並び替えを選び、カードを浮かせたまま次の指を待っている。
+    @State private var isFloating = false
+    /// 浮かせたカードを運ぶ指が触れたときの、カードの場所。カードは指の動いた分だけ動かす。
+    @State private var floatStart: CGPoint?
+    /// 持ち上げた直後の、元のカードの場所と大きさ。浮かせたカードはここから帯の大きさへ縮む。
+    @State private var liftFrame: CGRect?
+    /// 指を離したあと、浮かせたカードを置き場所へ吸い込ませている。終わってから並びを変える。
+    @State private var isSettling = false
     @GestureState private var isPressing = false
     /// 長押しの途中（メニューが出る前）で押さえているデッキ。そのカードを少し縮めて、押していることを見せる。
     /// 指を離して長押しをやめたときは、ばねで元の大きさへ戻す。
@@ -238,6 +250,7 @@ struct DeckCarouselView: View {
                     .onEnded { _ in DispatchQueue.main.async { cardFrames.isTapSuppressed = false } }
             )
             .overlay { floatingCard(size: proxy.size) }
+            .overlay { if isFloating { floatSurface } }
             .coordinateSpace(name: Self.coordinateSpace)
             .onGeometryChange(for: CGPoint.self) { $0.frame(in: .global).origin } action: { cardFrames.origin = $0 }
             .onAppear { viewportSize = proxy.size }
@@ -253,7 +266,7 @@ struct DeckCarouselView: View {
         }
         .onChange(of: isPressing) { _, pressing in
             // システムに指を取り上げられたときは onEnded が来ないので、ここで片付ける。
-            if !pressing { cancelPress() }
+            if !pressing, !isSettling { cancelPress() }
         }
         .task(id: autoScrollDirection) { await autoScroll() }
         .onChange(of: liftDeckId) { _, id in lift(id) }
@@ -265,7 +278,8 @@ struct DeckCarouselView: View {
     /// 開いたフォルダは縦に伸ばし、上下の枠をその分だけ外へ押し出す。
     private func placement(of index: Int, center: CGFloat, size: CGSize) -> Placement {
         if let drag, isBandMode {
-            let position = virtualIndex(of: index, in: drag) ?? CGFloat(index)
+            // 運んでいるカードの元の枠（見えない）は空き箱の場所に置く。置いた瞬間にそこから元の形へ広がる。
+            let position = virtualIndex(of: index, in: drag) ?? CGFloat(drag.gap)
             return Placement(y: (position - center) * Metrics.bandStride, height: Metrics.bandHeight, expansion: 0)
         }
         let offset = CGFloat(index) - center
@@ -350,7 +364,8 @@ struct DeckCarouselView: View {
                     }
                 }
                 .scaleEffect(merging ? 1.04 : 1)
-                .opacity(drag?.source == .slot(index) ? 0 : 1)
+                // 浮かせたカードと入れ替わるので、薄く重ねずに一度で出し入れする。
+                .animation(nil) { $0.opacity(drag?.source == .slot(index) ? 0 : 1) }
                 .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: merging)
             case .adding(let pending):
                 // 学習タブに入るまでは運べない。運んでいる間は隠す。
@@ -808,8 +823,13 @@ struct DeckCarouselView: View {
                 started.tileGap = children(folder).firstIndex { $0.id == deck.id } ?? 0
             }
         }
-        withAnimation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.86)) {
+        // 浮かせたカードは元のカードの場所と大きさで出し、帯へ縮めながら指の下へ動かす。
+        liftFrame = cardFrames.frames[deck.id].map { $0.offsetBy(dx: -cardFrames.origin.x, dy: -cardFrames.origin.y) }
+        withAnimation(reduceMotion ? nil : Self.arrangeAnimation) {
             drag = started
+        }
+        DispatchQueue.main.async {
+            withAnimation(reduceMotion ? nil : Self.arrangeAnimation) { liftFrame = nil }
         }
     }
 
@@ -905,14 +925,37 @@ struct DeckCarouselView: View {
         return min(row, max(0, count))
     }
 
+    /// 指を離した。浮かせたカードを置き場所へ吸い込ませてから、並びを変えて元の形へ広げる。
     private func finishDrag() {
-        let finished = drag
-        let wasPressed = pressedDeckId != nil
-        cancelPress()
-        guard let finished else {
+        guard let finished = drag else {
+            let wasPressed = pressedDeckId != nil
+            cancelPress()
             if wasPressed { onPressEnd() }
             return
         }
+        releaseFinger()
+        isSettling = true
+        withAnimation(reduceMotion ? nil : Self.arrangeAnimation) {
+            drag?.location = settlePoint(for: finished)
+        } completion: {
+            isSettling = false
+            drop(finished)
+            endDrag()
+        }
+    }
+
+    /// 浮かせたカードを吸い込ませる場所。帯の一覧では空き箱か、重ねる先の枠。フォルダの中ではその場で置く。
+    private func settlePoint(for drag: CardDrag) -> CGPoint {
+        guard isBandMode else { return drag.location }
+        let center = -motion.position / layout.stride
+        var position = CGFloat(drag.gap)
+        if case .row(let row, .onto) = drag.target, let onto = virtualIndex(of: row + rowOffset, in: drag) {
+            position = onto
+        }
+        return CGPoint(x: viewportSize.width / 2, y: viewportSize.height / 2 + (position - center) * Metrics.bandStride)
+    }
+
+    private func drop(_ finished: CardDrag) {
         switch finished.source {
         case .slot(let index):
             guard let target = finished.target else { return }
@@ -927,19 +970,79 @@ struct DeckCarouselView: View {
         }
     }
 
-    /// メニューで並び替えが決まった。指はまだ押さえているので、その場で持ち上げる。
+    /// メニューで並び替えが決まった。指をまだ押さえていれば、その場で持ち上げる。
+    /// 指を離したあとなら、帯に並べたときのそのカードの場所で浮かせ、次の指を待つ。
     private func lift(_ deckId: Int?) {
-        guard let deckId, drag == nil, let pressedCard, pressedCard.deck.id == deckId else { return }
-        beginDrag(pressedCard.deck, source: pressedCard.source, at: cardFrames.pressLocation)
-        updateDrag(to: cardFrames.pressLocation)
+        guard let deckId, drag == nil else { return }
+        if let pressedCard {
+            guard pressedCard.deck.id == deckId else { return }
+            beginDrag(pressedCard.deck, source: pressedCard.source, at: cardFrames.pressLocation)
+            updateDrag(to: cardFrames.pressLocation)
+            return
+        }
+        if let index = slots.firstIndex(where: { $0.deck?.id == deckId }), let deck = slots[index].deck {
+            let center = -motion.position / layout.stride
+            let location = CGPoint(x: viewportSize.width / 2,
+                                   y: viewportSize.height / 2 + (CGFloat(index) - center) * Metrics.bandStride)
+            beginDrag(deck, source: .slot(index), at: location)
+        } else if let open = openFolderSlot, let folder = slots[open].deck,
+                  let deck = children(folder).first(where: { $0.id == deckId }),
+                  let frame = cardFrames.frames[deckId] {
+            let location = CGPoint(x: frame.midX - cardFrames.origin.x, y: frame.midY - cardFrames.origin.y)
+            beginDrag(deck, source: .child(folderSlot: open), at: location)
+        } else {
+            return
+        }
+        isFloating = true
+    }
+
+    /// 浮かせたカードを運ぶ面。どこを触っても、カードを指の動いた分だけ動かし、離すとそこへ置く。
+    /// 動かさずに離したら、並び替えをやめる。
+    private var floatSurface: some View {
+        Color.clear
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.coordinateSpace))
+                    .onChanged { value in
+                        guard let start = floatStart ?? drag?.location else { return }
+                        floatStart = start
+                        updateDrag(to: CGPoint(x: start.x + value.translation.width,
+                                               y: start.y + value.translation.height))
+                    }
+                    .onEnded { value in
+                        floatStart = nil
+                        if hypot(value.translation.width, value.translation.height) > 8 {
+                            finishDrag()
+                        } else {
+                            cancelPress()
+                        }
+                    }
+            )
+            // ponytail: 支援技術では運べない。タップでやめられるだけ。代わりの操作は後でまとめて作る。
+            .accessibilityLabel("並び替えをやめる")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { cancelPress() }
     }
 
     private func cancelPress() {
+        releaseFinger()
+        endDrag()
+    }
+
+    /// 指で押さえていた目印を外す。運んでいるカードはそのまま。
+    private func releaseFinger() {
         pressedDeckId = nil
         pressedCard = nil
+        isFloating = false
+        floatStart = nil
         autoScrollDirection = 0
+    }
+
+    /// 運ぶのを終え、一覧を元の形へ広げる。
+    private func endDrag() {
         guard drag != nil else { return }
-        withAnimation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.86)) {
+        liftFrame = nil
+        withAnimation(reduceMotion ? nil : Self.arrangeAnimation) {
             drag = nil
         }
         onDragEnd()
@@ -959,21 +1062,27 @@ struct DeckCarouselView: View {
     @ViewBuilder
     private func floatingCard(size: CGSize) -> some View {
         if let drag {
-            HStack(spacing: WireMetrics.spacingM) {
+            // 一覧の帯と同じ形（左に表紙、右に名前）にして、持ち上げるときと置くときに入れ替わって見えないようにする。
+            let width = liftFrame?.width ?? size.width * Metrics.bandWidthRatio
+            HStack(alignment: .top, spacing: WireMetrics.spacingM) {
                 DeckCoverImage(url: coverURL(drag.deck),
                                symbol: role(drag.deck).isFolder ? "folder" : DeckCoverSymbol.forDeck(id: drag.deck.id))
-                    .frame(width: 48, height: 48)
+                    .frame(width: width * Metrics.coverWidthRatio)
+                    .frame(maxHeight: .infinity)
                 Text(drag.deck.deckName)
                     .wireFont(.label)
-                    .lineLimit(1)
+                    .lineLimit(2)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, WireMetrics.spacingS)
             }
             .padding(WireMetrics.spacingS)
-            .frame(width: size.width * Metrics.bandWidthRatio, height: Metrics.bandHeight)
+            .frame(width: width, height: liftFrame?.height ?? Metrics.bandHeight, alignment: .topLeading)
             .outlineSurface(radius: WireMetrics.radiusCard, fill: BentoTone.l2.fill)
-            .scaleEffect(1.05)
-            .shadow(color: .black.opacity(0.2), radius: 12, y: 6)
-            .position(drag.location)
+            .scaleEffect(liftFrame == nil && !isSettling ? 1.05 : 1)
+            .shadow(color: .black.opacity(isSettling ? 0 : 0.2), radius: 12, y: 6)
+            .position(liftFrame.map { CGPoint(x: $0.midX, y: $0.midY) } ?? drag.location)
+            // 元のカードと入れ替わるので、薄く重ねずに一度で出し入れする。
+            .transition(.identity)
             .allowsHitTesting(false)
             .accessibilityHidden(true)
         }

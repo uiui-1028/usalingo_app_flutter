@@ -23,6 +23,9 @@ struct AppShellView: View {
                             .background { bottomFade }
                     }
                 }
+                // 名前の変更などでキーボードが出ても、遊び方のバーを押し上げずにキーボードの裏へ残す。
+                // 子画面を開いている間（バーを隠している間）は、入力欄がキーボードをよけられるよう効かせない。
+                .ignoresSafeArea(.keyboard, edges: appState.isShellChromeHidden ? [] : .bottom)
                 .tabItem { Label("Game", systemImage: "bolt") }
                 .tag(1)
                 .glassTabBar(tabBarVisibility)

@@ -361,6 +361,13 @@ final class DeckRadialMenuLayoutTests: XCTestCase {
         XCTAssertNil(layout.item(at: wobble))
         XCTAssertTrue(layout.keepsMenu(wobble))
     }
+
+    /// ドウェル選択を切っている間は、選んでいるボタンの上で離すとそのボタンに決まる。何も選ばずに離すと閉じる。
+    func testLiftingOnAButtonChoosesItWhileDwellIsOff() throws {
+        try XCTSkipIf(DeckRadialMenuLayout.isDwellEnabled, "ドウェル選択を使う間は、離して決めない。")
+        XCTAssertEqual(DeckMenuRelease.lifted(highlighted: 1), .choose(1))
+        XCTAssertEqual(DeckMenuRelease.lifted(highlighted: nil), .dismiss)
+    }
 }
 
 /// デッキ追加画面の詳細に出す数え方を確かめる。
