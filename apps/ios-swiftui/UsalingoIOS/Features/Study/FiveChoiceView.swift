@@ -207,12 +207,11 @@ struct FiveChoiceView: View {
             )
             if answerQueue.isDraining { ProgressView().accessibilityLabel("回答を保存中") }
         }
-        .padding(.horizontal, WireMetrics.spacingM)
-        .padding(.vertical, WireMetrics.spacingM)
-        .glassBarSurface(in: RoundedRectangle(cornerRadius: WireMetrics.radiusLarge))
+        .wordListBarChrome()
         .frame(maxWidth: .infinity)
         .padding(.horizontal, WireMetrics.screenPadding)
-        .padding(.vertical, WireMetrics.spacingS)
+        .padding(.top, WireMetrics.spacingXS)
+        .padding(.bottom, WireMetrics.spacingXL)
         .background {
             if game?.isRevealed == true {
                 Color.clear.contentShape(Rectangle()).onTapGesture { advance() }
@@ -227,9 +226,9 @@ struct FiveChoiceView: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            Image(systemName: symbol)
+            WordListActionBarIcon(symbol: symbol, isActive: false)
         }
-        .buttonStyle(.glassBarIcon(diameter: 40))
+        .buttonStyle(.plain)
         .disabled(isDisabled)
         .accessibilityLabel(label)
     }
