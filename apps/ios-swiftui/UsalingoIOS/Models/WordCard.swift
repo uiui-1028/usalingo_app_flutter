@@ -37,6 +37,15 @@ struct WordCard: Identifiable, Codable, Hashable {
     let synonyms: [WordSynonym]
     /// 語源。配信データに無ければ nil のままにし、表示側で隠す。
     let etymology: String?
+    /// nil は休止を持たない古い保存データ。カードID単位なので別デッキには影響しない。
+    private var suspension: Bool?
+    var isSuspended: Bool { suspension == true }
+
+    func withSuspension(_ suspended: Bool) -> WordCard {
+        var result = self
+        result.suspension = suspended ? true : nil
+        return result
+    }
 
     var id: Int {
         cardId ?? wordId
@@ -171,7 +180,7 @@ struct WordCard: Identifiable, Codable, Hashable {
             learning: learning,
             synonyms: synonyms,
             etymology: etymology
-        )
+        ).withSuspension(isSuspended)
     }
 
     /// 利用者の上書きは `user_word_overrides.definition_jp` の1本の文字列なので、
@@ -202,7 +211,7 @@ struct WordCard: Identifiable, Codable, Hashable {
             learning: learning,
             synonyms: synonyms,
             etymology: etymology
-        )
+        ).withSuspension(isSuspended)
     }
 
     func withLearningStatus(_ status: String?) -> WordCard {
@@ -221,7 +230,7 @@ struct WordCard: Identifiable, Codable, Hashable {
             learning: learning,
             synonyms: synonyms,
             etymology: etymology
-        )
+        ).withSuspension(isSuspended)
     }
 
     func withLearningProgress(_ progress: LearningProgress?) -> WordCard {
@@ -240,7 +249,7 @@ struct WordCard: Identifiable, Codable, Hashable {
             learning: progress.map(WordLearningSnapshot.init(progress:)),
             synonyms: synonyms,
             etymology: etymology
-        )
+        ).withSuspension(isSuspended)
     }
 
     func withCardId(_ cardId: Int?) -> WordCard {
@@ -259,7 +268,7 @@ struct WordCard: Identifiable, Codable, Hashable {
             learning: learning,
             synonyms: synonyms,
             etymology: etymology
-        )
+        ).withSuspension(isSuspended)
     }
 
     func withWordId(_ wordId: Int) -> WordCard {
@@ -278,7 +287,7 @@ struct WordCard: Identifiable, Codable, Hashable {
             learning: learning,
             synonyms: synonyms,
             etymology: etymology
-        )
+        ).withSuspension(isSuspended)
     }
 }
 

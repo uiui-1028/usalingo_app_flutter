@@ -26,12 +26,20 @@ struct WordListView: View {
     @State private var lastRowHeight: CGFloat = 80
     @StateObject private var check = RedSheetCheckModel()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dismiss) private var dismiss
 
     @EnvironmentObject private var appState: AppState
     @StateObject private var viewModel: WordListViewModel
     @State private var selectedWord: WordCard?
     @State private var taggingWord: WordCard?
     @State private var editingWord: WordCard?
+    @State private var openedRowID: Int?
+    @State private var menuTarget: RadialMenuTarget?
+    @State private var menuHighlight: Int?
+    @State private var menuRelease: DeckMenuRelease?
+    @State private var dwellTask: Task<Void, Never>?
+    @State private var rowActionError: String?
+    @State private var wantsToLeave = false
 
     init(
         deck: Deck? = nil,
@@ -68,11 +76,34 @@ struct WordListView: View {
         // ヘッダーを消すと戻るスワイプも一緒に止まるため、学習画面と同じ仕組みで戻す。
         .toolbar(sheetOnly && !isRedSheetEnabled ? .visible : .hidden, for: .navigationBar)
         .background {
-            if !sheetOnly || isRedSheetEnabled { BackSwipeEnabler() }
-            // 未保存の判定を置いたまま画面を離れない。再タップできる赤シートボタンを使う。
-            if isRedSheetEnabled { BackSwipeProtectedRegionMarker() }
+            if !sheetOnly || isRedSheetEnabled {
+                BackSwipeEnabler(canBegin: {
+                    guard menuTarget == nil, editingWord == nil else { return false }
+                    if !check.canLeave { wantsToLeave = true; return false }
+                    return true
+                })
+            }
         }
+        .onChange(of: check.canLeave) { _, canLeave in
+            if wantsToLeave && canLeave { dismiss() }
+        }
+        .overlay {
+            if let target = menuTarget {
+                DeckRadialMenuOverlay(target: target, highlighted: menuHighlight, release: menuRelease) { action in
+                    dwellTask?.cancel()
+                    menuTarget = nil
+                    menuHighlight = nil
+                    menuRelease = nil
+                    action?()
+                }
+            }
+        }
+        .alert("操作を保存できませんでした", isPresented: Binding(
+            get: { rowActionError != nil }, set: { if !$0 { rowActionError = nil } }
+        )) { Button("閉じる", role: .cancel) { rowActionError = nil } }
+        message: { Text(rowActionError ?? "") }
         .onChange(of: isRedSheetEnabled) { _, enabled in
+            openedRowID = nil
             rubberBandOffset = 0
             if enabled {
                 redSheetTopRatio = Self.initialRedSheetTopRatio
@@ -91,6 +122,7 @@ struct WordListView: View {
             WordEditSheet(word: word) { savedWord in
                 _ = viewModel.replaceWord(savedWord)
                 check.replaceWord(savedWord)
+                appState.markStudyDataChanged()
             }
             .presentationDetents([.large])
         }
@@ -117,6 +149,7 @@ struct WordListView: View {
             if !sheetOnly { appState.isShellChromeHidden = true }
         }
         .onDisappear {
+            dwellTask?.cancel()
             if !sheetOnly { appState.isShellChromeHidden = false }
         }
     }
@@ -134,6 +167,8 @@ struct WordListView: View {
                     .simultaneousGesture(
                         DragGesture(minimumDistance: 10)
                             .onChanged { value in
+                                guard abs(value.translation.height) > abs(value.translation.width),
+                                      openedRowID == nil, menuTarget == nil else { return }
                                 rubberBandOffset = RubberBand.offset(
                                     for: value.translation.height,
                                     dimension: proxy.size.height
@@ -146,17 +181,17 @@ struct WordListView: View {
                             },
                         including: isRedSheetEnabled ? .all : .subviews
                     )
-                    // チェック中のタップは一覧そのものに同時認識で付け、指でのスクロールを止めない。
-                    // 未表示ならどこをタップしても答えを見せ、表示後は画面の左右で判定する。
-                    .simultaneousGesture(
-                        SpatialTapGesture().onEnded { value in
-                            handleStudyTap(atX: value.location.x, width: proxy.size.width)
-                        },
-                        including: isStudyTapActive ? .all : .subviews
-                    )
+                    // 行のタップは UIKit の横操作・長押しが失敗してから受ける。
+                    // 行の外の余白だけはここで学習タップを受ける。
+                    .background {
+                        Color.clear.contentShape(Rectangle())
+                            .onTapGesture(coordinateSpace: .named("wordListViewport")) { point in
+                                handleStudyTap(atX: point.x, width: proxy.size.width)
+                            }
+                    }
                     .overlay {
                         if isStudyTapActive {
-                            // ponytail: 支援技術向けの操作だけを残した最低限。触れる操作は上の同時認識が受ける。
+                            // ponytail: 支援技術向けの操作だけを残した最低限。触れる操作は行と余白が受ける。
                             RedSheetStudyTapLayer(
                                 isAnswerVisible: check.isAnswerVisible,
                                 isDisabled: check.current == nil || check.isUndoing,
@@ -170,6 +205,7 @@ struct WordListView: View {
                 if isRedSheetEnabled && viewModel.selectedDisplayMode == .list
                     && !displayedWords.isEmpty && !viewModel.isLoading && !check.isComplete {
                     let columnWidth = proxy.size.width / CGFloat(columns.count)
+                    let sheetWidth = columnWidth * CGFloat(effectiveRedSheetColumns) + RedSheetLayer.leadingOverlap
                     RedSheetLayer(
                         topRatio: $redSheetTopRatio,
                         availableHeight: proxy.size.height,
@@ -180,9 +216,31 @@ struct WordListView: View {
                         columnWidth: columnWidth
                     )
                     .frame(
-                        width: columnWidth * CGFloat(effectiveRedSheetColumns) + RedSheetLayer.leadingOverlap,
+                        width: sheetWidth,
                         height: proxy.size.height
                     )
+                    .mask {
+                        Rectangle()
+                            .overlay {
+                                // 長押しも横操作も、対象の行全体を赤シートの手前に見せる。
+                                // 行を閉じたら切り抜きが消え、元どおり答えを隠す。
+                                let origin = proxy.frame(in: .global).origin
+                                let focusedFrame = menuTarget.map {
+                                    $0.cardFrame.offsetBy(dx: -origin.x, dy: -origin.y)
+                                } ?? openedRowID.flatMap { rowFrames[$0] }
+                                if let frame = focusedFrame {
+                                    Rectangle()
+                                        .frame(width: frame.width, height: frame.height)
+                                        .position(
+                                            x: frame.midX - (proxy.size.width - sheetWidth),
+                                            y: frame.midY
+                                        )
+                                        .blendMode(.destinationOut)
+                                }
+                            }
+                            .compositingGroup()
+                    }
+                    .allowsHitTesting(openedRowID == nil && menuTarget == nil)
                     .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: effectiveRedSheetColumns)
                     .zIndex(1)
                 }
@@ -271,7 +329,7 @@ struct WordListView: View {
 
     /// `List` の行に置いたタップは、行の余白や左右の背景まで一緒に反応してしまう。
     /// 背景は戻るスワイプが使う場所なので、行の枠だけがタップに応えるよう
-    /// 自前の縦並びにする（この画面はスワイプ削除も並べ替えも使わない）。
+    /// 自前の縦並びにし、横操作は行の内側だけで受ける。
     private func wordScroll(bottomInset: CGFloat, viewportHeight: CGFloat) -> some View {
         ScrollViewReader { reader in
             ScrollView {
@@ -303,22 +361,7 @@ struct WordListView: View {
                             RedSheetEmptyRecords(height: max(0, redSheetTop(in: viewportHeight) - headerClearance))
                         }
                         ForEach(Array(displayedWords.enumerated()), id: \.element.id) { index, word in
-                            WordRow(
-                                word: word,
-                                hidesAnswerFromAccessibility: answerIsHidden(at: index),
-                                checkResult: check.answers[word.id],
-                                reservesCheckResultSpace: check.isStarted,
-                                isCheckTarget: check.current?.id == word.id,
-                                leftColumn: leftColumn,
-                                middleColumn: middleColumn,
-                                rightColumn: rightColumn,
-                                hidesMiddleFromAccessibility: effectiveRedSheetColumns > 1 && answerIsHidden(at: index)
-                            )
-                                .cardTapTarget(radius: 0) {
-                                    // チェック中のタップは一覧に付けた同時認識だけが受ける。
-                                    // ここでも答えを出すと、同じタップで表示と判定が続けて起きる。
-                                    if !check.isStarted { selectedWord = word }
-                                }
+                            wordRow(word, index: index)
                                 .id(word.id)
                                 .reportsWordListFrame(id: word.id)
                         }
@@ -365,7 +408,44 @@ struct WordListView: View {
         }
     }
 
-    private var displayedWords: [WordCard] { check.isStarted ? check.words : viewModel.filteredWords }
+    @ViewBuilder
+    private func wordRow(_ word: WordCard, index: Int) -> some View {
+        let studyIndex = studyIndex(for: word, fallback: index)
+        let isFocused = openedRowID == word.id || menuTarget?.id == word.id
+        let row = WordRow(
+            word: word,
+            hidesAnswerFromAccessibility: answerIsHidden(at: studyIndex) && !isFocused,
+            checkResult: check.answers[word.id],
+            reservesCheckResultSpace: check.isStarted,
+            isCheckTarget: check.current?.id == word.id,
+            leftColumn: leftColumn, middleColumn: middleColumn, rightColumn: rightColumn,
+            hidesMiddleFromAccessibility: effectiveRedSheetColumns > 1 && answerIsHidden(at: studyIndex) && !isFocused
+        )
+        if viewModel.deck == nil {
+            // 未追加の教材プレビューには、保存先のデッキがまだない。
+            row.cardTapTarget(radius: 0) { if !check.isStarted { selectedWord = word } }
+        } else {
+            WordRowActions(word: word, openedID: $openedRowID,
+                isDisabled: check.isUndoing || !check.canLeave || wantsToLeave,
+                onTap: { point in
+                    if check.isStarted {
+                        handleStudyTap(atX: point.x, width: rowFrames[word.id]?.width ?? 1)
+                    } else { selectedWord = word }
+                },
+                onSuspend: { suspendWord(word) }, onDelete: { deleteWord(word) },
+                onEdit: { editingWord = word },
+                onHold: { frame, point in presentWordMenu(word, frame: frame, anchor: point) },
+                onHoldMove: trackWordMenu, onHoldEnd: endWordMenu, content: row)
+        }
+    }
+
+    private var displayedWords: [WordCard] {
+        check.isStarted ? check.words.filter { !check.removedIDs.contains($0.id) } : viewModel.filteredWords
+    }
+
+    private func studyIndex(for word: WordCard, fallback: Int) -> Int {
+        check.words.firstIndex(where: { $0.id == word.id }) ?? fallback
+    }
 
     /// 左・（真ん中）・右の列。端末には3つのキーで覚えておき、真ん中が無ければ2列。
     private var columns: [WordListColumn] {
@@ -396,7 +476,7 @@ struct WordListView: View {
         let count = displayedWords.count
         guard count > 0 else { return 0 }
         if isRedSheetEnabled && check.isStarted {
-            return Double(check.index) / Double(count)
+            return Double(check.index) / Double(check.words.count)
         }
         let visible = displayedWords.indices.filter { index in
             guard let frame = rowFrames[displayedWords[index].id] else { return false }
@@ -423,6 +503,65 @@ struct WordListView: View {
         }
     }
 
+    private func suspendWord(_ word: WordCard) {
+        guard check.canLeave, let deckID = viewModel.deck?.id else { return }
+        do {
+            let saved = try appState.localStudy.setSuspended(!word.isSuspended, card: word, deckId: deckID)
+            viewModel.replaceWord(saved)
+            check.replaceWord(saved)
+            appState.markStudyDataChanged()
+        } catch { rowActionError = UserFacingError.message(for: error) }
+    }
+
+    private func deleteWord(_ word: WordCard) {
+        guard check.canLeave, let deckID = viewModel.deck?.id else { return }
+        do {
+            try appState.localStudy.removeCard(word, deckId: deckID)
+            viewModel.removeWord(id: word.id)
+            check.removeWord(id: word.id)
+            appState.markStudyDataChanged()
+        } catch { rowActionError = UserFacingError.message(for: error) }
+    }
+
+    private func presentWordMenu(_ word: WordCard, frame: CGRect, anchor: CGPoint) {
+        guard check.canLeave else { return }
+        menuHighlight = nil
+        menuRelease = nil
+        dwellTask?.cancel()
+        menuTarget = RadialMenuTarget(id: word.id, cardFrame: frame, anchor: anchor, items: [
+            DeckMenuItem(title: "編集", systemImage: "pencil", action: { editingWord = word }),
+            DeckMenuItem(title: word.isSuspended ? "再開" : "休止",
+                         systemImage: word.isSuspended ? "play.fill" : "pause.fill",
+                         action: { suspendWord(word) }),
+            DeckMenuItem(title: "削除", systemImage: "trash", role: .destructive,
+                         action: { deleteWord(word) })
+        ])
+        HapticFeedbackService.swipeThresholdCrossed()
+    }
+
+    private func trackWordMenu(_ point: CGPoint) {
+        guard let target = menuTarget, menuRelease == nil else { return }
+        let highlighted = target.layout.item(at: point)
+        guard highlighted != menuHighlight else { return }
+        menuHighlight = highlighted
+        dwellTask?.cancel()
+        if let highlighted {
+            HapticFeedbackService.detent()
+            dwellTask = Task { @MainActor in
+                try? await Task.sleep(for: .seconds(DeckRadialMenuLayout.dwellDuration))
+                guard !Task.isCancelled, menuTarget?.id == target.id,
+                      menuHighlight == highlighted, menuRelease == nil else { return }
+                HapticFeedbackService.success()
+                menuRelease = .choose(highlighted)
+            }
+        }
+    }
+
+    private func endWordMenu() {
+        dwellTask?.cancel()
+        if menuTarget != nil && menuRelease == nil { menuRelease = .dismiss }
+    }
+
     private func revealCurrentAnswer() {
         withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18)) {
             check.revealAnswer()
@@ -431,6 +570,8 @@ struct WordListView: View {
 
     private var isStudyTapActive: Bool {
         isRedSheetEnabled && check.isStarted && !check.isComplete
+            && menuTarget == nil && editingWord == nil && taggingWord == nil
+            && openedRowID == nil && !wantsToLeave
     }
 
     private func handleStudyTap(atX x: CGFloat, width: CGFloat) {

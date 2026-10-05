@@ -43,6 +43,9 @@ struct LocalStudyLibrary: Codable {
     var displayNames: [String: String] = [:]
     /// この端末の学習タブから外した配信中のデッキ。学習の記録は消さずに残す。
     var hiddenDeckIds: [Int] = []
+    var suspendedCardIds: [Int] = []
+    /// 教材そのものは残し、自分のデッキからだけ外す。再取得でも復活せず、学習記録も残る。
+    var removedCardIds: [Int] = []
 }
 
 extension LocalStudyLibrary {
@@ -59,6 +62,8 @@ extension LocalStudyLibrary {
         nextFolderId = try container.decodeIfPresent(Int.self, forKey: .nextFolderId) ?? 1
         displayNames = try container.decodeIfPresent([String: String].self, forKey: .displayNames) ?? [:]
         hiddenDeckIds = try container.decodeIfPresent([Int].self, forKey: .hiddenDeckIds) ?? []
+        suspendedCardIds = try container.decodeIfPresent([Int].self, forKey: .suspendedCardIds) ?? []
+        removedCardIds = try container.decodeIfPresent([Int].self, forKey: .removedCardIds) ?? []
     }
 }
 
@@ -334,7 +339,7 @@ final class LocalStudyDataSource: StudyDataSource {
     }
 
     func counts(deckId: Int) throws -> LocalDeckCounts {
-        let cards = try loadCards(deckId: deckId)
+        let cards = try loadCards(deckId: deckId).filter { !$0.isSuspended }
         let now = Date()
         return LocalDeckCounts(
             newCount: cards.filter { $0.learning == nil }.count,
@@ -366,6 +371,9 @@ final class LocalStudyDataSource: StudyDataSource {
         }
         try ensureDirectory(importedDirectoryURL())
         try file.encoded().write(to: importedFileURL(key: file.deckId), options: .atomic)
+        // 同じ教材を追加し直したときは所属を戻し、既存IDと学習記録を再利用する。
+        let readdedIDs = Set(file.cards.compactMap { library.cardIds["\(file.deckId)#\($0.id)"] })
+        library.removedCardIds.removeAll { readdedIDs.contains($0) }
         let deck = registerDeck(from: file)
         try persistLibrary()
         return deck
@@ -373,7 +381,13 @@ final class LocalStudyDataSource: StudyDataSource {
 
     func exportData(deckId: Int) throws -> Data {
         guard let deck = deck(id: deckId) else { throw LocalStudyError.deckNotFound }
-        return try deckFile(for: deck).encoded()
+        let file = try deckFile(for: deck)
+        let removed = Set(library.removedCardIds)
+        return try DeckFile(formatVersion: file.formatVersion, deckId: file.deckId,
+                            deckName: file.deckName, description: file.description,
+                            cards: file.cards.filter {
+                                library.cardIds["\(deck.key)#\($0.id)"].map { !removed.contains($0) } ?? true
+                            }).encoded()
     }
 
     // MARK: - StudyDataSource
@@ -403,7 +417,7 @@ final class LocalStudyDataSource: StudyDataSource {
     }
 
     func fetchStudyQueue(deckId: Int, mode: StudyMode) async throws -> [WordCard] {
-        let cards = try loadCards(deckId: deckId)
+        let cards = try loadCards(deckId: deckId).filter { !$0.isSuspended }
         let now = Date()
         switch mode {
         case .newOnly:
@@ -443,7 +457,9 @@ final class LocalStudyDataSource: StudyDataSource {
         let reviewedDays = Array(Set(reviewedDates.map { Calendar.current.startOfDay(for: $0) })).sorted()
         return StudyStats(
             studiedCount: rows.count,
-            dueCount: rows.filter { StudyQueueRules.parseDate($0.nextReviewDate).map { $0 <= now } ?? false }.count,
+            dueCount: rows.filter { !library.suspendedCardIds.contains($0.cardId)
+                && !library.removedCardIds.contains($0.cardId)
+                && (StudyQueueRules.parseDate($0.nextReviewDate).map { $0 <= now } ?? false) }.count,
             masteredCount: rows.filter { $0.status == "mastered" }.count,
             currentStreak: StudyQueueRules.currentStreak(from: reviewedDates),
             totalReviews: rows.reduce(0) { $0 + $1.repetitions },
@@ -515,10 +531,34 @@ final class LocalStudyDataSource: StudyDataSource {
         try persist(overridesByWordId, to: FileName.overrides)
 
         let allCards = try loadCards(deckId: Self.allDecksId)
-        guard let card = allCards.first(where: { $0.wordId == payload.wordId }) else {
+        guard let card = allCards.first(where: {
+            $0.wordId == payload.wordId && (payload.cardId == nil || $0.cardId == payload.cardId)
+        }) else {
             throw LocalStudyError.deckNotFound
         }
         return card
+    }
+
+    /// カードIDはデッキごとに一意。書き込みに失敗したらメモリ上の状態も戻す。
+    func setSuspended(_ suspended: Bool, card: WordCard, deckId: Int) throws -> WordCard {
+        guard try loadCards(deckId: deckId).contains(where: { $0.id == card.id }) else {
+            throw LocalStudyError.missingCardId
+        }
+        let previous = library
+        library.suspendedCardIds.removeAll { $0 == card.id }
+        if suspended { library.suspendedCardIds.append(card.id) }
+        do { try persistLibrary() } catch { library = previous; throw error }
+        return card.withSuspension(suspended)
+    }
+
+    func removeCard(_ card: WordCard, deckId: Int) throws {
+        guard try loadCards(deckId: deckId).contains(where: { $0.id == card.id }) else {
+            throw LocalStudyError.missingCardId
+        }
+        let previous = library
+        library.removedCardIds.append(card.id)
+        library.suspendedCardIds.removeAll { $0 == card.id }
+        do { try persistLibrary() } catch { library = previous; throw error }
     }
 
     // MARK: - デッキの管理
@@ -767,7 +807,7 @@ final class LocalStudyDataSource: StudyDataSource {
             guard let cached = cachedRemoteDecks.first(where: { Self.cachedDeckId(remoteDeckId: $0.deck.id) == deckId }) else {
                 throw LocalStudyError.deckNotFound
             }
-            return try cached.cards.map(makeCachedCard)
+            return try applyCardActions(cached.cards.map(makeCachedCard))
         }
         let targets: [LocalDeck]
         if deckId == Self.allDecksId {
@@ -793,7 +833,13 @@ final class LocalStudyDataSource: StudyDataSource {
         if deckId == Self.allDecksId {
             cards += try cachedRemoteDecks.flatMap { try $0.cards.map(makeCachedCard) }
         }
-        return cards
+        return applyCardActions(cards)
+    }
+
+    private func applyCardActions(_ cards: [WordCard]) -> [WordCard] {
+        let removed = Set(library.removedCardIds)
+        let suspended = Set(library.suspendedCardIds)
+        return cards.filter { !removed.contains($0.id) }.map { $0.withSuspension(suspended.contains($0.id)) }
     }
 
     private func makeCachedCard(_ card: WordCard) throws -> WordCard {

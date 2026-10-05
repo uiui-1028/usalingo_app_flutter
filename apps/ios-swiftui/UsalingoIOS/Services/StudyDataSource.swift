@@ -8,6 +8,8 @@ struct WordOverridePayload {
     let sentenceEnglish: String?
     let sentenceJapanese: String?
     let imageAssetPath: String?
+    /// 上書き内容は単語単位だが、保存後に返すカードの学習記録は開いたデッキのものを保つ。
+    var cardId: Int? = nil
 }
 
 /// 学習画面が必要とする操作だけを並べたデータ層の入口。

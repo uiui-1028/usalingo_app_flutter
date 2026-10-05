@@ -33,6 +33,8 @@ struct BackSwipeEnabler: UIViewRepresentable {
     /// 画面の中のジェスチャーは戻るが失敗してから動くので、縦のドラッグはそのまま、
     /// 右向きのスワイプは戻るが先に取る。端以外から始めたタッチは戻るが受け取らないので待たせない。
     var takesPriorityOverContent = false
+    /// 保存待ちなど、画面が離脱を保留する場合だけ false を返す。
+    var canBegin: (() -> Bool)?
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -50,6 +52,7 @@ struct BackSwipeEnabler: UIViewRepresentable {
 
     func updateUIView(_ uiView: BackSwipeHostView, context: Context) {
         context.coordinator.takesPriorityOverContent = takesPriorityOverContent
+        context.coordinator.canBegin = canBegin
         context.coordinator.attach(from: uiView)
     }
 
@@ -63,6 +66,7 @@ struct BackSwipeEnabler: UIViewRepresentable {
         private weak var originalDelegate: UIGestureRecognizerDelegate?
         private var originalIsEnabled = true
         var takesPriorityOverContent = false
+        var canBegin: (() -> Bool)?
 
         func attach(from view: BackSwipeHostView?) {
             guard let view,
@@ -117,7 +121,8 @@ struct BackSwipeEnabler: UIViewRepresentable {
         }
 
         func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-            originalDelegate?.gestureRecognizerShouldBegin?(gestureRecognizer) ?? true
+            guard originalDelegate?.gestureRecognizerShouldBegin?(gestureRecognizer) ?? true else { return false }
+            return canBegin?() ?? true
         }
 
         func gestureRecognizer(

@@ -38,13 +38,13 @@ struct FiveChoiceGame {
         var candidates: [WordCard] = []
         for deck in decks {
             try Task.checkCancellation()
-            let deckCards = try await source.fetchCards(deckId: deck.id)
+            let deckCards = try await source.fetchCards(deckId: deck.id).filter { !$0.isSuspended }
             if deck.id == deckId { cards = deckCards }
             candidates.append(contentsOf: deckCards)
         }
         // フォルダは一覧に無いので、中のデッキをまとめたカードを直接読む。
         if isFolder {
-            cards = try await source.fetchCards(deckId: deckId)
+            cards = try await source.fetchCards(deckId: deckId).filter { !$0.isSuspended }
         }
         try Task.checkCancellation()
         return FiveChoiceGame(cards: cards, candidates: candidates)

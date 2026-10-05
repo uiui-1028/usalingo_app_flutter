@@ -73,7 +73,7 @@ struct WordRow: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            columnText(leftColumn, font: .titleS, color: .primary)
+            columnText(leftColumn, font: .titleS, color: word.isSuspended ? Color(white: 0.3) : .primary)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 20)
@@ -81,7 +81,7 @@ struct WordRow: View {
                 .containerRelativeFrame(.horizontal, count: columnCount, spacing: 0)
 
             if let middleColumn {
-                columnText(middleColumn, font: .body, color: .primary)
+                columnText(middleColumn, font: .body, color: word.isSuspended ? Color(white: 0.3) : .primary)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 20)
@@ -93,7 +93,7 @@ struct WordRow: View {
                     .accessibilityHidden(hidesMiddleFromAccessibility)
             }
 
-            columnText(rightColumn, font: .body, color: Color(red: 0.65, green: 0.09, blue: 0.1))
+            columnText(rightColumn, font: .body, color: word.isSuspended ? Color(white: 0.3) : Color(red: 0.65, green: 0.09, blue: 0.1))
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.leading, 14)
                 .padding(.trailing, reservesCheckResultSpace || checkResult != nil ? 42 : 14)
@@ -125,7 +125,7 @@ struct WordRow: View {
         .frame(minHeight: 80)
         .fixedSize(horizontal: false, vertical: true)
         // 行はすべて白。チェック中の行（答えを隠している／評価待ち）だけ灰色にする。
-        .background(isCheckTarget ? WireColor.ink.opacity(0.04) : WireColor.surface)
+        .background(word.isSuspended ? Color(white: 0.78) : (isCheckTarget ? WireColor.ink.opacity(0.04) : WireColor.surface))
         .overlay(alignment: .bottom) {
             Rectangle().fill(WireColor.ink.opacity(0.12)).frame(height: 1)
         }
@@ -147,6 +147,7 @@ struct WordRow: View {
                 Text(value).wireFont(font, color: color)
             }
         }
+        .fontWeight(word.isSuspended ? .regular : nil)
         .multilineTextAlignment(column.isCentered ? .center : .leading)
         .frame(maxWidth: .infinity, alignment: column.isCentered ? .center : .leading)
     }

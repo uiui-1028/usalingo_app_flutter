@@ -237,6 +237,18 @@ struct DeckMenuTarget: Identifiable {
     }
 }
 
+/// デッキと単語で共用する長押しメニューの表示情報。
+struct RadialMenuTarget: Identifiable {
+    let id: Int
+    let cardFrame: CGRect
+    var anchor: CGPoint
+    let items: [DeckMenuItem]
+
+    var layout: DeckRadialMenuLayout {
+        DeckRadialMenuLayout(anchor: anchor, cardFrame: cardFrame, count: items.count)
+    }
+}
+
 /// 長押しメニューのボタンの並び。指の場所を中心に扇形に置く。見た目と切り離してあるので、単体で確かめられる。
 ///
 /// 上に余白があれば上へ、なければ下へ開き、カードの中央の側へ傾けて画面の外へはみ出さないようにする。
@@ -334,13 +346,28 @@ struct DeckRadialMenuOverlay: View {
     /// 背景を暗くする濃さ。0...1。
     static let dimOpacity: Double = 0.6
 
-    let target: DeckMenuTarget
+    let target: RadialMenuTarget
     /// 指を離さずに選んでいるボタン。
     let highlighted: Int?
     /// 指を離した結果。閉じてから、選んだ操作があれば渡す。
     let release: DeckMenuRelease?
     /// 閉じ終えたときに呼ぶ。メニューで選んだ操作があれば渡す。
     let onFinish: ((() -> Void)?) -> Void
+
+    init(target: RadialMenuTarget, highlighted: Int?, release: DeckMenuRelease?,
+         onFinish: @escaping ((() -> Void)?) -> Void) {
+        self.target = target
+        self.highlighted = highlighted
+        self.release = release
+        self.onFinish = onFinish
+    }
+
+    init(target: DeckMenuTarget, highlighted: Int?, release: DeckMenuRelease?,
+         onFinish: @escaping ((() -> Void)?) -> Void) {
+        self.init(target: RadialMenuTarget(id: target.id, cardFrame: target.cardFrame,
+                                          anchor: target.anchor, items: target.items),
+                  highlighted: highlighted, release: release, onFinish: onFinish)
+    }
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isShown = false
