@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 
 @MainActor
@@ -13,7 +14,9 @@ final class AppState: ObservableObject {
     @Published var isResettingPassword = false
     @Published var isShellChromeHidden = false
     @Published var authMessage = ""
-    @Published private(set) var studyDataVersion = 0
+    @Published private(set) var studyDataVersion = 0 {
+        didSet { scheduleMediaReconcile() }
+    }
     /// 単語リストのバナーで最後に選んだデッキ。画面を出入りしても同じデッキを開く。
     var wordListDeckID: Int?
     @Published private(set) var isDeletingAccount = false
@@ -34,6 +37,22 @@ final class AppState: ObservableObject {
     private lazy var backupSyncer = makeBackupSyncer(localStudy)
 
     @Published private(set) var requiresSignIn = false
+
+    // MARK: 画像・音声の先取り（要件 D1〜D7・B1〜B6）
+
+    /// 先取りの係。プレビューとテストでは持たない（裏でダウンロードを始めないため）。
+    let mediaDownloader: MediaDownloader?
+    /// ギャラリーで押してから、学習タブに入るまでのデッキ。学習タブの空き枠の内側に、ダウンロード中として出す。
+    @Published private(set) var addingDecks: [PendingDeckAdd] = []
+    /// モバイル回線で、持っているデッキの画像・音声を取りに行ってよいか聞いている（B4）。分かれば大きさを添える。
+    @Published private(set) var isAskingMediaConsent = false
+    @Published private(set) var mediaConsentBytes: Int64?
+    /// この起動の間にモバイル回線での先取りを許したか、断ったか。断ったら次の起動まで聞かない。
+    private var allowsExpensiveMediaDownload = false
+    private var declinedExpensiveMediaDownload = false
+    private var mediaReconcileTask: Task<Void, Never>?
+    private var mediaSubscriptions: Set<AnyCancellable> = []
+
     private var needsReconnect = false
     private var retryDelay = 2.0
     private var authGeneration = 0
@@ -59,6 +78,7 @@ final class AppState: ObservableObject {
         accountDeletionService: any AccountDeletionServicing = AccountDeletionService(),
         connectionIsConfigured: Bool = SupabaseConfig.isConfigured,
         localStudy: LocalStudyDataSource? = nil,
+        mediaDownloader: MediaDownloader? = nil,
         makeBackupSyncer: @escaping @MainActor (LocalStudyDataSource) -> StudyBackupSyncer = { StudyBackupSyncer(localStudy: $0) }
     ) {
         // 既定値の式はメインスレッドの外で評価されるため、ここで作る。
@@ -82,7 +102,21 @@ final class AppState: ObservableObject {
         self.remoteStudy = remoteStudy
         self.accountDeletionService = accountDeletionService
         self.makeBackupSyncer = makeBackupSyncer
+        self.mediaDownloader = mediaDownloader
         designSettings = DesignSettings(defaults: defaults)
+        if let mediaDownloader {
+            // 学習タブがダウンロードの進み具合で描き直されるよう、係の変化を伝える。
+            mediaDownloader.objectWillChange
+                .sink { [weak self] in self?.objectWillChange.send() }
+                .store(in: &mediaSubscriptions)
+            // Wi-Fi につながったら、待たせていた分を確認なしで始める。
+            mediaDownloader.$isExpensiveNetwork
+                .removeDuplicates()
+                .dropFirst()
+                .sink { [weak self] _ in self?.scheduleMediaReconcile() }
+                .store(in: &mediaSubscriptions)
+            scheduleMediaReconcile()
+        }
         guard restoresSession else {
             isRestoringSession = false
             return
@@ -298,6 +332,8 @@ final class AppState: ObservableObject {
             var official = official
             official.isAdded = official.isAdded
                 && !localStudy.isHidden(deckId: LocalStudyDataSource.cachedDeckId(remoteDeckId: official.deck.id))
+            // 押したあと、学習タブに入る途中のデッキも追加済みとして見せ、二重に追加させない。
+            if addingDecks.contains(where: { $0.id == official.id }) { official.isAdded = true }
             return official
         }
     }
@@ -313,6 +349,116 @@ final class AppState: ObservableObject {
         try localStudy.unhideDeck(id: LocalStudyDataSource.cachedDeckId(remoteDeckId: id))
         try await remoteStudy.addOfficialDeck(id: id, session: session)
         try await loadOfficialContent(session: session)
+    }
+
+    /// ギャラリーでダウンロードを押した。すぐ学習タブへ戻れるよう、追加と先取りは裏で進める（R4・R5）。
+    /// 学習タブに出た瞬間から開けないよう、追加の前に「開けない」印を付ける（D3）。
+    func beginAddingDeck(_ official: OfficialDeck, coverURL: URL?, atTop: Bool) {
+        guard !addingDecks.contains(where: { $0.id == official.id }) else { return }
+        let pending = PendingDeckAdd(official: official, coverURL: coverURL, atTop: atTop)
+        mediaDownloader?.lock(deckId: pending.localDeckId, expectedBytes: official.mediaBytes)
+        DeckOrderStore(accountId: session?.user.id ?? "guest").selectedDeckId = pending.localDeckId
+        addingDecks.append(pending)
+        Task { await runAdding(pending) }
+    }
+
+    /// 追加が何度もだめで止まったデッキを、利用者の「再試行」でやり直す。
+    func retryAdding(_ pending: PendingDeckAdd) {
+        guard let index = addingDecks.firstIndex(where: { $0.id == pending.id }) else { return }
+        addingDecks[index].isFailed = false
+        Task { await runAdding(addingDecks[index]) }
+    }
+
+    /// 追加の記録と文字データの読み込み。つながらなければ間を空けながら1分ほど取り直し、それでもだめなら「失敗」にする（T2）。
+    /// ponytail: この段階はメモリにしか持たないので、終わる前にアプリを閉じると追加は残らない（ギャラリーから追加し直す）。
+    /// 長く切れたままの人が多ければ、端末に覚えて次の起動で続ける形にする。
+    private func runAdding(_ pending: PendingDeckAdd) async {
+        let waits: [Double] = [2, 4, 8, 16, 30]
+        for attempt in 0...waits.count {
+            do {
+                try await addOfficialDeck(id: pending.id)
+                try? localStudy.placeDeck(id: pending.localDeckId, atTop: pending.atTop)
+                if let index = addingDecks.firstIndex(where: { $0.id == pending.id }) {
+                    addingDecks[index].isPlaced = true
+                }
+                markStudyDataChanged()
+                return
+            } catch {
+                guard attempt < waits.count else { break }
+                try? await Task.sleep(for: .seconds(waits[attempt]))
+            }
+        }
+        if let index = addingDecks.firstIndex(where: { $0.id == pending.id }) {
+            addingDecks[index].isFailed = true
+        }
+    }
+
+    /// 学習タブが読み直して、並びに入れ終えたデッキを出せたら、追加の途中の枠を片付ける。
+    func clearPlacedAdds(presentDeckIds: Set<Int>) {
+        addingDecks.removeAll { $0.isPlaced && presentDeckIds.contains($0.localDeckId) }
+    }
+
+    /// 学習タブのカードに出す、ダウンロードの状態。開けるデッキは nil。
+    func downloadState(forDeckId deckId: Int) -> DeckDownloadState? {
+        guard let mediaDownloader, mediaDownloader.isLocked(deckId) else { return nil }
+        if mediaDownloader.failedDeckIds.contains(deckId) { return .failed }
+        return .downloading(mediaDownloader.progress[deckId] ?? 0)
+    }
+
+    func retryDownload(deckId: Int) {
+        mediaDownloader?.retry(deckId: deckId)
+    }
+
+    /// モバイル回線での先取りの確認への答え（B4）。
+    func answerMediaConsent(allow: Bool) {
+        isAskingMediaConsent = false
+        if allow {
+            allowsExpensiveMediaDownload = true
+            scheduleMediaReconcile()
+        } else {
+            declinedExpensiveMediaDownload = true
+        }
+    }
+
+    private func scheduleMediaReconcile() {
+        guard mediaDownloader != nil else { return }
+        mediaReconcileTask?.cancel()
+        mediaReconcileTask = Task { [weak self] in
+            // 読み直しが続けて起きることが多いので、少し待ってまとめる。
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
+            await self?.reconcileMedia()
+        }
+    }
+
+    /// 学習タブのデッキが使うファイルに合わせて、要らないファイルを消し、足りないファイルを取りに行く（B2・B5）。
+    /// デッキを外したとき・サインアウト・退会・アカウントの切り替えのどれでも、学習タブが変われば読み直しでここへ来る。
+    private func reconcileMedia() async {
+        guard let mediaDownloader else { return }
+        let source = localStudy
+        // 学習タブを読めなかったときは何もしない。空とみなして全部消してしまわないため。
+        guard let decks = try? await source.fetchDecks() else { return }
+        var paths: [Int: Set<String>] = [:]
+        for deck in decks {
+            guard let cards = try? await source.fetchCards(deckId: deck.id) else { return }
+            paths[deck.id] = Set(cards.flatMap(\.mediaPaths))
+        }
+        guard source === localStudy, !Task.isCancelled else { return }
+        let waiting = await mediaDownloader.reconcile(paths, allowsExpensiveNetwork: allowsExpensiveMediaDownload)
+        guard waiting, !declinedExpensiveMediaDownload, !isAskingMediaConsent else { return }
+        mediaConsentBytes = await missingMediaBytes(paths)
+        isAskingMediaConsent = true
+    }
+
+    /// 確認に添える大きさ。デッキの容量から、端末にある分を引く。容量を読めなければ nil。
+    private func missingMediaBytes(_ paths: [Int: Set<String>]) async -> Int64? {
+        guard let catalog = try? await fetchOfficialDecks() else { return nil }
+        let total = catalog.reduce(Int64(0)) { sum, official in
+            let id = LocalStudyDataSource.cachedDeckId(remoteDeckId: official.id)
+            guard let deckPaths = paths[id], let bytes = official.mediaBytes else { return sum }
+            return sum + max(0, bytes - MediaStore.shared.storedBytes(of: deckPaths))
+        }
+        return total > 0 ? total : nil
     }
 
     private func connectedSession() throws -> AuthSession {

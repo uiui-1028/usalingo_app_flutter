@@ -1,13 +1,16 @@
 import SwiftUI
 
-/// 学習タブの並びの1枠。デッキか、両端に置く空き枠。
+/// 学習タブの並びの1枠。デッキか、追加の途中のデッキか、両端に置く空き枠。
 enum DeckSlot: Hashable, Identifiable {
     case deck(Deck)
+    /// ギャラリーで押してから学習タブに入るまでのデッキ。選んだ空き枠の内側に置く（要件 R5）。
+    case adding(PendingDeckAdd)
     case empty(DeckSlotEdge)
 
     var id: String {
         switch self {
         case .deck(let deck): return "deck-\(deck.id)"
+        case .adding(let pending): return "adding-\(pending.id)"
         case .empty(let edge): return "empty-\(edge)"
         }
     }
@@ -17,10 +20,22 @@ enum DeckSlot: Hashable, Identifiable {
         return nil
     }
 
+    /// 中央に置くときの番号。追加の途中のデッキは、学習タブに入ったあとと同じ番号にして、入っても中央から動かさない。
+    var centerKey: Int? {
+        switch self {
+        case .deck(let deck): return deck.id
+        case .adding(let pending): return pending.localDeckId
+        case .empty: return nil
+        }
+    }
+
     /// 先頭と末尾に空き枠を1つずつ置く。デッキが無いときは空き枠1つだけにする。
-    static func slots(for decks: [Deck]) -> [DeckSlot] {
-        guard !decks.isEmpty else { return [.empty(.bottom)] }
-        return [.empty(.top)] + decks.map(DeckSlot.deck) + [.empty(.bottom)]
+    /// 追加の途中のデッキは、選んだ空き枠のすぐ内側に置き、あとから押したものほど外側（空き枠の側）にする。
+    static func slots(for decks: [Deck], adding: [PendingDeckAdd] = []) -> [DeckSlot] {
+        guard !decks.isEmpty || !adding.isEmpty else { return [.empty(.bottom)] }
+        let top = adding.filter(\.atTop).reversed().map(DeckSlot.adding)
+        let bottom = adding.filter { !$0.atTop }.map(DeckSlot.adding)
+        return [.empty(.top)] + top + decks.map(DeckSlot.deck) + bottom + [.empty(.bottom)]
     }
 }
 
@@ -117,6 +132,12 @@ struct DeckCarouselView: View {
     var onDrop: (DeckDragSource, DeckDropTarget) -> Void = { _, _ in }
     /// 開いたフォルダの中で並べ替えた。デッキ、フォルダ（学習用のデッキ番号）、動かした先の位置。
     var onReorderInFolder: (_ deckId: Int, _ folderDeckId: Int, _ index: Int) -> Void = { _, _, _ in }
+    /// ギャラリーで押してから学習タブに入るまでのデッキ。
+    var adding: [PendingDeckAdd] = []
+    /// まだ開けない（画像・音声をダウンロード中の）デッキの状態。開けるデッキは nil（要件 T1・T2）。
+    var downloadState: (Deck) -> DeckDownloadState? = { _ in nil }
+    var onRetryAdding: (PendingDeckAdd) -> Void = { _ in }
+    var onRetryDownload: (Deck) -> Void = { _ in }
 
     private static let coordinateSpace = "deckCarousel"
     private static let gridCoordinateSpace = "deckFolderGrid"
@@ -172,7 +193,10 @@ struct DeckCarouselView: View {
         var expansion: CGFloat
     }
 
-    private var slots: [DeckSlot] { DeckSlot.slots(for: decks) }
+    private var slots: [DeckSlot] { DeckSlot.slots(for: decks, adding: adding) }
+
+    /// 並び（`tree` の行）の0行目が、カルーセルの何枠目か。先頭の空き枠と、上側の追加の途中のデッキのぶんずれる。
+    private var rowOffset: Int { 1 + adding.filter(\.atTop).count }
 
     /// 帯だけを並べて運んでいる最中か。運び始めると、中央のカードも帯に戻して見た目の急な変化をなくす。
     private var isBandMode: Bool { drag.map { !$0.isInFolder } ?? false }
@@ -303,12 +327,15 @@ struct DeckCarouselView: View {
         Group {
             switch slot {
             case .deck(let deck):
-                let merging = drag.map { $0.target == .row(index - 1, .onto) } ?? false
+                let merging = drag.map { $0.target == .row(index - rowOffset, .onto) } ?? false
                 Group {
                     if case .folder(let isOpen) = role(deck) {
                         folderCard(deck, slotIndex: index, isOpen: isOpen && !isBandMode,
                                    keepsGrid: drag?.source == .child(folderSlot: index), expansion: expansion,
                                    width: cardWidth, height: height)
+                    } else if let state = downloadState(deck) {
+                        downloadCard(name: deck.deckName, coverURL: coverURL(deck), deckId: deck.id, state: state,
+                                     expansion: expansion, width: cardWidth, height: height) { onRetryDownload(deck) }
                     } else {
                         deckCard(deck, expansion: expansion, width: cardWidth, height: height)
                     }
@@ -325,6 +352,15 @@ struct DeckCarouselView: View {
                 .scaleEffect(merging ? 1.04 : 1)
                 .opacity(drag?.source == .slot(index) ? 0 : 1)
                 .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: merging)
+            case .adding(let pending):
+                // 学習タブに入るまでは運べない。運んでいる間は隠す。
+                downloadCard(name: pending.official.deck.deckName, coverURL: pending.coverURL, deckId: pending.localDeckId,
+                             state: pending.isFailed ? .failed : .downloading(0),
+                             expansion: expansion, width: cardWidth, height: height) { onRetryAdding(pending) }
+                    .contentShape(Rectangle())
+                    .onTapGesture { if index != centerIndex { snap(to: index) } }
+                    .opacity(isBandMode ? 0 : 1)
+                    .allowsHitTesting(!isBandMode)
             case .empty(let edge):
                 // 運んでいる間は、デッキを足す空き枠を隠す。
                 emptyCard(edge, width: cardWidth, height: height)
@@ -378,6 +414,74 @@ struct DeckCarouselView: View {
         .frame(width: width, height: height, alignment: .topLeading)
         .clipped()
         .outlineSurface(radius: WireMetrics.radiusCard, fill: BentoTone.l2.fill)
+    }
+
+    /// ダウンロード中のデッキのカード（要件 T1・T2）。表紙と名前を暗くし、まん中に大きく％、下に進み具合のバー。
+    /// 何度もだめで止まったときは「読み込めません」と「再試行」。細い帯では、名前の右に％だけを出す。
+    private func downloadCard(name: String, coverURL: URL?, deckId: Int, state: DeckDownloadState,
+                              expansion: CGFloat, width: CGFloat, height: CGFloat,
+                              onRetry: @escaping () -> Void) -> some View {
+        let percent: String? = {
+            if case .downloading(let value) = state { return "\(Int((value * 100).rounded(.down)))%" }
+            return nil
+        }()
+        return HStack(alignment: .top, spacing: WireMetrics.spacingM) {
+            DeckCoverImage(url: coverURL, symbol: DeckCoverSymbol.forDeck(id: deckId))
+                .overlay {
+                    RoundedRectangle(cornerRadius: WireMetrics.radiusControl, style: .continuous)
+                        .fill(Color.black.opacity(0.45))
+                }
+                .frame(width: width * Metrics.coverWidthRatio)
+                .frame(maxHeight: .infinity)
+            HStack(alignment: .firstTextBaseline) {
+                Text(name)
+                    .wireFont(expansion > 0.5 ? .titleS : .label, color: WireColor.surface)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text(percent ?? "読み込めません")
+                    .wireFont(.caption, color: WireColor.surface)
+                    .opacity(Double(1 - expansion))
+            }
+            .padding(.vertical, WireMetrics.spacingS)
+        }
+        .padding(WireMetrics.spacingS)
+        .frame(width: width, height: height, alignment: .topLeading)
+        .overlay {
+            VStack(spacing: WireMetrics.spacingM) {
+                switch state {
+                case .downloading(let value):
+                    Text(percent ?? "")
+                        .font(.system(.largeTitle, design: .rounded).weight(.bold))
+                        .monospacedDigit()
+                        .foregroundStyle(WireColor.surface)
+                    GeometryReader { bar in
+                        Capsule()
+                            .fill(WireColor.surface.opacity(0.3))
+                            .overlay(alignment: .leading) {
+                                Capsule().fill(WireColor.surface).frame(width: bar.size.width * value)
+                            }
+                    }
+                    .frame(height: 6)
+                    .padding(.horizontal, WireMetrics.spacingXL)
+                case .failed:
+                    Text("読み込めません").wireFont(.titleS, color: WireColor.surface)
+                    Button("再試行", action: onRetry)
+                        .buttonStyle(.bordered)
+                        .tint(WireColor.surface)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color.black.opacity(0.35))
+            .opacity(Double(expansion))
+            .allowsHitTesting(expansion > 0.5)
+        }
+        // 暗い膜がカードの角からはみ出さないよう、角丸で切る。
+        .clipShape(RoundedRectangle(cornerRadius: WireMetrics.radiusCard, style: .continuous))
+        .outlineSurface(radius: WireMetrics.radiusCard, fill: Color(white: 0.32))
+        // ponytail: VoiceOver は名前と状態を読むだけの最低限。作り込みは後でまとめて行う。
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(name)
+        .accessibilityValue(percent.map { "ダウンロード中 \($0)" } ?? "読み込めません")
     }
 
     /// フォルダのカード。閉じているときは中のデッキの表紙を上に重ね、下のガラスの帯に名前と「＋」を置く。
@@ -760,9 +864,12 @@ struct DeckCarouselView: View {
                 drag.gap = 1
             case .empty(.bottom):
                 drag.gap = remaining.count - 1
+            case .adding(let pending):
+                // 追加の途中のデッキの上には置けない。その側の端へ寄せる。
+                drag.gap = pending.atTop ? 1 : remaining.count - 1
             case .deck:
                 if abs(fraction) < 0.25, !role(drag.deck).isFolder {
-                    drag.target = .row(slotIndex - 1, .onto)
+                    drag.target = .row(slotIndex - rowOffset, .onto)
                     return
                 }
                 let below = index < drag.gap ? index : index - 1
@@ -777,7 +884,9 @@ struct DeckCarouselView: View {
     private func insertionTarget(gap: Int, remaining: [Int]) -> DeckDropTarget {
         if gap <= 1 { return .start }
         if gap >= remaining.count - 1 { return .end }
-        return .row(remaining[gap] - 1, .before)
+        // 追加の途中のデッキの隣は、その側の端と同じに扱う。
+        if case .adding(let pending) = slots[remaining[gap]] { return pending.atTop ? .start : .end }
+        return .row(remaining[gap] - rowOffset, .before)
     }
 
     /// 開いたフォルダのカードの、画面上（このカルーセルの座標）の場所。
@@ -807,7 +916,7 @@ struct DeckCarouselView: View {
         switch finished.source {
         case .slot(let index):
             guard let target = finished.target else { return }
-            onDrop(.row(index - 1), target)
+            onDrop(.row(index - rowOffset), target)
         case .child(let folderSlot):
             guard let folder = slots[folderSlot].deck else { return }
             if finished.isInFolder {
@@ -891,7 +1000,7 @@ struct DeckCarouselView: View {
     /// 覚えているデッキを中央へ置き直す。デッキの増減で並びが変わったときも呼ぶ。
     private func synchronize() {
         let slots = self.slots
-        let remembered = slots.firstIndex { $0.deck?.id == centeredDeckId && centeredDeckId != nil }
+        let remembered = slots.firstIndex { $0.centerKey == centeredDeckId && centeredDeckId != nil }
         let firstDeck = slots.firstIndex { $0.deck != nil }
         centerIndex = remembered ?? firstDeck ?? 0
         motion.configure(stride: layout.stride, count: slots.count, index: centerIndex)

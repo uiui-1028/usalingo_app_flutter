@@ -1,8 +1,10 @@
 import SwiftUI
+import UIKit
 
 @main
 struct UsalingoIOSApp: App {
-    @StateObject private var appState = AppState()
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    @StateObject private var appState = AppState(mediaDownloader: .shared)
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
@@ -25,6 +27,31 @@ struct UsalingoIOSApp: App {
                     appState.pauseStudyBackup()
                 }
         }
+    }
+}
+
+/// iOS からの知らせのうち、SwiftUI の `App` では受け取れないものだけを受ける。
+final class AppDelegate: NSObject, UIApplicationDelegate {
+    func application(
+        _ application: UIApplication,
+        didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
+    ) -> Bool {
+        // 以前の音声の一時キャッシュ（最大100MB）は使わなくなったので、裏で片付ける（要件 C1）。
+        Task.detached(priority: .utility) { CardAudioCache.removeLegacyStorage() }
+        return true
+    }
+
+    /// 閉じている間に画像・音声のダウンロードが進んだとき、iOS がアプリを裏で起こして知らせる（要件 D4）。
+    func application(
+        _ application: UIApplication,
+        handleEventsForBackgroundURLSession identifier: String,
+        completionHandler: @escaping () -> Void
+    ) {
+        guard identifier == MediaDownloader.sessionIdentifier else {
+            completionHandler()
+            return
+        }
+        MediaDownloader.shared.handleBackgroundEvents(completionHandler)
     }
 }
 

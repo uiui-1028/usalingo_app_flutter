@@ -5,10 +5,11 @@ import SwiftUI
 /// カード用イラストの読み込みを、アプリ側の約束だけで包む。
 ///
 /// Nuke の型やキャッシュ設定を画面へ漏らさないため、外部パッケージを差し替えるときも
-/// このファイルだけを直せばよい。画像は最大 200 MB まで端末へ保存し、容量を超えた
-/// 古い画像は Nuke の LRU キャッシュが自動で片付ける。
+/// このファイルだけを直せばよい。画像は最大 20 MB まで端末へ保存し、容量を超えた
+/// 古い画像は Nuke の LRU キャッシュが自動で片付ける。追加したデッキの画像は先取りして端末にある
+/// （`MediaStore`）ので、ここに溜まるのは、まだ追加していないデッキの表紙ぐらいになる（要件 C1）。
 enum CardImageCache {
-    static let diskCacheSizeLimit = 200 * 1024 * 1024
+    static let diskCacheSizeLimit = 20 * 1024 * 1024
 
     static let pipeline: ImagePipeline = {
         ImagePipeline(

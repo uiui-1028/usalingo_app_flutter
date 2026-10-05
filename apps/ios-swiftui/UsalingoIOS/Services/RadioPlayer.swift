@@ -205,7 +205,6 @@ final class RadioPlayer: NSObject, ObservableObject {
         nextCard = queue.next
         steps = queue.currentSteps
         stepIndex = 0
-        prefetchNextCard()
         if shouldPlay {
             playCurrentStep()
         } else {
@@ -334,19 +333,6 @@ final class RadioPlayer: NSObject, ObservableObject {
         sleepDeadline = nil
         guard isPlaying else { return }
         pause()
-    }
-
-    private func prefetchNextCard() {
-        var lookahead = queue
-        lookahead.advance()
-        let urls = lookahead.currentSteps.compactMap { step -> URL? in
-            switch step {
-            case .word(let url), .sentence(let url): return url
-            case .meaning: return nil
-            }
-        }
-        guard !urls.isEmpty else { return }
-        Task { await cache.prefetch(urls: urls) }
     }
 
     // MARK: - 音声セッションとロック画面

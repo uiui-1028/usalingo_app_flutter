@@ -73,6 +73,8 @@
 		A1000000000000000000003D /* DesignSystem/Components/BentoGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000003D /* DesignSystem/Components/BentoGroup.swift */; };
 		A1000000000000000000003E /* Services/HapticFeedbackService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000003E /* Services/HapticFeedbackService.swift */; };
 		A1000000000000000000003F /* Services/ImageLoading/CardImageLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000002D /* Services/ImageLoading/CardImageLoader.swift */; };
+		A1000000000000000000F401 /* Services/MediaStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000F401 /* Services/MediaStore.swift */; };
+		A1000000000000000000F402 /* Services/MediaDownloader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000F402 /* Services/MediaDownloader.swift */; };
 		A10000000000000000000040 /* Nuke in Frameworks */ = {isa = PBXBuildFile; productRef = A100000000000000000000C1 /* Nuke */; };
 		A10000000000000000000041 /* NukeUI in Frameworks */ = {isa = PBXBuildFile; productRef = A100000000000000000000C2 /* NukeUI */; };
 		A1000000000000000000077 /* Features/Learning/DeckSummaryViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000077 /* Features/Learning/DeckSummaryViews.swift */; };
@@ -105,6 +107,7 @@
 		B1000000000000000000002A /* LegalDocumentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000000000000000000002A /* LegalDocumentTests.swift */; };
 		B1000000000000000000009B /* StudyBackupSyncerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000000000000000000009B /* StudyBackupSyncerTests.swift */; };
 		B1000000000000000000009C /* CardImageCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000000000000000000009C /* CardImageCacheTests.swift */; };
+		B1000000000000000000C301 /* MediaStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000000000000000000C301 /* MediaStoreTests.swift */; };
 		B100000000000000000012 /* WordListFiltersTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B200000000000000000012 /* WordListFiltersTests.swift */; };
 		B100000000000000000013 /* WordListViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B200000000000000000013 /* WordListViewModelTests.swift */; };
 		B1000000000000000000A204 /* WordListColumnLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000000000000000000A204 /* WordListColumnLayoutTests.swift */; };
@@ -177,6 +180,8 @@
 		A2000000000000000000002C /* Resources/PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Resources/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		A2000000000000000000002E /* Resources/StarterDeck.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = Resources/StarterDeck.json; sourceTree = "<group>"; };
 		A2000000000000000000002D /* Services/ImageLoading/CardImageLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ImageLoading/CardImageLoader.swift; sourceTree = "<group>"; };
+		A2000000000000000000F401 /* Services/MediaStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/MediaStore.swift; sourceTree = "<group>"; };
+		A2000000000000000000F402 /* Services/MediaDownloader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/MediaDownloader.swift; sourceTree = "<group>"; };
 		A20000000000000000000030 /* DesignSystem/Tokens/WireColor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignSystem/Tokens/WireColor.swift; sourceTree = "<group>"; };
 		A20000000000000000000031 /* DesignSystem/Tokens/WireMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignSystem/Tokens/WireMetrics.swift; sourceTree = "<group>"; };
 		A20000000000000000000032 /* DesignSystem/Tokens/WireTypography.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignSystem/Tokens/WireTypography.swift; sourceTree = "<group>"; };
@@ -221,6 +226,7 @@
 		B2000000000000000000002A /* LegalDocumentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LegalDocumentTests.swift; sourceTree = "<group>"; };
 		B2000000000000000000009B /* StudyBackupSyncerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StudyBackupSyncerTests.swift; sourceTree = "<group>"; };
 		B2000000000000000000009C /* CardImageCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardImageCacheTests.swift; sourceTree = "<group>"; };
+		B2000000000000000000C301 /* MediaStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaStoreTests.swift; sourceTree = "<group>"; };
 		B200000000000000000012 /* WordListFiltersTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WordListFiltersTests.swift; sourceTree = "<group>"; };
 		B200000000000000000013 /* WordListViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WordListViewModelTests.swift; sourceTree = "<group>"; };
 		B2000000000000000000A204 /* WordListColumnLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WordListColumnLayoutTests.swift; sourceTree = "<group>"; };
@@ -281,6 +287,8 @@
 				A20000000000000000000019 /* Services/AudioPlaybackService.swift */,
 				A2000000000000000000003E /* Services/HapticFeedbackService.swift */,
 				A2000000000000000000002D /* Services/ImageLoading/CardImageLoader.swift */,
+				A2000000000000000000F401 /* Services/MediaStore.swift */,
+				A2000000000000000000F402 /* Services/MediaDownloader.swift */,
 				A20000000000000000000030 /* DesignSystem/Tokens/WireColor.swift */,
 				A20000000000000000000031 /* DesignSystem/Tokens/WireMetrics.swift */,
 				A20000000000000000000032 /* DesignSystem/Tokens/WireTypography.swift */,
@@ -375,6 +383,7 @@
 				B2000000000000000000000A /* GuestStudyBackupServiceTests.swift */,
 				B2000000000000000000009B /* StudyBackupSyncerTests.swift */,
 				B2000000000000000000009C /* CardImageCacheTests.swift */,
+				B2000000000000000000C301 /* MediaStoreTests.swift */,
 			);
 			path = UsalingoIOSTests;
 			sourceTree = "<group>";
@@ -547,6 +556,8 @@
 				A10000000000000000000019 /* Services/AudioPlaybackService.swift in Sources */,
 				A1000000000000000000003E /* Services/HapticFeedbackService.swift in Sources */,
 				A1000000000000000000003F /* Services/ImageLoading/CardImageLoader.swift in Sources */,
+				A1000000000000000000F401 /* Services/MediaStore.swift in Sources */,
+				A1000000000000000000F402 /* Services/MediaDownloader.swift in Sources */,
 				A1000000000000000000001A /* Features/Words/WordEditSheet.swift in Sources */,
 				A1000000000000000000001B /* Features/Words/TagSheet.swift in Sources */,
 				A1000000000000000000001C /* Models/DesignSettings.swift in Sources */,
@@ -582,6 +593,7 @@
 				B1000000000000000000000A /* GuestStudyBackupServiceTests.swift in Sources */,
 				B1000000000000000000009B /* StudyBackupSyncerTests.swift in Sources */,
 				B1000000000000000000009C /* CardImageCacheTests.swift in Sources */,
+				B1000000000000000000C301 /* MediaStoreTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
