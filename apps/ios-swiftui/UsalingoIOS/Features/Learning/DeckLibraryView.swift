@@ -122,6 +122,7 @@ struct DeckLibraryView: View {
                     overlap: overlapCount(for: deck),
                     isDownloading: isDownloading,
                     message: downloadMessage,
+                    isExpanded: isFocused,
                     onDownload: { download(deck) }
                 )
             } else {
@@ -129,7 +130,8 @@ struct DeckLibraryView: View {
             }
         }
         .presentationDetents([GallerySheetDetent.peek, GallerySheetDetent.expanded], selection: $detent)
-        .presentationBackgroundInteraction(.enabled(upThrough: GallerySheetDetent.peek))
+        // 7割でも後ろを暗くしない。上に出したカードを明るいまま見せる。カルーセルは7割の間は止めてある。
+        .presentationBackgroundInteraction(.enabled)
         .presentationDragIndicator(.visible)
         .interactiveDismissDisabled()
     }
@@ -255,21 +257,26 @@ enum GalleryGenre: String, CaseIterable {
 
 /// シートの止まる高さ。頭は収録語数・容量・レベルとダウンロードボタンが見える高さ。
 enum GallerySheetDetent {
-    static let peekHeight: CGFloat = 184
+    static let peekHeight: CGFloat = 174
     static let peek = PresentationDetent.height(peekHeight)
-    static let expanded = PresentationDetent.fraction(0.7)
+    /// 上に出すカードの下端とシートの上端をなるべく近づけるため、7割より少し高く止める。
+    static let expandedFraction: CGFloat = 0.72
+    static let expanded = PresentationDetent.fraction(expandedFraction)
 }
 
-/// シートが7割まで上がったとき、中央のカードを画面の上3割へ縮めて寄せる。隣の帯はカルーセルが隠す。
+/// シートが上がったとき、中央のカードをシートの上の空きへ縮めて寄せる。隣の帯はカルーセルが隠す。
 private struct FocusedCardPlacement: ViewModifier {
     let isFocused: Bool
     let areaHeight: CGFloat
     let proxy: GeometryProxy
 
     func body(content: Content) -> some View {
-        let screenHeight = proxy.size.height + proxy.safeAreaInsets.top + proxy.safeAreaInsets.bottom
+        let top = proxy.safeAreaInsets.top
+        let screenHeight = proxy.size.height + top + proxy.safeAreaInsets.bottom
+        // 割合で止めるシートの高さは、画面の上の安全域を除いた高さに対する割合になる。
+        let sheetTop = screenHeight - (screenHeight - top) * GallerySheetDetent.expandedFraction - top
         let regionTop = WireMetrics.spacingS
-        let regionBottom = screenHeight * 0.3 - proxy.safeAreaInsets.top - WireMetrics.spacingM
+        let regionBottom = sheetTop - WireMetrics.spacingS
         let scale = min(1, max(0.3, (regionBottom - regionTop) / DeckCarouselView.Metrics.expandedHeight))
         let offset = (regionTop + regionBottom) / 2 - areaHeight / 2
         content
@@ -435,43 +442,48 @@ private struct DeckGalleryCarousel: View {
 
 // MARK: - シート
 
-/// シートの中身。上に収録語数・容量・レベル、その下にほかの情報と単語一覧。ダウンロードボタンは下に固定する。
+/// シートの中身。上に収録語数・容量・レベル、その下にほかの情報と、シート内シートの単語一覧。
+/// ダウンロードボタンはタブバーと同じく地を持たずに下へ浮かべ、ボタンの周りは下の一覧が透ける。
 private struct DeckGallerySheet: View {
     let deck: OfficialDeck
     let words: [WordCard]?
     let overlap: Int?
     let isDownloading: Bool
     let message: String?
+    /// 7割まで上がっているか。頭だけのときは3項目だけを見せ、ボタンの周りに下の情報を透かさない。
+    let isExpanded: Bool
     let onDownload: () -> Void
 
-    var body: some View {
-        // ボタンの下を一覧が通ると、ガラス越しに透けて読みにくい。一覧はボタンの上で切る。
-        VStack(spacing: 0) {
-            ScrollView {
-                VStack(spacing: 0) {
-                    VStack(spacing: WireMetrics.spacingL) {
-                        metrics
-                        details
-                    }
-                    .padding(.horizontal, WireMetrics.screenPadding)
-                    .padding(.top, WireMetrics.spacingXL)
-                    .padding(.bottom, WireMetrics.spacingL)
+    /// 浮かべたボタンの下に、一覧の最後の行が隠れないよう空ける量。
+    private static let footerClearance: CGFloat = 88
 
-                    wordList
+    var body: some View {
+        VStack(spacing: WireMetrics.spacingL) {
+            metrics
+                .padding(.horizontal, WireMetrics.screenPadding)
+                .padding(.top, WireMetrics.spacingXL)
+            // 残りの高さだけを使う。頭だけのときは高さが足りず、はみ出した分はシートの外に隠れる。
+            // GeometryReader に入れないと、はみ出した中身にシート全体が押し上げられて3項目まで隠れる。
+            GeometryReader { _ in
+                VStack(spacing: WireMetrics.spacingL) {
+                    details.padding(.horizontal, WireMetrics.screenPadding)
+                    wordSheet
                 }
             }
-            .scrollIndicators(.hidden)
-            downloadArea
+            .opacity(isExpanded ? 1 : 0)
+            .animation(.easeOut(duration: 0.2), value: isExpanded)
         }
+        .frame(maxHeight: .infinity, alignment: .top)
+        .overlay(alignment: .bottom) { downloadArea }
     }
 
     private var metrics: some View {
         HStack(spacing: 0) {
-            metric("収録語数", words.map { "\($0.count)語" } ?? "—")
+            metric("収録語数") { Text(words.map { "\($0.count)語" } ?? "—").wireFont(.titleS) }
             Divider()
-            metric("容量", DeckGalleryFacts.sizeText(deck.mediaBytes))
+            metric("容量") { Text(DeckGalleryFacts.sizeText(deck.mediaBytes)).wireFont(.titleS) }
             Divider()
-            metric("レベル", deck.difficulty?.title ?? "—", dots: deck.difficulty?.level)
+            metric("レベル") { level }
         }
         .frame(height: 64)
         .padding(.vertical, WireMetrics.spacingS)
@@ -479,25 +491,31 @@ private struct DeckGallerySheet: View {
         .overlay(alignment: .bottom) { Divider() }
     }
 
-    private func metric(_ title: String, _ value: String, dots: Int? = nil) -> some View {
+    private func metric(_ title: String, @ViewBuilder value: () -> some View) -> some View {
         VStack(spacing: WireMetrics.spacingXS) {
             Text(title).wireFont(.caption)
-            HStack(spacing: WireMetrics.spacingXS) {
-                Text(value).wireFont(.titleS)
-                if let dots {
-                    HStack(spacing: 2) {
-                        ForEach(1...3, id: \.self) { step in
-                            Circle()
-                                .fill(step <= dots ? WireColor.ink : WireColor.ink.opacity(0.18))
-                                .frame(width: 6, height: 6)
-                        }
-                    }
-                    .accessibilityHidden(true)
-                }
-            }
+            value()
         }
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .combine)
+    }
+
+    /// 易・中・難を、3つのうち塗った星の数で見せる（易 ★☆☆、中 ★★☆、難 ★★★）。
+    @ViewBuilder
+    private var level: some View {
+        if let difficulty = deck.difficulty {
+            HStack(spacing: 2) {
+                ForEach(1...3, id: \.self) { step in
+                    Image(systemName: step <= difficulty.level ? "star.fill" : "star")
+                }
+            }
+            .font(.headline)
+            .foregroundStyle(WireColor.ink)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(difficulty.title)
+        } else {
+            Text("—").wireFont(.titleS)
+        }
     }
 
     private var details: some View {
@@ -505,7 +523,6 @@ private struct DeckGallerySheet: View {
             if let description = deck.deck.description {
                 Text(description).wireFont(.body)
             }
-            detailRow("コンセプト", deck.conceptName ?? "—")
             detailRow("重なる語数", overlap.map(DeckGalleryFacts.overlapText) ?? "—")
             if let words, !words.isEmpty {
                 VStack(alignment: .leading, spacing: WireMetrics.spacingS) {
@@ -528,23 +545,32 @@ private struct DeckGallerySheet: View {
         .accessibilityElement(children: .combine)
     }
 
-    @ViewBuilder
-    private var wordList: some View {
-        HStack {
-            Text("収録単語").wireFont(.titleS)
-            Spacer()
-        }
-        .padding(.horizontal, WireMetrics.screenPadding)
-        .padding(.bottom, WireMetrics.spacingS)
-        if let words {
-            // 赤シートは付けない（要件 R10）。行は単語一覧と同じ見た目にする。
-            LazyVStack(spacing: 0) {
-                ForEach(words) { word in
-                    WordRow(word: word)
+    /// 単語一覧。上端だけ角を丸めたシート内シートに入れ、この中だけでスクロールする（旧デッキ詳細と同じ形）。
+    /// 赤シートは付けない（要件 R10）。行は単語一覧と同じ見た目にする。
+    private var wordSheet: some View {
+        let shape = UnevenRoundedRectangle(topLeadingRadius: WireMetrics.radiusLarge,
+                                           topTrailingRadius: WireMetrics.radiusLarge, style: .continuous)
+        return Group {
+            if let words {
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(words) { word in
+                            WordRow(word: word)
+                        }
+                    }
                 }
+                .contentMargins(.bottom, Self.footerClearance, for: .scrollContent)
+                .scrollIndicators(.hidden)
+            } else {
+                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-        } else {
-            ProgressView().padding(WireMetrics.spacingXL)
+        }
+        .clipShape(shape)
+        .background { shape.fill(WireColor.surface).ignoresSafeArea(edges: .bottom) }
+        .overlay {
+            shape.strokeBorder(WireColor.ink, lineWidth: WireMetrics.strokeBase)
+                .ignoresSafeArea(edges: .bottom)
+                .allowsHitTesting(false)
         }
     }
 
@@ -554,6 +580,8 @@ private struct DeckGallerySheet: View {
                 Text(message)
                     .wireFont(.caption)
                     .multilineTextAlignment(.center)
+                    .padding(.horizontal, WireMetrics.spacingS)
+                    .background(.regularMaterial, in: Capsule())
                     .accessibilityIdentifier("galleryDownloadMessage")
             }
             Button(action: onDownload) {
@@ -570,11 +598,13 @@ private struct DeckGallerySheet: View {
             .buttonStyle(.plain)
             .pinkGlassSurface(in: Capsule())
             .disabled(isDownloading || deck.isAdded)
-            .wireDisabled(deck.isAdded)
+            // 追加済みは透かさずに色を抜いて示す。薄くすると、後ろの一覧がボタン越しに透けて読みにくい。
+            .saturation(deck.isAdded ? 0 : 1)
         }
         .padding(.horizontal, WireMetrics.screenPadding)
-        .padding(.top, WireMetrics.spacingS)
         .padding(.bottom, WireMetrics.spacingS)
+        // 利用者の希望で、ふつうの置き場所より10pt下げる。
+        .offset(y: 10)
     }
 }
 
