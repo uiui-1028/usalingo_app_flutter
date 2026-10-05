@@ -39,7 +39,14 @@ struct DeckLibraryView: View {
         GeometryReader { proxy in
             ZStack(alignment: .top) {
                 content(in: proxy)
-                if !isFocused {
+                if isFocused {
+                    // シートの外（上のカードと背景）をタップしたら、シートを頭に戻して一覧へ帰る。
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture { detent = GallerySheetDetent.peek }
+                        .accessibilityLabel("一覧に戻る")
+                        .accessibilityAddTraits(.isButton)
+                } else {
                     topBar
                         .padding(.horizontal, WireMetrics.screenPadding)
                         .transition(.opacity)
@@ -688,7 +695,7 @@ enum DeckGalleryFacts {
     }
 
     static func overlapText(_ count: Int) -> String {
-        count == 0 ? "重なりなし" : "追加済みのデッキと\(count)語重なる"
+        count == 0 ? "0語" : "追加済みのデッキと\(count)語重なる"
     }
 
     /// 容量。同期がまだ値を入れていなければ「—」。
