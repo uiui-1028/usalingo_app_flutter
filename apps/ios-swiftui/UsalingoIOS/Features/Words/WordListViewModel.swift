@@ -130,6 +130,11 @@ final class WordListViewModel: ObservableObject {
             self.selectedTagFilter = nil
         }
     }
+
+    func removeWord(id: Int) {
+        words.removeAll { $0.id == id }
+        clearMissingTagFilter()
+    }
 }
 
 /// チェック開始時の順序を保ち、表示上の判定と保存の完了を分ける。
@@ -144,6 +149,7 @@ final class RedSheetCheckModel: ObservableObject {
     @Published private(set) var isUndoing = false
     @Published private(set) var errorMessage: String?
     @Published private(set) var canUndo = false
+    @Published private(set) var removedIDs: Set<Int> = []
 
     private var queue = StudyAnswerQueue()
     private var savedAnswers: [Int: SavedAnswer] = [:]
@@ -162,12 +168,14 @@ final class RedSheetCheckModel: ObservableObject {
         self.source = source
         self.didSave = didSave
         index = 0
+        removedIDs = []
         answers = [:]
         savedAnswers = [:]
         queue.reset()
         isAnswerVisible = false
         canUndo = false
         errorMessage = nil
+        advancePastInactiveWords()
     }
 
     func submit(isCorrect: Bool) {
@@ -176,6 +184,7 @@ final class RedSheetCheckModel: ObservableObject {
         queue.enqueue(cardIndex: index, card: current, isCorrect: isCorrect)
         pendingCount = queue.pending.count
         index += 1
+        advancePastInactiveWords()
         isAnswerVisible = false
         canUndo = true
         // 失敗は次の判定で消さない。再送ボタンで明示的に再開する。
@@ -190,6 +199,21 @@ final class RedSheetCheckModel: ObservableObject {
     func replaceWord(_ word: WordCard) {
         guard let index = words.firstIndex(where: { $0.id == word.id }) else { return }
         words[index] = word
+        advancePastInactiveWords()
+    }
+
+    /// 配列の位置は回答キューが使うので維持し、削除行だけ表示から外す。
+    func removeWord(id: Int) {
+        removedIDs.insert(id)
+        advancePastInactiveWords()
+    }
+
+    private func advancePastInactiveWords() {
+        let previousIndex = index
+        while let current, current.isSuspended || removedIDs.contains(current.id) { index += 1 }
+        if index != previousIndex { isAnswerVisible = false }
+        if let lastAnswered = words[..<min(index, words.count)].last(where: { answers[$0.id] != nil }),
+           lastAnswered.isSuspended || removedIDs.contains(lastAnswered.id) { canUndo = false }
     }
 
     func retry() {
@@ -220,7 +244,9 @@ final class RedSheetCheckModel: ObservableObject {
         guard canUndo, !isUndoing, index > 0, let source else { return }
         isUndoing = true
         await saveTask?.value
-        let previousIndex = index - 1
+        guard let previousIndex = words.indices.prefix(index).last(where: {
+            answers[words[$0].id] != nil && !words[$0].isSuspended && !removedIDs.contains(words[$0].id)
+        }) else { isUndoing = false; return }
         let card = words[previousIndex]
         do {
             // 送信後に応答だけ失われた場合も、送信前の控えから確実に戻す。
@@ -247,6 +273,7 @@ final class RedSheetCheckModel: ObservableObject {
     func reset() {
         guard canLeave else { return }
         words = []
+        removedIDs = []
         answers = [:]
         index = 0
         canUndo = false

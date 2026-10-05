@@ -663,6 +663,152 @@ final class LocalStudyDataSourceTests: XCTestCase {
         XCTAssertTrue(library.displayNames.isEmpty)
     }
 
+    func testSuspensionPersistsAndExcludesEveryStudyModeButKeepsListAndProgress() async throws {
+        let source = makeDataSource()
+        let deck = try source.importDeck(from: sampleDeckData())
+        let cards = try await source.fetchCards(deckId: deck.id)
+        let card = try XCTUnwrap(cards.first)
+        _ = try await source.saveAnswer(card: card, isCorrect: false)
+        _ = try source.setSuspended(true, card: card, deckId: deck.id)
+
+        let reopened = makeDataSource()
+        let listed = try await reopened.fetchCards(deckId: deck.id)
+        XCTAssertTrue(try XCTUnwrap(listed.first).isSuspended)
+        XCTAssertEqual(listed.first?.learning?.incorrectCount, 1)
+        for mode in [StudyMode.all, .newOnly, .reviewOnly, .weakOnly] {
+            let queue = try await reopened.fetchStudyQueue(deckId: deck.id, mode: mode)
+            XCTAssertFalse(queue.contains { $0.id == card.id })
+        }
+        XCTAssertEqual(try reopened.counts(deckId: deck.id).newCount, 2)
+        _ = try reopened.setSuspended(false, card: try XCTUnwrap(listed.first), deckId: deck.id)
+        let resumed = try await reopened.fetchStudyQueue(deckId: deck.id, mode: .all)
+        XCTAssertTrue(resumed.contains { $0.id == card.id && $0.learning?.incorrectCount == 1 })
+    }
+
+    func testDeletionPersistsKeepsProgressAndOmitsCardFromExport() async throws {
+        let source = makeDataSource()
+        let deck = try source.importDeck(from: sampleDeckData())
+        let fetched = try await source.fetchCards(deckId: deck.id)
+        let card = try XCTUnwrap(fetched.first)
+        _ = try await source.saveAnswer(card: card, isCorrect: true)
+        try source.removeCard(card, deckId: deck.id)
+
+        let reopened = makeDataSource()
+        let cards = try await reopened.fetchCards(deckId: deck.id)
+        XCTAssertFalse(cards.contains { $0.id == card.id })
+        let snapshot = try reopened.snapshot()
+        XCTAssertEqual(snapshot.progress[String(card.id)]?.repetitions, 1)
+        let exported = try DeckFile.decode(from: reopened.exportData(deckId: deck.id))
+        XCTAssertEqual(exported.cards.count, 2)
+    }
+
+    func testSameWordInAnotherOfficialDeckIsUnaffectedByCardActionsAndRefresh() async throws {
+        let source = makeDataSource()
+        let first = Deck(id: 1, deckName: "First", description: nil)
+        let second = Deck(id: 2, deckName: "Second", description: nil)
+        let card = remoteCard()
+        let other = card.withCardId(51)
+        try source.cacheRemoteDecks([first, second], cardsByDeck: [1: [card], 2: [other]], progress: [], userId: "test")
+        let firstID = LocalStudyDataSource.cachedDeckId(remoteDeckId: 1)
+        let secondID = LocalStudyDataSource.cachedDeckId(remoteDeckId: 2)
+        let fetched = try await source.fetchCards(deckId: firstID)
+        let local = try XCTUnwrap(fetched.first)
+        _ = try source.setSuspended(true, card: local, deckId: firstID)
+        let listedOther = try await source.fetchCards(deckId: secondID)
+        XCTAssertFalse(try XCTUnwrap(listedOther.first).isSuspended)
+        try source.removeCard(local, deckId: firstID)
+        try source.cacheRemoteDecks([first, second], cardsByDeck: [1: [card], 2: [other]], progress: [], userId: "test")
+        let removed = try await source.fetchCards(deckId: firstID)
+        let retained = try await source.fetchCards(deckId: secondID)
+        XCTAssertTrue(removed.isEmpty)
+        XCTAssertEqual(retained.count, 1)
+    }
+
+    func testCardActionsSurviveSnapshotRestoreAndOldLibraryDefaults() async throws {
+        let source = makeDataSource()
+        let deck = try source.importDeck(from: sampleDeckData())
+        let cards = try await source.fetchCards(deckId: deck.id)
+        _ = try source.setSuspended(true, card: cards[0], deckId: deck.id)
+        try source.removeCard(cards[1], deckId: deck.id)
+        let restored = LocalStudyDataSource(directoryURL: directoryURL.appendingPathComponent("restore"))
+        try restored.restore(try source.snapshot())
+        let listed = try await restored.fetchCards(deckId: deck.id)
+        XCTAssertEqual(listed.map(\.id), [cards[0].id, cards[2].id])
+        XCTAssertTrue(listed[0].isSuspended)
+        let old = try JSONDecoder().decode(LocalStudyLibrary.self, from: Data("{}".utf8))
+        XCTAssertTrue(old.suspendedCardIds.isEmpty)
+        XCTAssertTrue(old.removedCardIds.isEmpty)
+    }
+
+    func testFailedCardActionDoesNotChangeInMemoryMembershipOrSuspension() async throws {
+        let source = makeDataSource()
+        let deck = try source.importDeck(from: sampleDeckData())
+        let fetched = try await source.fetchCards(deckId: deck.id)
+        let card = try XCTUnwrap(fetched.first)
+        let libraryURL = directoryURL.appendingPathComponent("library.json")
+        try FileManager.default.removeItem(at: libraryURL)
+        try FileManager.default.createDirectory(at: libraryURL, withIntermediateDirectories: false)
+        XCTAssertThrowsError(try source.setSuspended(true, card: card, deckId: deck.id))
+        XCTAssertThrowsError(try source.removeCard(card, deckId: deck.id))
+        let cards = try await source.fetchCards(deckId: deck.id)
+        XCTAssertEqual(cards.count, 3)
+        XCTAssertFalse(try XCTUnwrap(cards.first).isSuspended)
+    }
+
+    func testReaddingImportedDeckRestoresDeletedMembershipAndLearningRecord() async throws {
+        let source = makeDataSource()
+        let data = sampleDeckData()
+        let deck = try source.importDeck(from: data)
+        let fetched = try await source.fetchCards(deckId: deck.id)
+        let card = try XCTUnwrap(fetched.first)
+        _ = try await source.saveAnswer(card: card, isCorrect: true)
+        try source.removeCard(card, deckId: deck.id)
+        try await source.deleteDeck(id: deck.id)
+        let readded = try source.importDeck(from: data)
+        let cards = try await source.fetchCards(deckId: readded.id)
+        XCTAssertTrue(cards.contains { $0.id == card.id && $0.learning?.repetitions == 1 })
+    }
+
+    func testEditingSharedWordReturnsOpenedCardAndKeepsItsSuspensionAndProgress() async throws {
+        let source = makeDataSource()
+        let first = Deck(id: 1, deckName: "First", description: nil)
+        let second = Deck(id: 2, deckName: "Second", description: nil)
+        let card = remoteCard()
+        try source.cacheRemoteDecks([first, second], cardsByDeck: [1: [card], 2: [card.withCardId(51)]], progress: [], userId: "test")
+        let deckID = LocalStudyDataSource.cachedDeckId(remoteDeckId: 2)
+        let fetched = try await source.fetchCards(deckId: deckID)
+        let opened = try XCTUnwrap(fetched.first)
+        _ = try await source.saveAnswer(card: opened, isCorrect: true)
+        _ = try source.setSuspended(true, card: opened, deckId: deckID)
+        let saved = try await source.saveWordOverride(WordOverridePayload(
+            wordId: opened.wordId, wordText: "edited", definitionJapanese: "編集後",
+            sentenceEnglish: nil, sentenceJapanese: nil, imageAssetPath: nil, cardId: opened.cardId))
+        XCTAssertEqual(saved.id, opened.id)
+        XCTAssertTrue(saved.isSuspended)
+        XCTAssertEqual(saved.learning?.repetitions, 1)
+        let other = try await source.fetchCards(deckId: LocalStudyDataSource.cachedDeckId(remoteDeckId: 1))
+        XCTAssertEqual(other.first?.text, "edited")
+        XCTAssertNil(other.first?.learning)
+        XCTAssertFalse(try XCTUnwrap(other.first).isSuspended)
+    }
+
+    func testSuspendedCardsAreNotAskedOrOfferedAsFiveChoiceDistractors() async throws {
+        let source = makeDataSource()
+        let deck = try source.importDeck(from: sampleDeckData(cardCount: 6))
+        let cards = try await source.fetchCards(deckId: deck.id)
+        _ = try source.setSuspended(true, card: cards[0], deckId: deck.id)
+        var game = try await FiveChoiceGame.load(deckId: deck.id, source: source)
+        var asked: Set<Int> = []
+        while let question = game.question {
+            XCTAssertNotEqual(question.card.id, cards[0].id)
+            XCTAssertFalse(question.choices.contains { $0.id == cards[0].id })
+            asked.insert(question.card.id)
+            _ = game.answer(at: question.correctIndex)
+            game.advance()
+        }
+        XCTAssertEqual(asked.count, 5)
+    }
+
     private func makeDataSource() -> LocalStudyDataSource {
         LocalStudyDataSource(directoryURL: directoryURL)
     }

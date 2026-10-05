@@ -123,7 +123,8 @@ struct WordEditSheet: View {
             definitionJapanese: trimmedMeaning,
             sentenceEnglish: sentenceEnglish.trimmingCharacters(in: .whitespacesAndNewlines),
             sentenceJapanese: sentenceJapanese.trimmingCharacters(in: .whitespacesAndNewlines),
-            imageAssetPath: imageAssetPath.trimmingCharacters(in: .whitespacesAndNewlines)
+            imageAssetPath: imageAssetPath.trimmingCharacters(in: .whitespacesAndNewlines),
+            cardId: word.cardId
         )
 
         do {

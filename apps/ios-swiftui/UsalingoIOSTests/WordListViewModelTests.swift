@@ -232,6 +232,66 @@ final class WordListViewModelTests: XCTestCase {
 
 @MainActor
 final class RedSheetCheckTests: XCTestCase {
+    func testSuspendedRowsStayVisibleButAreSkippedAndUndoReturnsToAnsweredWord() async {
+        let source = FakeStudyDataSource()
+        let model = RedSheetCheckModel()
+        source.saveHandler = { card, correct in self.saved(card: card, correct: correct) }
+        model.start(words: [words[0], words[1].withSuspension(true), words[2]], source: source) { _ in }
+        XCTAssertEqual(model.words.count, 3)
+        answer(model, true)
+        await settle(model)
+        XCTAssertEqual(model.current?.id, 3)
+        await model.undo()
+        XCTAssertEqual(model.current?.id, 1)
+        XCTAssertFalse(model.isAnswerVisible)
+    }
+
+    func testRemovingOrSuspendingCurrentRowAdvancesWithoutAnAnswer() {
+        let model = RedSheetCheckModel()
+        model.start(words: words, source: FakeStudyDataSource()) { _ in }
+        model.revealAnswer()
+        model.replaceWord(words[0].withSuspension(true))
+        XCTAssertEqual(model.current?.id, 2)
+        XCTAssertFalse(model.isAnswerVisible)
+        model.removeWord(id: 2)
+        XCTAssertEqual(model.current?.id, 3)
+        model.removeWord(id: 3)
+        XCTAssertTrue(model.isComplete)
+        XCTAssertTrue(model.answers.isEmpty)
+        XCTAssertEqual(model.pendingCount, 0)
+    }
+
+    func testReplacingAnotherWordDoesNotReenableASecondUndo() async {
+        let source = FakeStudyDataSource()
+        source.saveHandler = { card, correct in self.saved(card: card, correct: correct) }
+        let model = RedSheetCheckModel()
+        model.start(words: words, source: source) { _ in }
+        answer(model, true)
+        answer(model, true)
+        await settle(model)
+        await model.undo()
+        model.replaceWord(words[2].withTags(["tag"]))
+        XCTAssertFalse(model.canUndo)
+    }
+
+    func testRowSwipeOnlyCommitsDeepLeftwardMovement() {
+        XCTAssertFalse(WordRowSwipe.commits(offset: 240, width: 360))
+        XCTAssertFalse(WordRowSwipe.commits(offset: -WordRowSwipe.revealWidth, width: 360))
+        XCTAssertTrue(WordRowSwipe.commits(offset: -240, width: 360))
+        XCTAssertFalse(WordRowSwipe.commits(offset: -100, width: 200))
+    }
+
+    func testAllSuspendedRowsCompleteWithoutSavingAndCopiesKeepSuspension() throws {
+        let model = RedSheetCheckModel()
+        let suspended = words.map { $0.withSuspension(true) }
+        model.start(words: suspended, source: FakeStudyDataSource()) { _ in }
+        XCTAssertTrue(model.isComplete)
+        XCTAssertTrue(model.canLeave)
+        XCTAssertTrue(suspended[0].withTags(["tag"]).withLearningProgress(nil).isSuspended)
+        let decoded = try JSONDecoder().decode(WordCard.self, from: JSONEncoder().encode(suspended[0]))
+        XCTAssertTrue(decoded.isSuspended)
+    }
+
     func testTapRevealsThenJudgmentSubmits() {
         let model = RedSheetCheckModel()
         model.start(words: words, source: FakeStudyDataSource()) { _ in }
