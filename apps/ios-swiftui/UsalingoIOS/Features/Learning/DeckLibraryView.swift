@@ -530,7 +530,7 @@ private struct DeckGallerySheet: View {
             if let description = deck.deck.description {
                 Text(description).wireFont(.body)
             }
-            detailRow("重なる語数", overlap.map(DeckGalleryFacts.overlapText) ?? "—")
+            detailRow("重なる語数", overlap.map { "\($0)語" } ?? "—")
             if let words, !words.isEmpty {
                 VStack(alignment: .leading, spacing: WireMetrics.spacingS) {
                     Text("品詞の内訳").wireFont(.caption)
@@ -692,10 +692,6 @@ enum DeckGalleryFacts {
     static func overlapCount(words: [WordCard], ownedWords: [Int: Set<Int>], excludingDeckId: Int) -> Int {
         let owned = ownedWords.filter { $0.key != excludingDeckId }.values.reduce(into: Set<Int>()) { $0.formUnion($1) }
         return Set(words.map(\.wordId)).intersection(owned).count
-    }
-
-    static func overlapText(_ count: Int) -> String {
-        count == 0 ? "0語" : "追加済みのデッキと\(count)語重なる"
     }
 
     /// 容量。同期がまだ値を入れていなければ「—」。

@@ -368,14 +368,12 @@ final class DeckGalleryFactsTests: XCTestCase {
         ])
     }
 
-    /// 学習タブのほかのデッキと同じ単語だけを1回ずつ数え、追加済みのそのデッキ自身は数えない。重ならなければ「0語」。
+    /// 学習タブのほかのデッキと同じ単語だけを1回ずつ数え、追加済みのそのデッキ自身は数えない。
     func testOverlapCountsWordsInOtherOwnedDecksOnce() {
         let words = [1, 2, 3, 4].map { word($0, partOfSpeech: "noun") }
         let owned: [Int: Set<Int>] = [-2: [1, 2, 3, 4], -3: [2, 3], 5: [3, 9]]
 
         XCTAssertEqual(DeckGalleryFacts.overlapCount(words: words, ownedWords: owned, excludingDeckId: -2), 2)
-        XCTAssertEqual(DeckGalleryFacts.overlapText(0), "0語")
-        XCTAssertEqual(DeckGalleryFacts.overlapText(2), "追加済みのデッキと2語重なる")
     }
 
     /// 同期がまだ値を入れていない容量は「—」にする。
