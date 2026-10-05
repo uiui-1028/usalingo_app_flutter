@@ -252,7 +252,7 @@ struct RadialMenuTarget: Identifiable {
 /// 長押しメニューのボタンの並び。指の場所を中心に扇形に置く。見た目と切り離してあるので、単体で確かめられる。
 ///
 /// 上に余白があれば上へ、なければ下へ開き、カードの中央の側へ傾けて画面の外へはみ出さないようにする。
-/// 指を離さずにボタンの方へ動かすと選び、そのまま待つと決まる（ドウェル選択）。
+/// 指を離さずにボタンの方へ動かして選び、そのボタンの上で離すと決まる。
 struct DeckRadialMenuLayout {
     /// 指の場所からボタンの中心までの距離。
     static let radius: CGFloat = 84
@@ -267,6 +267,9 @@ struct DeckRadialMenuLayout {
     static let reach: CGFloat = radius + 44
     /// 指をこれだけ動かすまでは、向きにかかわらずメニューを続ける。指の小さな揺れで運び始めないため。
     static let reorderDistance: CGFloat = 20
+    /// 選んだボタンに指を置いたまま待つと決まる（ドウェル選択）か。切っているときは、ボタンの上で離すと決まる。
+    /// ponytail: 離して決める手ごたえを試すため一旦切ってある。戻すなら true にする（離したときの動きも元に戻る）。
+    static let isDwellEnabled = false
     /// 選んだボタンに指を置いたまま、決まるまで待つ時間。
     static let dwellDuration = 0.75
     /// 決まるまでの輪が、ボタンの何倍の大きさから縮み始めるか。
@@ -334,14 +337,21 @@ enum DeckMenuRelease: Equatable {
     case choose(Int)
     /// どのボタンも選ばずに離した。
     case dismiss
+
+    /// 長押しの指を離したときの結果。ドウェル選択を切っているときは、選んでいるボタンに決まる。
+    /// 使うときは、待ちきる前に離したら何もせずに閉じる。
+    static func lifted(highlighted: Int?) -> DeckMenuRelease {
+        if !DeckRadialMenuLayout.isDwellEnabled, let highlighted { return .choose(highlighted) }
+        return .dismiss
+    }
 }
 
 /// 長押しメニュー。指の場所に輪を出し、そのまわりに丸いボタンを扇形に並べる（ラジアルメニュー）。
 /// 背景は強く暗くぼかし、押したカードの形だけ切り抜いて見せる。
 ///
-/// 指を離さずにボタンへ動かすと、そのボタンが大きくなり、指の場所の輪が中心へ縮む。
-/// 選んだボタンのまわりには大きな輪が出てボタンのフチへ縮み、重なったら決まる（音ゲーのアプローチサークル）。
-/// 決まる前に離すと、開いたときの逆の動きで閉じる。支援技術から開いたときは、タップで選ぶ。
+/// 指を離さずにボタンへ動かすと、そのボタンが大きくなり、指の場所の輪が中心へ縮む。そのボタンの上で離すと決まる。
+/// ドウェル選択を使うときは、選んだボタンのまわりに大きな輪が出てボタンのフチへ縮み、重なったら決まる（音ゲーのアプローチサークル）。
+/// どのボタンも選ばずに離すと、開いたときの逆の動きで閉じる。支援技術から開いたときは、タップで選ぶ。
 struct DeckRadialMenuOverlay: View {
     /// 背景を暗くする濃さ。0...1。
     static let dimOpacity: Double = 0.6
@@ -401,9 +411,11 @@ struct DeckRadialMenuOverlay: View {
             }
 
             if let highlighted, target.items.indices.contains(highlighted) {
-                ApproachRing()
-                    .position(layout.centers[highlighted])
-                    .id(highlighted)
+                if DeckRadialMenuLayout.isDwellEnabled {
+                    ApproachRing()
+                        .position(layout.centers[highlighted])
+                        .id(highlighted)
+                }
 
                 Text(target.items[highlighted].title)
                     .wireFont(.label, color: WireColor.ink)

@@ -20,7 +20,8 @@ struct WordRowActions<Content: View>: View {
     let onEdit: () -> Void
     let onHold: (CGRect, CGPoint) -> Void
     let onHoldMove: (CGPoint) -> Void
-    let onHoldEnd: () -> Void
+    /// 長押しを終えた。指を離したときは true、システムに取り上げられたときは false。
+    let onHoldEnd: (Bool) -> Void
     let content: Content
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -131,7 +132,8 @@ private struct WordRowTouchSurface: UIViewRepresentable {
     let onPan: (CGFloat, CGFloat, UIGestureRecognizer.State) -> Void
     let onHold: (CGRect, CGPoint) -> Void
     let onHoldMove: (CGPoint) -> Void
-    let onHoldEnd: () -> Void
+    /// 長押しを終えた。指を離したときは true、システムに取り上げられたときは false。
+    let onHoldEnd: (Bool) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeUIView(context: Context) -> UIView {
@@ -177,7 +179,8 @@ private struct WordRowTouchSurface: UIViewRepresentable {
             switch gesture.state {
             case .began: parent.onHold(view.convert(view.bounds, to: view.window), point)
             case .changed: parent.onHoldMove(point)
-            case .ended, .cancelled, .failed: parent.onHoldEnd()
+            case .ended: parent.onHoldEnd(true)
+            case .cancelled, .failed: parent.onHoldEnd(false)
             default: break
             }
         }

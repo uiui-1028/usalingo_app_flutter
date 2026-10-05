@@ -477,7 +477,7 @@ struct WordListView: View {
                 onSuspend: { suspendWord(word) }, onDelete: { deleteWord(word) },
                 onEdit: { editingWord = word },
                 onHold: { frame, point in presentWordMenu(word, frame: frame, anchor: point) },
-                onHoldMove: trackWordMenu, onHoldEnd: endWordMenu, content: row)
+                onHoldMove: trackWordMenu, onHoldEnd: endWordMenu(isLifted:), content: row)
         }
     }
 
@@ -601,6 +601,7 @@ struct WordListView: View {
         dwellTask?.cancel()
         if let highlighted {
             HapticFeedbackService.detent()
+            guard DeckRadialMenuLayout.isDwellEnabled else { return }
             dwellTask = Task { @MainActor in
                 try? await Task.sleep(for: .seconds(DeckRadialMenuLayout.dwellDuration))
                 guard !Task.isCancelled, menuTarget?.id == target.id,
@@ -611,9 +612,13 @@ struct WordListView: View {
         }
     }
 
-    private func endWordMenu() {
+    /// システムに指を取り上げられたときは、何も選ばずに閉じる。
+    private func endWordMenu(isLifted: Bool) {
         dwellTask?.cancel()
-        if menuTarget != nil && menuRelease == nil { menuRelease = .dismiss }
+        guard menuTarget != nil && menuRelease == nil else { return }
+        let release = isLifted ? DeckMenuRelease.lifted(highlighted: menuHighlight) : .dismiss
+        if case .choose = release { HapticFeedbackService.success() }
+        menuRelease = release
     }
 
     private func revealCurrentAnswer() {
