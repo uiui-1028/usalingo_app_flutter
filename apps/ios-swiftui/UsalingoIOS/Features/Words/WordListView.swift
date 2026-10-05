@@ -470,18 +470,18 @@ struct WordListView: View {
             Button {
                 taggingWord = check.current
             } label: {
-                Image(systemName: "tag")
+                WordListActionBarIcon(symbol: "tag", isActive: false)
             }
-            .buttonStyle(.glassBarIcon(diameter: 48))
+            .buttonStyle(.plain)
             .disabled(check.current == nil)
             .accessibilityLabel("タグ")
 
             Button {
                 editingWord = check.current
             } label: {
-                Image(systemName: "square.and.pencil")
+                WordListActionBarIcon(symbol: "square.and.pencil", isActive: false)
             }
-            .buttonStyle(.glassBarIcon(diameter: 48))
+            .buttonStyle(.plain)
             .disabled(check.current == nil)
             .accessibilityLabel("単語を編集")
         }

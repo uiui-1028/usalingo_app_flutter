@@ -217,16 +217,21 @@ struct StudySessionView: View {
     @ViewBuilder
     private var actionBar: some View {
         if !isLoading, index < cards.count {
-            toolbar
-                .padding(.horizontal, WireMetrics.screenPadding)
-                .padding(.top, WireMetrics.spacingXS)
-                .padding(.bottom, WireMetrics.screenPadding)
-                .backSwipeProtectedRegion()
+            // 48ptの押せる大きさを保ち、狭い画面ではボタン間の余白だけ縮める。
+            ViewThatFits(in: .horizontal) {
+                toolbar(spacing: WireMetrics.spacingS)
+                toolbar(spacing: WireMetrics.spacingXS)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, WireMetrics.screenPadding)
+            .padding(.top, WireMetrics.spacingXS)
+            .padding(.bottom, WireMetrics.spacingXL)
+            .backSwipeProtectedRegion()
         }
     }
 
-    private var toolbar: some View {
-        HStack(spacing: WireMetrics.spacingS) {
+    private func toolbar(spacing: CGFloat) -> some View {
+        HStack(spacing: spacing) {
             toolbarButton("tag", label: "タグ", action: tagCurrentCard)
             audioButton(
                 urls: [currentCard?.wordAudioURL, currentCard?.audioURL],
@@ -246,9 +251,7 @@ struct StudySessionView: View {
             )
             toolbarButton("square.and.pencil", label: "単語を編集", action: editCurrentCard)
         }
-        .padding(.horizontal, WireMetrics.spacingM)
-        .padding(.vertical, WireMetrics.spacingM)
-        .glassBarSurface(in: RoundedRectangle(cornerRadius: WireMetrics.radiusLarge))
+        .wordListBarChrome()
     }
 
     @ViewBuilder
@@ -281,9 +284,9 @@ struct StudySessionView: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            Image(systemName: symbol)
+            WordListActionBarIcon(symbol: symbol, isActive: false)
         }
-        .buttonStyle(.glassBarIcon(diameter: 40))
+        .buttonStyle(.plain)
         .disabled(isDisabled)
         .accessibilityLabel(label)
     }
@@ -719,9 +722,12 @@ struct StudyAudioButton: View {
                 service.playSequence(urls: queue)
             }
         } label: {
-            Image(systemName: isPlayingThis ? "speaker.slash" : symbol)
+            WordListActionBarIcon(
+                symbol: isPlayingThis ? "speaker.slash" : symbol,
+                isActive: false
+            )
         }
-        .buttonStyle(.glassBarIcon(diameter: 40))
+        .buttonStyle(.plain)
         .disabled(queue.isEmpty)
         .accessibilityLabel(label)
     }

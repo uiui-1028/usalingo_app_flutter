@@ -159,40 +159,49 @@ struct AudioRadioView: View {
             VStack(spacing: WireMetrics.spacingS) {
                 if let openPanel {
                     settingPanel(for: openPanel)
-                        .padding(.horizontal, WireMetrics.spacingL)
-                        .padding(.vertical, WireMetrics.spacingM)
+                        .padding(WireMetrics.spacingM)
                         .glassBarSurface(in: RoundedRectangle(cornerRadius: WireMetrics.radiusLarge))
                         .padding(.horizontal, WireMetrics.screenPadding)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
 
-                HStack(spacing: WireMetrics.spacingS) {
-                    toolbarButton("chevron.left", label: "学習に戻る") { dismiss() }
-                    toolbarButton(
-                        player.isPlaying ? "stop.fill" : "play.fill",
-                        label: player.isPlaying ? "ストップ" : "再生"
-                    ) {
-                        player.togglePlay()
-                    }
-                    toolbarButton("speedometer", label: "再生速度を変える", isSelected: openPanel == .rate) {
-                        toggle(panel: .rate)
-                    }
-                    toolbarButton(
-                        "moon.zzz",
-                        label: "スリープタイマー",
-                        isSelected: openPanel == .sleep || player.sleep != .off
-                    ) {
-                        toggle(panel: .sleep)
-                    }
-                    toolbarButton("hourglass", label: "間の長さを変える", isSelected: openPanel == .gap) {
-                        toggle(panel: .gap)
-                    }
+                // 48ptの押せる大きさを保ち、狭い画面ではボタン間の余白だけ縮める。
+                ViewThatFits(in: .horizontal) {
+                    toolbar(spacing: WireMetrics.spacingS)
+                    toolbar(spacing: WireMetrics.spacingXS)
                 }
-                .padding(WireMetrics.spacingM)
-                .glassBarSurface(in: RoundedRectangle(cornerRadius: WireMetrics.radiusLarge))
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, WireMetrics.screenPadding)
             }
-            .padding(.bottom, WireMetrics.spacingM)
+            .padding(.top, WireMetrics.spacingXS)
+            .padding(.bottom, WireMetrics.spacingXL)
         }
+    }
+
+    private func toolbar(spacing: CGFloat) -> some View {
+        HStack(spacing: spacing) {
+            toolbarButton("chevron.left", label: "学習に戻る") { dismiss() }
+            toolbarButton(
+                player.isPlaying ? "stop.fill" : "play.fill",
+                label: player.isPlaying ? "ストップ" : "再生"
+            ) {
+                player.togglePlay()
+            }
+            toolbarButton("speedometer", label: "再生速度を変える", isSelected: openPanel == .rate) {
+                toggle(panel: .rate)
+            }
+            toolbarButton(
+                "moon.zzz",
+                label: "スリープタイマー",
+                isSelected: openPanel == .sleep || player.sleep != .off
+            ) {
+                toggle(panel: .sleep)
+            }
+            toolbarButton("hourglass", label: "間の長さを変える", isSelected: openPanel == .gap) {
+                toggle(panel: .gap)
+            }
+        }
+        .wordListBarChrome()
     }
 
     @ViewBuilder
@@ -293,12 +302,11 @@ struct AudioRadioView: View {
     private func pill(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .wireFont(.caption, color: isSelected ? WireColor.surface : WireColor.ink)
+                .wireFont(.caption)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .frame(maxWidth: .infinity, minHeight: 36)
-                .background(Capsule().fill(isSelected ? WireColor.ink : WireColor.surface))
-                .overlay(Capsule().strokeBorder(WireColor.ink, lineWidth: WireMetrics.strokeHair))
+                .glassBarSelection(isSelected, in: Capsule())
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)
@@ -312,9 +320,9 @@ struct AudioRadioView: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            Image(systemName: symbol)
+            WordListActionBarIcon(symbol: symbol, isActive: isSelected)
         }
-        .buttonStyle(.glassBarIcon(diameter: 44, isSelected: isSelected))
+        .buttonStyle(.plain)
         .accessibilityLabel(label)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }

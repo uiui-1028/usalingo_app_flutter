@@ -91,11 +91,11 @@ struct MatchingGameView: View {
                     action: shuffleBoard
                 )
             }
-            .padding(.horizontal, WireMetrics.spacingM)
-            .padding(.vertical, WireMetrics.spacingM)
-            .glassBarSurface(in: RoundedRectangle(cornerRadius: WireMetrics.radiusLarge))
+            .wordListBarChrome()
+            .frame(maxWidth: .infinity)
             .padding(.horizontal, WireMetrics.screenPadding)
-            .padding(.bottom, WireMetrics.spacingM)
+            .padding(.top, WireMetrics.spacingXS)
+            .padding(.bottom, WireMetrics.spacingXL)
         }
     }
 
@@ -106,9 +106,9 @@ struct MatchingGameView: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            Image(systemName: symbol)
+            WordListActionBarIcon(symbol: symbol, isActive: false)
         }
-        .buttonStyle(.glassBarIcon(diameter: 40))
+        .buttonStyle(.plain)
         .disabled(isDisabled)
         .accessibilityLabel(label)
     }
