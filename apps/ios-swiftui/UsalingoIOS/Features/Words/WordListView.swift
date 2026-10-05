@@ -367,11 +367,13 @@ struct WordListView: View {
                         }
                         .padding(WireMetrics.screenPadding)
                     } else {
-                        let emptyRowHeights = WordListRowSnapping.emptyRowHeights(totalHeight: leadingBlankHeight(in: viewportHeight))
+                        let emptyRows = WordListRowSnapping.emptyRowHeights(totalHeight: leadingBlankHeight(in: viewportHeight))
+                            .enumerated().map { (id: "word-list-empty-record-\($0.offset)", height: $0.element) }
                         // 空行も単語行と同じ階層へ置き、それぞれを位置調整の対象にする。
-                        ForEach(emptyRowHeights.indices, id: \.self) { index in
-                            WordListEmptyRecord(height: emptyRowHeights[index])
-                                .id("word-list-empty-record-\(index)")
+                        // ForEach 自体の ID も文字列にし、整数の単語 ID と重ならないようにする。
+                        ForEach(emptyRows, id: \.id) { row in
+                            WordListEmptyRecord(height: row.height)
+                                .id(row.id)
                         }
                         ForEach(Array(displayedWords.enumerated()), id: \.element.id) { index, word in
                             wordRow(word, index: index)
