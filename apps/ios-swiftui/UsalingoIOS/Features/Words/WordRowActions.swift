@@ -38,7 +38,7 @@ struct WordRowActions<Content: View>: View {
                         if openedID != nil { close() } else { onTap(point) }
                     },
                     onPan: handlePan,
-                    onHold: { frame, point in close(); onHold(frame, point) },
+                    onHold: { frame, point, _ in close(); onHold(frame, point) },
                     onHoldMove: onHoldMove, onHoldEnd: onHoldEnd)
                 .accessibilityHidden(true)
             }
@@ -130,7 +130,7 @@ struct WordRowTouchSurface: UIViewRepresentable {
     let isOpen: Bool
     let onTap: (CGPoint) -> Void
     var onPan: ((CGFloat, CGFloat, UIGestureRecognizer.State) -> Void)? = nil
-    let onHold: (CGRect, CGPoint) -> Void
+    let onHold: (CGRect, CGPoint, CGRect) -> Void
     let onHoldMove: (CGPoint) -> Void
     /// 長押しを終えた。指を離したときは true、システムに取り上げられたときは false。
     let onHoldEnd: (Bool) -> Void
@@ -177,10 +177,10 @@ struct WordRowTouchSurface: UIViewRepresentable {
             parent.onPan?(gesture.translation(in: gesture.view).x, gesture.view?.bounds.width ?? 0, gesture.state)
         }
         @objc func hold(_ gesture: UILongPressGestureRecognizer) {
-            guard let view = gesture.view else { return }
-            let point = gesture.location(in: view.window)
+            guard let view = gesture.view, let window = view.window else { return }
+            let point = gesture.location(in: window)
             switch gesture.state {
-            case .began: parent.onHold(view.convert(view.bounds, to: view.window), point)
+            case .began: parent.onHold(view.convert(view.bounds, to: window), point, window.bounds)
             case .changed: parent.onHoldMove(point)
             case .ended: parent.onHoldEnd(true)
             case .cancelled, .failed: parent.onHoldEnd(false)

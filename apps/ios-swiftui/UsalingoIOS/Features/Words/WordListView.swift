@@ -482,7 +482,9 @@ struct WordListView: View {
                         isDisabled: check.isUndoing || !check.canLeave || wantsToLeave,
                         isOpen: false,
                         onTap: { _ in selectedWord = word },
-                        onHold: { frame, point in presentWordMenu(word, frame: frame, anchor: point) },
+                        onHold: { frame, point, viewport in
+                            presentWordMenu(word, frame: frame, anchor: point, viewport: viewport)
+                        },
                         onHoldMove: trackWordMenu,
                         onHoldEnd: endWordMenu(isLifted:)
                     )
@@ -625,7 +627,7 @@ struct WordListView: View {
         } catch { rowActionError = UserFacingError.message(for: error) }
     }
 
-    private func presentWordMenu(_ word: WordCard, frame: CGRect, anchor: CGPoint) {
+    private func presentWordMenu(_ word: WordCard, frame: CGRect, anchor: CGPoint, viewport: CGRect? = nil) {
         guard check.canLeave else { return }
         menuHighlight = nil
         menuRelease = nil
@@ -637,7 +639,7 @@ struct WordListView: View {
                          action: { suspendWord(word) }),
             DeckMenuItem(title: "削除", systemImage: "trash", role: .destructive,
                          action: { deleteWord(word) })
-        ])
+        ], viewport: viewport)
         HapticFeedbackService.swipeThresholdCrossed()
     }
 
