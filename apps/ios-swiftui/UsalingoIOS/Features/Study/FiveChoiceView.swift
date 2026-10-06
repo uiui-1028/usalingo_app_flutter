@@ -16,6 +16,9 @@ struct FiveChoiceView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            StudyBridgeHeader(progress: game?.progress ?? 0, isBackDisabled: answerQueue.isDraining) {
+                if answerQueue.isEmpty { dismiss() } else { showsLeaveConfirmation = true }
+            }
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             saveFailureBanner
@@ -189,12 +192,9 @@ struct FiveChoiceView: View {
         .outlineSurface(radius: WireMetrics.radiusPill, shadow: nil)
     }
 
-    /// 下端の道具の帯。カード学習と同じガラスの帯に、戻ると音声2つだけを置く。
+    /// 下端の道具の帯。カード学習と同じガラスの帯に、音声2つだけを置く。
     private var footer: some View {
         HStack(spacing: WireMetrics.spacingS) {
-            toolbarButton("chevron.left", label: "学習に戻る", isDisabled: answerQueue.isDraining) {
-                if answerQueue.isEmpty { dismiss() } else { showsLeaveConfirmation = true }
-            }
             audioButton(
                 urls: [game?.question?.card.wordAudioURL, game?.question?.card.audioURL],
                 symbol: "speaker.wave.2",
@@ -217,20 +217,6 @@ struct FiveChoiceView: View {
                 Color.clear.contentShape(Rectangle()).onTapGesture { advance() }
             }
         }
-    }
-
-    private func toolbarButton(
-        _ symbol: String,
-        label: String,
-        isDisabled: Bool = false,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            WordListActionBarIcon(symbol: symbol, isActive: false)
-        }
-        .buttonStyle(.plain)
-        .disabled(isDisabled)
-        .accessibilityLabel(label)
     }
 
     private func audioButton(urls: [URL?], symbol: String, label: String) -> some View {

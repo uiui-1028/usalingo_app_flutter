@@ -41,7 +41,7 @@ struct StudySessionView: View {
     var body: some View {
         VStack(spacing: 0) {
             if !isLoading, loadErrorMessage == nil, !cards.isEmpty {
-                StudyProgressPanel(progress: cardOrder.progress)
+                StudyBridgeHeader(progress: cardOrder.progress) { dismiss() }
                     .zIndex(1)
             }
 

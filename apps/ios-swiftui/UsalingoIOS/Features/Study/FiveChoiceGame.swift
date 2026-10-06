@@ -15,10 +15,13 @@ struct FiveChoiceGame {
     private(set) var question: Question?
     private(set) var selectedIndex: Int?
     private(set) var answeredCount = 0
+    private(set) var correctCount = 0
     private(set) var skippedCount = 0
 
     var isFinished: Bool { question == nil }
     var isRevealed: Bool { selectedIndex != nil }
+    /// 正解した問題の割合。間違えた問題は進めない。
+    var progress: Double { cards.isEmpty ? 0 : Double(correctCount) / Double(cards.count) }
 
     init(cards: [WordCard], candidates: [WordCard], shufflesOrder: Bool = true) {
         var seen = Set<Int>()
@@ -55,7 +58,9 @@ struct FiveChoiceGame {
         guard let question, selectedIndex == nil, question.choices.indices.contains(index) else { return nil }
         selectedIndex = index
         answeredCount += 1
-        return index == question.correctIndex
+        let isCorrect = index == question.correctIndex
+        if isCorrect { correctCount += 1 }
+        return isCorrect
     }
 
     mutating func advance() {

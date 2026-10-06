@@ -94,6 +94,21 @@ final class FiveChoiceGameTests: XCTestCase {
         XCTAssertEqual(game.answeredCount, selected.count)
     }
 
+    func testProgressCountsOnlyCorrectAnswers() throws {
+        var game = FiveChoiceGame(cards: words(1...4), candidates: words(1...20), shufflesOrder: false)
+        XCTAssertEqual(game.progress, 0)
+
+        var question = try XCTUnwrap(game.question)
+        _ = game.answer(at: (question.correctIndex + 1) % 5)
+        XCTAssertEqual(game.progress, 0)
+        game.advance()
+
+        question = try XCTUnwrap(game.question)
+        _ = game.answer(at: question.correctIndex)
+        _ = game.answer(at: question.correctIndex)
+        XCTAssertEqual(game.progress, 0.25)
+    }
+
     func testLoadingFetchesOnlyAddedDecksAndUsesTheirFullCards() async throws {
         let source = ChoiceTestSource()
         source.decks = [Deck(id: 1, deckName: "出題", description: nil), Deck(id: 2, deckName: "追加済み", description: nil)]
