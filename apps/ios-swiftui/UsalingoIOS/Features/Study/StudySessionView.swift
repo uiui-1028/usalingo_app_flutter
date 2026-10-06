@@ -9,7 +9,8 @@ struct StudySessionView: View {
     let studyMode: StudyMode
 
     @State private var cards: [WordCard] = []
-    @State private var index = 0
+    @State private var cardOrder = StudyCardOrder()
+    @State private var presentationID = UUID()
     @State private var isLoading = false
     @State private var loadErrorMessage: String?
     @State private var saveErrorMessage: String?
@@ -40,7 +41,7 @@ struct StudySessionView: View {
     var body: some View {
         VStack(spacing: 0) {
             if !isLoading, loadErrorMessage == nil, !cards.isEmpty {
-                StudyProgressPanel(progress: Double(index) / Double(cards.count))
+                StudyProgressPanel(progress: cardOrder.progress)
                     .zIndex(1)
             }
 
@@ -87,7 +88,7 @@ struct StudySessionView: View {
         }
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
-        .task(id: currentCard?.id) {
+        .task(id: presentationID) {
             playCurrentCardAudioSequence()
         }
         .onChange(of: isFlipped) { _, isFlipped in
@@ -126,19 +127,27 @@ struct StudySessionView: View {
             let width = max(0, min(350, proxy.size.width, proxy.size.height * 0.575))
 
             ZStack {
-                if index + 1 < cards.count {
-                    StudyCardView(card: cards[index + 1], showAnswer: false)
+                // 戻る途中のカードを中央の控えにも描くと、同じ1枚が二重に見えてしまう。
+                if let nextIndex = cardOrder.next,
+                   !flyawayCards.contains(where: { $0.card.id == cards[nextIndex].id }) {
+                    StudyCardView(card: cards[nextIndex], showAnswer: false)
                         .allowsHitTesting(false)
+                        // ponytail: 控えは読み上げ対象外。VoiceOverの詳細調整は後日の一括対応。
+                        .accessibilityHidden(true)
                         .zIndex(0)
                 }
 
                 StudyCardView(card: cards[index], showAnswer: showAnswer, isFlipped: isFlipped)
-                    .id(cards[index].id)
+                    .id(presentationID)
+                    .opacity(isWaitingForRepeatedCard ? 0 : 1)
+                    .allowsHitTesting(!isUndoingAnswer && !isWaitingForRepeatedCard)
                     .swipeAnswerTint(horizontalOffset: dragOffset.width)
                     .zIndex(1)
                     .backSwipeProtectedRegion()
+                    // 左は参考の translate(...) rotate(...) と同じ順。移動量まで回転させない。
+                    .rotationEffect(.degrees(Double(min(dragOffset.width, 0) / 30)))
                     .offset(dragOffset)
-                    .rotationEffect(.degrees(Double(dragOffset.width / 24)))
+                    .rotationEffect(.degrees(Double(max(dragOffset.width, 0) / 24)))
                     // 裏面の ScrollView に横方向のドラッグを食われないよう、同時認識にする。
                     // どちらの操作かは動き出しの向きで決め、決めた後は最後まで変えない。
                     // 指が触れた瞬間に回答を出し、そのまま確定ラインまで滑らせれば、
@@ -178,7 +187,7 @@ struct StudySessionView: View {
                                 if value.translation.width > SwipeThreshold.commit {
                                     swipe(isCorrect: true)
                                 } else if value.translation.width < -SwipeThreshold.commit {
-                                    swipe(isCorrect: false)
+                                    swipe(isCorrect: false, exitDistance: max(500, proxy.size.width))
                                 } else {
                                     // タッチで出した回答は、ここで隠し直さない。
                                     withAnimation(.spring(response: 0.3, dampingFraction: 0.78)) {
@@ -202,7 +211,6 @@ struct StudySessionView: View {
                     FlyawayCardView(item: item) { finished in
                         flyawayCards.removeAll { $0.id == finished.id }
                     }
-                    .zIndex(2)
                 }
             }
             .frame(width: width, height: width / 0.575)
@@ -296,7 +304,8 @@ struct StudySessionView: View {
         do {
             cards = try await appState.studyDataSource.fetchStudyQueue(deckId: deck.id, mode: studyMode)
             audioPlaybackService.stop()
-            index = 0
+            cardOrder = StudyCardOrder(count: cards.count)
+            presentationID = UUID()
             sessionAnswers = []
             sessionProgresses = []
             answerHistory = []
@@ -336,7 +345,8 @@ struct StudySessionView: View {
                 AnswerCheckpoint(
                     cardIndex: pending.cardIndex,
                     originalCard: pending.card,
-                    previousProgress: savedAnswer.previousProgress
+                    previousProgress: savedAnswer.previousProgress,
+                    isCorrect: pending.isCorrect
                 )
             )
         }
@@ -344,25 +354,33 @@ struct StudySessionView: View {
 
     /// カードの見送りと保存を切り離す。行列へ積んだらすぐ次のカードへ進むので、
     /// 飛ばす演出や通信の完了待ちでスワイプが塞がることはない。
-    private func submitAnswer(isCorrect: Bool) {
-        guard index < cards.count else { return }
+    private func submitAnswer(isCorrect: Bool, exitDistance: CGFloat) {
+        guard index < cards.count, !isUndoingAnswer else { return }
         saveErrorMessage = nil
 
         let answeredCard = cards[index]
-        let target: CGFloat = isCorrect ? 700 : -700
+        let nextPresentationID = UUID()
+        let target: CGFloat = isCorrect ? 700 : -exitDistance
         flyawayCards.append(
             FlyawayCard(
                 card: answeredCard,
                 showAnswer: showAnswer,
                 isFlipped: isFlipped,
                 start: dragOffset,
-                end: CGSize(width: target, height: dragOffset.height)
+                end: CGSize(width: target, height: isCorrect ? dragOffset.height : 0),
+                isCorrect: isCorrect,
+                repeatedPresentationID: !isCorrect && cardOrder.remaining.count == 1 ? nextPresentationID : nil
             )
         )
         answerQueue.enqueue(cardIndex: index, card: answeredCard, isCorrect: isCorrect)
 
         audioPlaybackService.stop()
-        index += 1
+        cardOrder.answer(isCorrect: isCorrect)
+        presentationID = nextPresentationID
+        // 素早く一巡したら、再出題されたカードと古い演出を二重に見せない。
+        flyawayCards.removeAll {
+            $0.card.id == currentCard?.id && $0.repeatedPresentationID != presentationID
+        }
         showAnswer = false
         isFlipped = false
         dragOffset = .zero
@@ -389,8 +407,8 @@ struct StudySessionView: View {
         drainAnswerQueue()
     }
 
-    private func swipe(isCorrect: Bool) {
-        submitAnswer(isCorrect: isCorrect)
+    private func swipe(isCorrect: Bool, exitDistance: CGFloat = 700) {
+        submitAnswer(isCorrect: isCorrect, exitDistance: exitDistance)
     }
 
     private func undo() {
@@ -413,7 +431,10 @@ struct StudySessionView: View {
             audioPlaybackService.stop()
             withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
                 cards[checkpoint.cardIndex] = checkpoint.originalCard
-                index = checkpoint.cardIndex
+                    .withLearningProgress(checkpoint.previousProgress)
+                cardOrder.undo(cardIndex: checkpoint.cardIndex, isCorrect: checkpoint.isCorrect)
+                presentationID = UUID()
+                flyawayCards = []
                 sessionAnswers.removeLast()
                 sessionProgresses.removeLast()
                 answerHistory.removeLast()
@@ -421,10 +442,18 @@ struct StudySessionView: View {
                 isFlipped = false
                 dragOffset = .zero
             }
+            prefetchUpcomingMedia()
             appState.markStudyDataChanged()
         } catch {
             saveErrorMessage = "取り消しを保存できませんでした。もう一度お試しください。"
         }
+    }
+
+    private var index: Int { cardOrder.current ?? cards.count }
+
+    /// 最後の1枚は、戻っている実物だけを見せる。中央に同じカードを先出ししない。
+    private var isWaitingForRepeatedCard: Bool {
+        flyawayCards.contains { $0.repeatedPresentationID == presentationID }
     }
 
     private var currentCard: WordCard? {
@@ -448,9 +477,9 @@ struct StudySessionView: View {
     /// 現在のカードから数枚先までを温める。1枚消費するたびに窓が1つ先へずれるので、
     /// 常に読み込み済みの控えが残る。取得済みのものは各キャッシュ側で弾かれる。
     private func prefetchUpcomingMedia() {
-        let upcoming = cards
-            .dropFirst(index)
+        let upcoming = cardOrder.remaining
             .prefix(CardImageCache.prefetchWindow)
+            .map { cards[$0] }
         CardImageCache.prefetch(urls: upcoming.compactMap(\.illustrationURL))
     }
 
@@ -565,23 +594,44 @@ private struct FlyawayCard: Identifiable {
     let isFlipped: Bool
     let start: CGSize
     let end: CGSize
+    let isCorrect: Bool
+    let repeatedPresentationID: UUID?
 }
 
 private struct FlyawayCardView: View {
     let item: FlyawayCard
     let onFinished: (FlyawayCard) -> Void
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var offset: CGSize?
 
     var body: some View {
+        Group {
+            if item.isCorrect {
+                correctCard
+            } else {
+                ReturningStudyCardView(item: item, onFinished: onFinished)
+            }
+        }
+        .allowsHitTesting(false)
+        // ponytail: 演出の控えは読み上げ対象外。VoiceOverの詳細調整は後日の一括対応。
+        .accessibilityHidden(true)
+    }
+
+    /// 正解側はこれまでの移動・回転・時間を保つ。
+    private var correctCard: some View {
         let current = offset ?? item.start
-        StudyCardView(card: item.card, showAnswer: item.showAnswer, isFlipped: item.isFlipped)
+        return StudyCardView(card: item.card, showAnswer: item.showAnswer, isFlipped: item.isFlipped)
             .swipeAnswerTint(horizontalOffset: current.width)
             .offset(current)
             .rotationEffect(.degrees(Double(current.width / 24)))
             .opacity(offset == nil ? 1 : 0)
-            .allowsHitTesting(false)
+            .zIndex(2)
             .onAppear {
+                guard !reduceMotion else {
+                    onFinished(item)
+                    return
+                }
                 withAnimation(.easeIn(duration: 0.2)) {
                     offset = item.end
                 } completion: {
@@ -591,10 +641,61 @@ private struct FlyawayCardView: View {
     }
 }
 
+/// 左へ消えた後、0.9倍の大きさで最背面から同じ場所へ戻る。
+private struct ReturningStudyCardView: View {
+    let item: FlyawayCard
+    let onFinished: (FlyawayCard) -> Void
+
+    private enum Phase {
+        case released, offscreen, returning
+    }
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var phase = Phase.released
+
+    var body: some View {
+        let isReturning = phase == .returning
+        let position = isReturning ? .zero : (phase == .released ? item.start : item.end)
+        let angle = isReturning ? 0 : (phase == .released ? Double(item.start.width / 30) : -30)
+
+        StudyCardView(
+            card: item.card,
+            showAnswer: isReturning ? false : item.showAnswer,
+            isFlipped: isReturning ? false : item.isFlipped
+        )
+            .swipeAnswerTint(horizontalOffset: isReturning ? 0 : item.start.width)
+            .scaleEffect(isReturning ? 0.9 : 1)
+            .blur(radius: isReturning ? 4 : 0)
+            // 答え・判定色・大きさ・ぼかしを画面外で切り替え、移動・回転・透明度を遷移させる。
+            .animation(nil, value: phase)
+            .rotationEffect(.degrees(angle))
+            .offset(position)
+            .opacity(phase == .offscreen ? 0 : (isReturning ? 0.7 : 1))
+            .zIndex(isReturning ? -1 : 2)
+            .onAppear {
+                guard !reduceMotion else {
+                    onFinished(item)
+                    return
+                }
+                withAnimation(.easeIn(duration: 0.3), completionCriteria: .removed) {
+                    phase = .offscreen
+                } completion: {
+                    // 透明になった後で重なり順を下げ、位置と透明度を一緒に戻す。
+                    withAnimation(.easeOut(duration: 0.2), completionCriteria: .removed) {
+                        phase = .returning
+                    } completion: {
+                        onFinished(item)
+                    }
+                }
+            }
+    }
+}
+
 private struct AnswerCheckpoint {
     let cardIndex: Int
     let originalCard: WordCard
     let previousProgress: LearningProgress?
+    let isCorrect: Bool
 }
 
 /// 読み込み失敗・カードなしなど、学習系の画面で共通に出す案内。
