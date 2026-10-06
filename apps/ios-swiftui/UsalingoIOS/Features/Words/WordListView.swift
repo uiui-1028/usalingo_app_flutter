@@ -13,6 +13,7 @@ struct WordListView: View {
     private static let minimumRedSheetTopRatio: CGFloat = 0.30
     private static let maximumRedSheetTopRatio: CGFloat = 0.80
     @State private var isRedSheetEnabled = false
+    @AppStorage(WordListDisplayMode.storageKey) private var savedDisplayMode: WordListDisplayMode = .list
     @AppStorage(WordListColumn.leftStorageKey) private var leftColumn: WordListColumn = .word
     @AppStorage(WordListColumn.rightStorageKey) private var rightColumn: WordListColumn = .meaning
     @AppStorage(WordListColumn.middleStorageKey) private var middleColumn: WordListColumn?
@@ -39,6 +40,13 @@ struct WordListView: View {
     @State private var rowActionError: String?
     @State private var wantsToLeave = false
     @State private var wantsToReset = false
+
+    // プレビューの表示指定は、端末に保存する設定から切り離す。
+    private var displayModeBinding: Binding<WordListDisplayMode> {
+        usesPreviewWords ? $viewModel.selectedDisplayMode : $savedDisplayMode
+    }
+
+    private var selectedDisplayMode: WordListDisplayMode { displayModeBinding.wrappedValue }
 
     init(
         deck: Deck? = nil,
@@ -169,7 +177,7 @@ struct WordListView: View {
         GeometryReader { proxy in
             // 一覧のレイヤーと赤シートのレイヤーを分ける。赤シートは一覧と一緒にスクロールしない。
             ZStack(alignment: .topTrailing) {
-                wordScroll(bottomInset: bottomInset, viewportHeight: proxy.size.height)
+                wordScroll(bottomInset: bottomInset, viewportSize: proxy.size)
                     // 赤シート中は一覧を動かさない。引っ張ると少しだけ伸びて元の位置へ戻り、
                     // ここから動かないことを iOS のラバーバンドと同じ手ごたえで伝える。
                     .offset(y: rubberBandOffset)
@@ -211,7 +219,7 @@ struct WordListView: View {
                         }
                     }
 
-                if isRedSheetEnabled && viewModel.selectedDisplayMode == .list
+                if isRedSheetEnabled && selectedDisplayMode == .list
                     && !displayedWords.isEmpty && !viewModel.isLoading && !check.isComplete {
                     let columnWidth = proxy.size.width / CGFloat(columns.count)
                     let sheetWidth = columnWidth * CGFloat(effectiveRedSheetColumns) + RedSheetLayer.leadingOverlap
@@ -257,8 +265,8 @@ struct WordListView: View {
 
                 if !sheetOnly {
                     WordListColumnHeader(
-                        progress: progress(viewportHeight: proxy.size.height),
-                        columns: viewModel.selectedDisplayMode == .list ? columnsBinding : nil
+                        progress: progress(viewportSize: proxy.size),
+                        columns: selectedDisplayMode == .list ? columnsBinding : nil
                     )
                     .padding(.horizontal, WireMetrics.screenPadding)
                     .padding(.top, topInset + WireMetrics.spacingXS)
@@ -305,7 +313,7 @@ struct WordListView: View {
                         selectedDueFilter: $viewModel.selectedDueFilter,
                         selectedSort: $viewModel.selectedSort,
                         searchText: $viewModel.searchText,
-                        selectedDisplayMode: $viewModel.selectedDisplayMode,
+                        selectedDisplayMode: displayModeBinding,
                         isRedSheetEnabled: $isRedSheetEnabled,
                         canToggleRedSheet: check.canLeave
                     ) {
@@ -321,7 +329,7 @@ struct WordListView: View {
                 .backSwipeProtectedRegion()
             }
             .onPreferenceChange(WordListBarHeightKey.self) { bottomBarClearance = $0 }
-            .onChange(of: viewModel.selectedDisplayMode) { _, mode in
+            .onChange(of: selectedDisplayMode) { _, mode in
                 if mode == .cards { isRedSheetEnabled = false }
             }
     }
@@ -340,8 +348,10 @@ struct WordListView: View {
     /// `List` の行に置いたタップは、行の余白や左右の背景まで一緒に反応してしまう。
     /// 背景は戻るスワイプが使う場所なので、行の枠だけがタップに応えるよう
     /// 自前の縦並びにし、横操作は行の内側だけで受ける。
-    private func wordScroll(bottomInset: CGFloat, viewportHeight: CGFloat) -> some View {
-        ScrollViewReader { reader in
+    private func wordScroll(bottomInset: CGFloat, viewportSize: CGSize) -> some View {
+        let viewportHeight = viewportSize.height
+        let cardLayout = WordListCardLayout(viewportWidth: viewportSize.width, headerClearance: headerClearance)
+        return ScrollViewReader { reader in
             ScrollView {
                 LazyVStack(spacing: 0) {
                     if viewModel.isLoading {
@@ -357,15 +367,25 @@ struct WordListView: View {
                     } else if displayedWords.isEmpty {
                         ContentUnavailableView("単語がありません", systemImage: "magnifyingglass", description: Text("検索条件またはタグを変更してください"))
                             .padding(.vertical, WireMetrics.spacingXL)
-                    } else if viewModel.selectedDisplayMode == .cards {
-                        LazyVGrid(columns: cardColumns, spacing: WireMetrics.spacingM) {
+                    } else if selectedDisplayMode == .cards {
+                        LazyVGrid(columns: cardColumns, spacing: 8) {
+                            ForEach((0..<3).map { "word-card-leading-empty-\($0)" }, id: \.self) { _ in
+                                WordLibraryEmptyCard()
+                            }
                             ForEach(displayedWords) { word in
-                                WordLibraryCard(word: word)
-                                    .cardTapTarget { selectedWord = word }
+                                wordCard(word)
                                     .reportsWordListFrame(id: word.id)
                             }
+                            // 最後の段を3枚に揃えてから、空カードを2段追加する。
+                            ForEach((0..<(6 + (3 - displayedWords.count % 3) % 3)).map {
+                                "word-card-trailing-empty-\($0)"
+                            }, id: \.self) { _ in
+                                WordLibraryEmptyCard()
+                            }
                         }
-                        .padding(WireMetrics.screenPadding)
+                        .padding(.horizontal, 16)
+                        .padding(.top, WireMetrics.screenPadding)
+                        .padding(.bottom, WireMetrics.screenPadding)
                     } else {
                         let emptyRows = WordListRowSnapping.emptyRowHeights(totalHeight: leadingBlankHeight(in: viewportHeight))
                             .enumerated().map { (id: "word-list-empty-record-\($0.offset)", height: $0.element) }
@@ -382,22 +402,22 @@ struct WordListView: View {
                         }
                     }
                 }
-                .scrollTargetLayout(isEnabled: viewModel.selectedDisplayMode == .list)
+                .scrollTargetLayout(isEnabled: selectedDisplayMode == .list)
                 // 上のパネルの下から始める。スクロールするとパネルの裏へ入る。
                 .padding(.top, headerClearance)
-                // 最終行も上端へ揃えられる余白。カード表示は従来どおりの余白。
-                .padding(.bottom, viewModel.selectedDisplayMode == .list
+                // 最後の段もカウント判定線まで上げられ、下の操作バーにも隠れない余白。
+                .padding(.bottom, selectedDisplayMode == .list
                     ? WordListRowSnapping.bottomPadding(
                         viewportHeight: viewportHeight - headerClearance,
                         lastRowHeight: lastRowHeight
                     )
-                    : bottomBarClearance + bottomInset)
+                    : cardLayout.bottomPadding(viewportHeight: viewportHeight, minimum: bottomBarClearance + bottomInset))
             }
             .scrollIndicators(.hidden)
             // 赤シート中の位置合わせは判定ごとの自動スクロールにまかせ、指では動かさない。
             .scrollDisabled(isRedSheetEnabled)
             .scrollTargetBehavior(WordListRowScrollBehavior(
-                isEnabled: viewModel.selectedDisplayMode == .list && !isRedSheetEnabled,
+                isEnabled: selectedDisplayMode == .list && !isRedSheetEnabled,
                 topInset: headerClearance
             ))
             .onChange(of: check.isAnswerVisible) { _, _ in
@@ -434,7 +454,7 @@ struct WordListView: View {
     }
 
     private func leadingBlankHeight(in viewportHeight: CGFloat) -> CGFloat {
-        guard viewModel.selectedDisplayMode == .list else { return 0 }
+        guard selectedDisplayMode == .list else { return 0 }
         if isRedSheetEnabled && check.isStarted {
             return max(0, redSheetTop(in: viewportHeight) - headerClearance)
         }
@@ -448,6 +468,32 @@ struct WordListView: View {
         let anchorY = RedSheetPosition.rowAnchor(availableHeight: viewportHeight, rowHeight: rowHeight,
                                                 ratio: check.sheetTopRatio, isAnswerVisible: check.isAnswerVisible)
         reader.scrollTo(id, anchor: UnitPoint(x: 0, y: anchorY))
+    }
+
+    @ViewBuilder
+    private func wordCard(_ word: WordCard) -> some View {
+        let card = WordLibraryCard(word: word)
+        if viewModel.deck == nil {
+            card.cardTapTarget { selectedWord = word }
+        } else {
+            card
+                .overlay {
+                    WordRowTouchSurface(
+                        isDisabled: check.isUndoing || !check.canLeave || wantsToLeave,
+                        isOpen: false,
+                        onTap: { _ in selectedWord = word },
+                        onHold: { frame, point, viewport in
+                            presentWordMenu(word, frame: frame, anchor: point, viewport: viewport)
+                        },
+                        onHoldMove: trackWordMenu,
+                        onHoldEnd: endWordMenu(isLifted:)
+                    )
+                    .accessibilityHidden(true)
+                }
+                // ponytail: 支援技術の詳細は後日まとめて整え、今は単語と詳細を開く操作だけを公開する。
+                .accessibilityAddTraits(.isButton)
+                .accessibilityAction { selectedWord = word }
+        }
     }
 
     @ViewBuilder
@@ -513,20 +559,24 @@ struct WordListView: View {
     private var effectiveRedSheetColumns: Int { min(check.coveredColumns, maximumRedSheetColumns) }
 
     /// 上のパネルの進み具合。赤シートのチェック中は判定した数、リストはパネルのすぐ下の行、
-    /// カードは画面に見えている最後のカードの位置で測る。
-    private func progress(viewportHeight: CGFloat) -> Double {
+    /// カードは最初の段の上端から16pt下の固定線に届いた段までを数える。
+    private func progress(viewportSize: CGSize) -> Double {
         let count = displayedWords.count
         guard count > 0 else { return 0 }
         if isRedSheetEnabled && check.isStarted {
             return Double(check.index) / Double(max(1, check.words.count))
         }
+        if selectedDisplayMode == .cards {
+            let layout = WordListCardLayout(viewportWidth: viewportSize.width, headerClearance: headerClearance)
+            let frames = displayedWords.map { rowFrames[$0.id] }
+            return Double(layout.countedCards(frames: frames)) / Double(count)
+        }
         let visible = displayedWords.indices.filter { index in
             guard let frame = rowFrames[displayedWords[index].id] else { return false }
-            return frame.maxY > headerClearance + 1 && frame.minY < viewportHeight
+            return frame.maxY > headerClearance + 1 && frame.minY < viewportSize.height
         }
-        guard let first = visible.first, let last = visible.last else { return 0 }
-        let position = viewModel.selectedDisplayMode == .cards ? last : first
-        return Double(position + 1) / Double(count)
+        guard let first = visible.first else { return 0 }
+        return Double(first + 1) / Double(count)
     }
     private func redSheetTop(in viewportHeight: CGFloat) -> CGFloat {
         RedSheetPosition.top(availableHeight: viewportHeight, ratio: check.sheetTopRatio)
@@ -577,7 +627,7 @@ struct WordListView: View {
         } catch { rowActionError = UserFacingError.message(for: error) }
     }
 
-    private func presentWordMenu(_ word: WordCard, frame: CGRect, anchor: CGPoint) {
+    private func presentWordMenu(_ word: WordCard, frame: CGRect, anchor: CGPoint, viewport: CGRect? = nil) {
         guard check.canLeave else { return }
         menuHighlight = nil
         menuRelease = nil
@@ -589,7 +639,7 @@ struct WordListView: View {
                          action: { suspendWord(word) }),
             DeckMenuItem(title: "削除", systemImage: "trash", role: .destructive,
                          action: { deleteWord(word) })
-        ])
+        ], viewport: viewport)
         HapticFeedbackService.swipeThresholdCrossed()
     }
 
@@ -696,10 +746,7 @@ struct WordListView: View {
     }
 
     private var cardColumns: [GridItem] {
-        [
-            GridItem(.flexible(), spacing: 12),
-            GridItem(.flexible())
-        ]
+        Array(repeating: GridItem(.flexible(), spacing: 8), count: 3)
     }
 }
 
@@ -761,6 +808,33 @@ enum WordListRowSnapping {
     }
     static func bottomPadding(viewportHeight: CGFloat, lastRowHeight: CGFloat) -> CGFloat {
         max(0, viewportHeight - lastRowHeight)
+    }
+}
+
+/// 配置とカウントに同じ寸法を使い、判定線がスクロールするカードに追従しないようにする。
+struct WordListCardLayout {
+    let viewportWidth: CGFloat
+    let headerClearance: CGFloat
+
+    var cardHeight: CGFloat { max(1, (viewportWidth - 32 - 16) / 3) / 0.74 }
+    var emptyRowsHeight: CGFloat { 2 * (cardHeight + 8) }
+    var topPadding: CGFloat { WireMetrics.screenPadding + cardHeight + 8 }
+    var countLine: CGFloat { headerClearance + topPadding + 16 }
+
+    func bottomPadding(viewportHeight: CGFloat, minimum: CGFloat) -> CGFloat {
+        // 末尾の空カード2段が確保した高さを引く。丸めで判定線の直前に止まらないよう1ptを足す。
+        max(minimum, WordListRowSnapping.bottomPadding(
+            viewportHeight: viewportHeight - countLine + 1 - emptyRowsHeight, lastRowHeight: cardHeight
+        ))
+    }
+
+    func countedCards(frames: [CGRect?]) -> Int {
+        guard !frames.isEmpty else { return 0 }
+        let index = frames.lastIndex { frame in
+            guard let frame else { return false }
+            return frame.minY <= countLine
+        } ?? 0
+        return min(frames.count, (index / 3 + 1) * 3)
     }
 }
 

@@ -167,6 +167,8 @@ enum WordListDisplayMode: String, CaseIterable, Identifiable {
     case list
     case cards
 
+    static let storageKey = "wordListDisplayMode"
+
     var id: String { rawValue }
 
     var title: String {

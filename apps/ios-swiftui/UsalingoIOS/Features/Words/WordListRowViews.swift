@@ -4,55 +4,35 @@ struct WordLibraryCard: View {
     let word: WordCard
 
     var body: some View {
-        VStack(spacing: 0) {
-            illustration
-
-            Text(word.text)
-                .wireFont(.titleS)
-                .lineLimit(2)
-                .minimumScaleFactor(0.8)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: .infinity, minHeight: 48)
-                .padding(.horizontal, WireMetrics.spacingS)
-                .padding(.vertical, WireMetrics.spacingXS)
+        GeometryReader { geometry in
+            let width = max(1, geometry.size.width)
+            // 詳細カードと同じ350ptの配置を縮め、単語以外の文字は灰色の箱にする。
+            StudyCardFace(fill: word.isSuspended ? Color(white: 0.78) : WireColor.surface) {
+                StudyCardFront(card: word, content: WordCardContent(card: word), showAnswer: true,
+                               placeholderProgress: Double(min(1, max(0, (280 - width) / 80))))
+            }
+            .frame(width: 350, height: 350 / 0.74)
+            .grayscale(word.isSuspended ? 1 : 0)
+            .scaleEffect(width / 350)
+            .frame(width: width, height: geometry.size.height)
         }
-        .clipShape(RoundedRectangle(cornerRadius: WireMetrics.radiusCard, style: .continuous))
-        .outlineSurface(radius: WireMetrics.radiusCard, shadow: .card)
+        .aspectRatio(0.74, contentMode: .fit)
         .contentShape(RoundedRectangle(cornerRadius: WireMetrics.radiusCard, style: .continuous))
-        .accessibilityElement(children: .combine)
+        // ponytail: VoiceOverは詳細な読み上げを後日まとめて整え、今は単語と開く操作だけを公開する。
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel(word.text)
         .accessibilityHint("単語の詳細を開きます")
     }
+}
 
-    /// 画像は必ず 3:4 の枠へ収め、はみ出した分は枠の内側で切り落とす。
-    /// `Color.clear` で枠の大きさを先に決めてから overlay で敷くことで、
-    /// `scaledToFill` の画像がカードの外へ広がらないようにする。
-    private var illustration: some View {
-        Color.clear
-            .aspectRatio(3 / 4, contentMode: .fit)
-            .overlay {
-                illustrationContent
-            }
-            .clipped()
-    }
-
-    @ViewBuilder
-    private var illustrationContent: some View {
-        if let url = word.illustrationURL {
-            CardImage(
-                url: url,
-                contentMode: .fill,
-                showsLoadingIndicator: true
-            ) {
-                imagePlaceholder()
-            }
-        } else {
-            imagePlaceholder()
-        }
-    }
-
-    private func imagePlaceholder() -> some View {
-        WireImagePlaceholder(radius: WireMetrics.radiusControl)
+/// 先頭・末尾の余白を示す飾り。単語や進捗の対象にはせず、操作も受けない。
+struct WordLibraryEmptyCard: View {
+    var body: some View {
+        RoundedRectangle(cornerRadius: WireMetrics.radiusCard, style: .continuous)
+            .strokeBorder(Color.gray, style: StrokeStyle(lineWidth: WireMetrics.strokeBase, dash: [6, 4]))
+            .aspectRatio(0.74, contentMode: .fit)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 }
 
