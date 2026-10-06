@@ -457,17 +457,58 @@ struct WordListProgressBar: View {
     }
 }
 
-/// 学習画面の上端に浮かべる進み具合。単語リストの上のパネルと同じガラスの板に入れる。
-struct StudyProgressPanel: View {
+/// 学習画面の上端に浮かべるヘッダー。戻るボタンと進み具合を2枚のガラスに分け、
+/// iOS 26 ではガラス同士を溶け合わせて、ブリッジでつないだ1つの形に見せる。
+///
+/// ponytail: iOS 17〜25 にはガラスの融合が無いので、すき間を空けた2枚の板になる。
+/// 同じくびれを古いOSでも出すなら、2枚とつなぎ目を1つの Shape として描いて板にする。
+struct StudyBridgeHeader: View {
     /// 0...1 の進み具合。
     let progress: Double
+    var isBackDisabled = false
+    let onBack: () -> Void
+
+    private let height: CGFloat = 48
 
     var body: some View {
-        WordListProgressBar(progress: progress)
-            .padding(WireMetrics.spacingM)
-            .glassBarSurface(in: RoundedRectangle(cornerRadius: WireMetrics.radiusLarge, style: .continuous))
+        bridge
             .padding(.horizontal, WireMetrics.screenPadding)
             .padding(.top, WireMetrics.spacingXS)
+    }
+
+    @ViewBuilder
+    private var bridge: some View {
+        #if compiler(>=6.2)
+        if #available(iOS 26.0, *) {
+            // 2枚のすき間より広い間合いを渡すと、すき間がガラスのつなぎ目になる。
+            GlassEffectContainer(spacing: WireMetrics.spacingXL) { segments }
+        } else {
+            segments
+        }
+        #else
+        segments
+        #endif
+    }
+
+    private var segments: some View {
+        HStack(spacing: WireMetrics.spacingS) {
+            Button(action: onBack) {
+                Image(systemName: "chevron.left")
+                    .wireFont(.label, color: .primary)
+                    .frame(width: height, height: height)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .disabled(isBackDisabled)
+            .glassBarSurface(in: Circle())
+            .accessibilityLabel("学習に戻る")
+
+            WordListProgressBar(progress: progress)
+                .padding(.horizontal, WireMetrics.spacingL)
+                .frame(maxWidth: .infinity)
+                .frame(height: height)
+                .glassBarSurface(in: Capsule())
+        }
     }
 }
 

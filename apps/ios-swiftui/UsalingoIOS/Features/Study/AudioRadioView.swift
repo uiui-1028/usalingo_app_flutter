@@ -55,9 +55,9 @@ struct AudioRadioView: View {
             // 札は画面いっぱいに流すので、進み具合は安全域の上端に浮かべる。
             .overlay(alignment: .top) {
                 if !isLoading, loadErrorMessage == nil, player.playableCardCount > 0 {
-                    StudyProgressPanel(
+                    StudyBridgeHeader(
                         progress: Double(player.carouselIndex + 1) / Double(player.playableCardCount)
-                    )
+                    ) { dismiss() }
                 }
             }
             .zIndex(0)
@@ -180,7 +180,6 @@ struct AudioRadioView: View {
 
     private func toolbar(spacing: CGFloat) -> some View {
         HStack(spacing: spacing) {
-            toolbarButton("chevron.left", label: "学習に戻る") { dismiss() }
             toolbarButton(
                 player.isPlaying ? "stop.fill" : "play.fill",
                 label: player.isPlaying ? "ストップ" : "再生"

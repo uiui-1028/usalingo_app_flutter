@@ -61,7 +61,7 @@ struct MatchingGameView: View {
             // 進み具合は中身より1つ上の層に浮かべ、中身を押し下げない。
             .overlay(alignment: .top) {
                 if let game, !isLoading, loadErrorMessage == nil, game.pairCount > 0 {
-                    StudyProgressPanel(progress: Double(game.matchedPairCount) / Double(game.pairCount))
+                    StudyBridgeHeader(progress: Double(game.matchedPairCount) / Double(game.pairCount)) { dismiss() }
                 }
             }
 
@@ -83,7 +83,6 @@ struct MatchingGameView: View {
     private var actionBar: some View {
         if !isLoading, loadErrorMessage == nil, !wordsById.isEmpty {
             HStack(spacing: WireMetrics.spacingS) {
-                toolbarButton("chevron.left", label: "学習に戻る") { dismiss() }
                 toolbarButton(
                     "shuffle",
                     label: "札を並べ替える",
