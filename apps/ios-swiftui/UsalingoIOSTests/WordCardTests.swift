@@ -916,4 +916,65 @@ final class WordCardTests: XCTestCase {
         XCTAssertEqual(card.applying(empty).meaning, "明かり／軽い")
     }
 
+    /// 単語詳細の3項目に出すCEFRは、主の意味のものを使う。利用者が意味を書き換えても消さない。
+    func testCEFRComesFromPrimaryMeaningAndSurvivesOverride() throws {
+        let json = """
+        {
+          "id": 11,
+          "word_text": "light",
+          "word_meanings": [
+            { "id": 1, "priority": 1, "part_of_speech_en": "noun", "definition_jp": "明かり", "cefr_level": "A2" },
+            { "id": 2, "priority": 2, "part_of_speech_en": "adjective", "definition_jp": "軽い", "cefr_level": "B1" }
+          ]
+        }
+        """
+
+        let record = try JSONDecoder().decode(WordRecord.self, from: Data(json.utf8))
+        XCTAssertEqual(try XCTUnwrap(record.toCard()).cefrLevel, "A2")
+        let card = try XCTUnwrap(record.toCard(primaryMeaningId: 2))
+        XCTAssertEqual(card.cefrLevel, "B1")
+
+        let override = UserWordOverride(
+            userId: "user-11",
+            wordId: 11,
+            wordText: nil,
+            definitionJapanese: "軽い・明かり",
+            sentenceEnglish: nil,
+            sentenceJapanese: nil,
+            imageAssetPath: nil
+        )
+        XCTAssertEqual(card.applying(override).cefrLevel, "B1")
+    }
+
+    func testMasteryStarsFollowStatusAndLevel() {
+        func card(status: String?, level: Int?) -> WordCard {
+            WordCard(
+                id: 12,
+                text: "word",
+                meaning: "単語",
+                partOfSpeech: nil,
+                sentenceEnglish: nil,
+                sentenceJapanese: nil,
+                imageAssetPath: nil,
+                audioAssetPath: nil,
+                tags: [],
+                learningStatus: status,
+                learning: level.map {
+                    WordLearningSnapshot(progress: LearningProgress(
+                        userId: "user", cardId: 12, status: status ?? "learning", lastReviewedAt: nil,
+                        nextReviewDate: "2026-10-07T00:00:00Z", srsLevel: $0, easinessFactor: 2.5,
+                        repetitions: 1, incorrectCount: 0, intervalDays: 1, createdAt: nil, updatedAt: "2026-10-06T00:00:00Z"
+                    ))
+                }
+            )
+        }
+
+        XCTAssertEqual(card(status: nil, level: nil).masteryStars, 0)
+        XCTAssertEqual(card(status: "learning", level: 1).masteryStars, 1)
+        XCTAssertEqual(card(status: "learning", level: 2).masteryStars, 1)
+        XCTAssertEqual(card(status: "learning", level: 3).masteryStars, 2)
+        XCTAssertEqual(card(status: "learning", level: 5).masteryStars, 2)
+        XCTAssertEqual(card(status: "mastered", level: 5).masteryStars, 3)
+    }
+
 }

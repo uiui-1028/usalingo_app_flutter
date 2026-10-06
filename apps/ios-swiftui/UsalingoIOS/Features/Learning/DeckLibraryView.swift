@@ -492,41 +492,20 @@ private struct DeckGallerySheet: View {
     }
 
     private var metrics: some View {
-        HStack(spacing: 0) {
-            metric("収録語数") { Text(words.map { "\($0.count)語" } ?? "—").wireFont(.titleS) }
+        SheetMetricsRow {
+            SheetMetric(title: "収録語数") { Text(words.map { "\($0.count)語" } ?? "—").wireFont(.titleS) }
             Divider()
-            metric("容量") { Text(DeckGalleryFacts.sizeText(deck.mediaBytes)).wireFont(.titleS) }
+            SheetMetric(title: "容量") { Text(DeckGalleryFacts.sizeText(deck.mediaBytes)).wireFont(.titleS) }
             Divider()
-            metric("レベル") { level }
+            SheetMetric(title: "レベル") { level }
         }
-        .frame(height: 64)
-        .padding(.vertical, WireMetrics.spacingS)
-        .overlay(alignment: .top) { Divider() }
-        .overlay(alignment: .bottom) { Divider() }
-    }
-
-    private func metric(_ title: String, @ViewBuilder value: () -> some View) -> some View {
-        VStack(spacing: WireMetrics.spacingXS) {
-            Text(title).wireFont(.caption)
-            value()
-        }
-        .frame(maxWidth: .infinity)
-        .accessibilityElement(children: .combine)
     }
 
     /// 易・中・難を、3つのうち塗った星の数で見せる（易 ★☆☆、中 ★★☆、難 ★★★）。
     @ViewBuilder
     private var level: some View {
         if let difficulty = deck.difficulty {
-            HStack(spacing: 2) {
-                ForEach(1...3, id: \.self) { step in
-                    Image(systemName: step <= difficulty.level ? "star.fill" : "star")
-                }
-            }
-            .font(.headline)
-            .foregroundStyle(WireColor.ink)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(difficulty.title)
+            StarRating(filled: difficulty.level, label: difficulty.title)
         } else {
             Text("—").wireFont(.titleS)
         }
@@ -606,6 +585,52 @@ private struct DeckGallerySheet: View {
         .padding(.bottom, WireMetrics.spacingS)
         // 利用者の希望で、ふつうの置き場所より10pt下げる。
         .offset(y: 10)
+    }
+}
+
+/// 下のシートの頭に置く、線で区切った3項目の帯。デッキ追加と単語詳細で使う。
+struct SheetMetricsRow<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        HStack(spacing: 0) { content }
+            .frame(height: 64)
+            .padding(.vertical, WireMetrics.spacingS)
+            .overlay(alignment: .top) { Divider() }
+            .overlay(alignment: .bottom) { Divider() }
+    }
+}
+
+/// `SheetMetricsRow` の1項目。上に小さな見出し、下に値。
+struct SheetMetric<Value: View>: View {
+    let title: String
+    @ViewBuilder let value: Value
+
+    var body: some View {
+        VStack(spacing: WireMetrics.spacingXS) {
+            Text(title).wireFont(.caption)
+            value
+        }
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// 3つのうち塗った星の数で段階を見せる。
+struct StarRating: View {
+    let filled: Int
+    let label: String
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(1...3, id: \.self) { step in
+                Image(systemName: step <= filled ? "star.fill" : "star")
+            }
+        }
+        .font(.headline)
+        .foregroundStyle(WireColor.ink)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(label)
     }
 }
 

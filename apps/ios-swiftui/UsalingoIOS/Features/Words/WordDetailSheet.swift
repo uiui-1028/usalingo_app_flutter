@@ -1,23 +1,29 @@
 import SwiftUI
 import UIKit
 
+/// 単語リストから開く単語詳細。デッキ追加画面（`DeckLibraryView`）と同じ組み立てで、
+/// 上に主役のカード、下に標準のシートを置く。シートは頭（単語・意味と CEFR・品詞・習得度）と約7割（ほかの情報）の2段。
+/// 頭でカードをタップするとシートが上がり、上がっている間はシートの外をタップすると頭へ戻る。
+/// 単語の移動は、シートの中を横に払うか、頭のときに背景を横に払う。
 struct WordDetailSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// 頭の高さ。単語・意味・3項目と、下に浮かべたアクションバーが入る高さ。文字の大きさに合わせて伸ばす。
+    @ScaledMetric(relativeTo: .largeTitle) private var peekHeight: CGFloat = 314
     @State private var selection: WordDetailSelection
     @State private var pagingDirection: UIPageViewController.NavigationDirection = .forward
     @State private var cardID: WordCard.ID
     @State private var pagingProgress: CGFloat = 0
-    @State private var headerPaging = false
-    @State private var headerSettling = false
+    @State private var backgroundPaging = false
+    @State private var backgroundSettling = false
     @State private var isEditing = false
     @State private var isTagging = false
     @State private var isExpanded = false
-    @State private var isFocused = false
-    @GestureState private var sheetDrag: CGFloat = 0
+    @State private var isSheetPresented = false
     let onSaved: (WordCard) -> Void
 
     private var word: WordCard { selection.current }
+    private var peek: PresentationDetent { .height(peekHeight) }
 
     init(word: WordCard, words: [WordCard] = [], onSaved: @escaping (WordCard) -> Void) {
         _selection = State(initialValue: WordDetailSelection(word: word, words: words))
@@ -27,53 +33,71 @@ struct WordDetailSheet: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let height = geometry.size.height
-            let restingHeight = height * (isExpanded ? 0.68 : 0.29)
-            let panelHeight = min(height * 0.72, max(height * 0.25, restingHeight - sheetDrag))
-            let stageHeight = max(100, isFocused ? height - 110 : height - panelHeight - 64)
-            let cardHeight = max(80, min(stageHeight - 24, min(350, geometry.size.width - 56) / 0.74))
-            ZStack(alignment: .bottom) {
-                // カードとボトムシートを除いた背景。カードだけの状態は、
-                // ここを押すと詳細ありへ戻る。
-                LinearGradient(colors: [Color(red: 0.87, green: 0.86, blue: 0.94),
-                                        Color(red: 0.72, green: 0.81, blue: 0.91)],
-                               startPoint: .topLeading, endPoint: .bottomTrailing)
+            let top = geometry.safeAreaInsets.top
+            let bottom = geometry.safeAreaInsets.bottom
+            let screenHeight = geometry.size.height + top + bottom
+            // シートの上端（安全域の内側の座標）。高さで止める段は下の安全域の上に積まれ、
+            // 割合で止める段は、画面の上の安全域を除いた高さに対する割合になる。
+            let sheetTop = isExpanded
+                ? screenHeight - (screenHeight - top) * GallerySheetDetent.expandedFraction - top
+                : geometry.size.height - peekHeight
+            let stageTop: CGFloat = isExpanded ? WireMetrics.spacingS : 56
+            let stageHeight = max(80, sheetTop - stageTop - WireMetrics.spacingS)
+            let cardHeight = min(stageHeight, min(350, geometry.size.width - 56) / 0.74)
+            ZStack(alignment: .top) {
+                // 頭のときは、背景を横に払っても単語を移れる。カードの上は裏返しに使うので、背景だけで受ける。
+                WireColor.background
                     .ignoresSafeArea()
                     .contentShape(Rectangle())
-                    .onTapGesture {
-                        guard isFocused else { return }
-                        animate { isFocused = false }
-                    }
-                    .accessibilityHidden(!isFocused)
-                    .accessibilityLabel("詳細を表示")
-                    .accessibilityAddTraits(.isButton)
-                    .accessibilityAction { animate { isFocused = false } }
+                    .gesture(pagingGesture(width: geometry.size.width), including: isExpanded ? .none : .all)
 
-                VStack(spacing: 0) {
-                    Spacer(minLength: 0)
-                        .frame(height: 56)
+                cardCarousel(cardHeight: cardHeight, width: geometry.size.width)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: stageHeight)
+                    .padding(.top, stageTop)
 
-                    cardCarousel(cardHeight: cardHeight, width: geometry.size.width)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: stageHeight)
-                    Spacer(minLength: 0)
-                }
-
-                if !isFocused {
-                    detailPanel(height: panelHeight, width: geometry.size.width)
-                        .background(alignment: .bottom) {
-                            Color(red: 0.94, green: 0.98, blue: 1)
-                                .frame(height: geometry.safeAreaInsets.bottom + 1)
-                                .offset(y: geometry.safeAreaInsets.bottom)
-                                .ignoresSafeArea(edges: .bottom)
-                        }
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                if isExpanded {
+                    // シートの外（上のカードと背景）をタップしたら、シートを頭に戻す。
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .ignoresSafeArea()
+                        .onTapGesture { isExpanded = false }
+                        .accessibilityLabel("詳細を閉じる")
+                        .accessibilityAddTraits(.isButton)
                 }
             }
-            // 伸縮するシートではなく、動かない親画面で指の移動量を測る。
             .coordinateSpace(name: "wordDetailViewport")
-            .foregroundStyle(Color(red: 0.19, green: 0.25, blue: 0.32))
+            .animation(reduceMotion ? nil : .spring(response: 0.36, dampingFraction: 0.88), value: isExpanded)
         }
+        // シートを閉じ切ってから詳細を閉じる。シートを出したまま閉じると、画面だけが先に消えてしまう。
+        .sheet(isPresented: $isSheetPresented, onDismiss: { dismiss() }) { sheet }
+        .onAppear { isSheetPresented = true }
+    }
+
+    private var sheet: some View {
+        WordDetailPager(
+            words: selection.words,
+            selectedID: word.id,
+            isExpanded: isExpanded,
+            direction: pagingDirection,
+            reduceMotion: reduceMotion || backgroundPaging,
+            onProgress: { if !backgroundPaging { pagingProgress = $0 } }
+        ) { id in
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                selection.select(id: id)
+                cardID = id
+                pagingProgress = 0
+                backgroundPaging = false
+                backgroundSettling = false
+            }
+        }
+        // 中身をシートの下端まで流す。下の安全域で切ると、バーの下に切れ目が見える。
+        .ignoresSafeArea(edges: .bottom)
+        .accessibilityAction(named: "次の単語") { moveWord(by: 1) }
+        .accessibilityAction(named: "前の単語") { moveWord(by: -1) }
+        .overlay(alignment: .bottom) { actionBar }
         .sheet(isPresented: $isEditing) {
             WordEditSheet(word: word) { savedWord in
                 selection.replace(savedWord)
@@ -88,10 +112,17 @@ struct WordDetailSheet: View {
             }
             .presentationDetents([.medium, .large])
         }
+        .presentationDetents([peek, GallerySheetDetent.expanded], selection: Binding(
+            get: { isExpanded ? GallerySheetDetent.expanded : peek },
+            set: { isExpanded = $0 == GallerySheetDetent.expanded }
+        ))
+        // 7割でも後ろを暗くしない。上のカードを明るいまま見せ、外のタップを受けられるようにする。
+        .presentationBackgroundInteraction(.enabled)
+        .presentationDragIndicator(.visible)
+        .interactiveDismissDisabled()
     }
 
-    /// 単語リストと同じ丸ピルのバー。ボトムシートの上端に置き、シートと同じ面で
-    /// 一緒に上下する（中身のスクロールでは動かない）。
+    /// 単語リストと同じ丸ピルのバー。デッキ追加画面のダウンロードボタンと同じく、シートの下に浮かべる。
     private var actionBar: some View {
         HStack(spacing: WireMetrics.spacingS) {
             Button { isTagging = true } label: {
@@ -106,13 +137,16 @@ struct WordDetailSheet: View {
             .buttonStyle(.plain)
             .accessibilityLabel("単語を編集")
 
-            Button { dismiss() } label: {
+            Button { isSheetPresented = false } label: {
                 WordListActionBarIcon(symbol: "xmark", isActive: false)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("単語リストに戻る")
         }
         .wordListBarChrome()
+        .padding(.bottom, WireMetrics.spacingS)
+        // デッキ追加画面のダウンロードボタンと同じ置き場所にそろえる。
+        .offset(y: 10)
     }
 
     private func cardCarousel(cardHeight: CGFloat, width: CGFloat) -> some View {
@@ -126,13 +160,10 @@ struct WordDetailSheet: View {
                     .id(selection.words[index].id)
                     .frame(width: cardHeight * 0.74, height: cardHeight)
                     // 触れる範囲を札の形へ切り直す。中の傾き（3D 回転）で判定が
-                    // 札の外まで広がると、背景のタップを奪ってしまうため。
+                    // 札の外まで広がると、背景のスワイプを奪ってしまうため。
                     .contentShape(RoundedRectangle(cornerRadius: WireMetrics.radiusCard))
-                    // 拡大の切り替えはカードの上だけで受ける。カードの外は背景に残す。
-                    .onTapGesture { animate { isFocused.toggle() } }
-                    .accessibilityAction(named: isFocused ? "詳細を表示" : "カードを拡大") {
-                        animate { isFocused.toggle() }
-                    }
+                    .onTapGesture { isExpanded = true }
+                    .accessibilityAction(named: "詳細を表示") { isExpanded = true }
                     .modifier(WordCardArc(position: position, travel: width))
                     .allowsHitTesting(offset == 0 && pagingProgress == 0)
                     .accessibilityHidden(offset != 0)
@@ -140,93 +171,30 @@ struct WordDetailSheet: View {
         }
     }
 
-    private func detailPanel(height: CGFloat, width: CGFloat) -> some View {
-        VStack(spacing: 0) {
-            VStack(spacing: 12) {
-                Capsule().fill(.secondary.opacity(0.3)).frame(width: 44, height: 5)
+    private func pagingGesture(width: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 12, coordinateSpace: .named("wordDetailViewport"))
+            .onChanged { value in
+                guard !backgroundSettling, selection.words.count > 1,
+                      abs(value.translation.width) > abs(value.translation.height),
+                      cardID == word.id else { return }
+                backgroundPaging = true
+                pagingProgress = min(1, max(-1, -value.translation.width / max(1, width)))
             }
-            .frame(maxWidth: .infinity)
-            .padding(.horizontal, 24)
-            .padding(.top, 10)
-            .padding(.bottom, WireMetrics.spacingM)
-            .contentShape(Rectangle())
-            .onTapGesture { animate { isExpanded.toggle() } }
-            .accessibilityAddTraits(.isButton)
-            .accessibilityLabel(isExpanded ? "詳細シートを縮小" : "詳細シートを展開")
-            .accessibilityAction { animate { isExpanded.toggle() } }
-            .simultaneousGesture(DragGesture(
-                minimumDistance: 12,
-                coordinateSpace: .named("wordDetailViewport")
-            )
-                .updating($sheetDrag) { value, state, _ in
-                    guard abs(value.translation.height) > abs(value.translation.width) else { return }
-                    state = value.translation.height
-                }
-                .onChanged { value in
-                    guard !headerSettling, selection.words.count > 1,
-                          abs(value.translation.width) > abs(value.translation.height),
-                          cardID == word.id else { return }
-                    headerPaging = true
-                    pagingProgress = min(1, max(-1, -value.translation.width / max(1, width)))
-                }
-                .onEnded { value in
-                    if headerPaging {
-                        settleHeader(translation: value.translation.width)
-                        return
-                    }
-                    guard abs(value.translation.height) > abs(value.translation.width) else {
-                        if abs(value.translation.width) > 45 {
-                            moveWord(by: value.translation.width < 0 ? 1 : -1)
-                        }
-                        return
-                    }
-                    animate {
-                        if value.predictedEndTranslation.height < -35 { isExpanded = true }
-                        if value.predictedEndTranslation.height > 35 { isExpanded = false }
-                    }
-                })
-            actionBar
-                .padding(.bottom, WireMetrics.spacingM)
-
-            Divider().opacity(0.3)
-            WordDetailPager(
-                words: selection.words,
-                selectedID: word.id,
-                direction: pagingDirection,
-                reduceMotion: reduceMotion || headerPaging,
-                onProgress: { if !headerPaging { pagingProgress = $0 } }
-            ) { id in
-                var transaction = Transaction()
-                transaction.disablesAnimations = true
-                withTransaction(transaction) {
-                    selection.select(id: id)
-                    cardID = id
-                    pagingProgress = 0
-                    headerPaging = false
-                    headerSettling = false
-                }
+            .onEnded { value in
+                if backgroundPaging { settlePaging(translation: value.translation.width) }
             }
-            .accessibilityAction(named: "次の単語") { moveWord(by: 1) }
-            .accessibilityAction(named: "前の単語") { moveWord(by: -1) }
-
-        }
-        .frame(height: height)
-        .frame(maxWidth: .infinity)
-        .background(Color(red: 0.94, green: 0.98, blue: 1))
-        .clipShape(UnevenRoundedRectangle(topLeadingRadius: 30, topTrailingRadius: 30))
-        .shadow(color: .black.opacity(0.12), radius: 20, y: -5)
     }
 
-    private func settleHeader(translation: CGFloat) {
-        guard !headerSettling else { return }
-        headerSettling = true
+    private func settlePaging(translation: CGFloat) {
+        guard !backgroundSettling else { return }
+        backgroundSettling = true
         let step = abs(translation) > 45 ? (translation < 0 ? 1 : -1) : 0
         withAnimation(reduceMotion ? nil : .easeOut(duration: 0.24)) {
             pagingProgress = CGFloat(step)
         } completion: {
             if step == 0 {
-                headerPaging = false
-                headerSettling = false
+                backgroundPaging = false
+                backgroundSettling = false
             } else {
                 moveWord(by: step)
             }
@@ -238,11 +206,8 @@ struct WordDetailSheet: View {
         pagingDirection = step > 0 ? .forward : .reverse
         selection.move(by: step)
     }
-
-    private func animate(_ changes: () -> Void) {
-        withAnimation(reduceMotion ? nil : .spring(response: 0.42, dampingFraction: 0.84), changes)
-    }
 }
+
 
 /// A shallow arc toward the viewer: the inner edge comes forward as a card
 /// leaves the center. The background and the sheet keep their own geometry.
@@ -309,6 +274,7 @@ struct WordDetailSelection {
 private struct WordDetailPager: UIViewControllerRepresentable {
     let words: [WordCard]
     let selectedID: WordCard.ID
+    let isExpanded: Bool
     let direction: UIPageViewController.NavigationDirection
     let reduceMotion: Bool
     let onProgress: (CGFloat) -> Void
@@ -333,10 +299,12 @@ private struct WordDetailPager: UIViewControllerRepresentable {
         guard !context.coordinator.isTransitioning else { return }
         guard let current = controller.viewControllers?.first as? Page else { return }
         if current.wordID == selectedID {
-            // Saving an edit refreshes the page without resetting the presenter.
-            if let updated = words.first(where: { $0.id == selectedID }), current.word != updated {
+            // Saving an edit or moving the sheet refreshes the page without resetting the presenter.
+            if let updated = words.first(where: { $0.id == selectedID }),
+               current.word != updated || current.isExpanded != isExpanded {
                 current.word = updated
-                current.rootView = WordDetailPage(word: updated)
+                current.isExpanded = isExpanded
+                current.rootView = WordDetailPage(word: updated, isExpanded: isExpanded)
             }
         } else {
             let coordinator = context.coordinator
@@ -353,11 +321,13 @@ private struct WordDetailPager: UIViewControllerRepresentable {
 
     final class Page: UIHostingController<WordDetailPage> {
         var word: WordCard
+        var isExpanded: Bool
         var wordID: WordCard.ID { word.id }
 
-        init(word: WordCard) {
+        init(word: WordCard, isExpanded: Bool) {
             self.word = word
-            super.init(rootView: WordDetailPage(word: word))
+            self.isExpanded = isExpanded
+            super.init(rootView: WordDetailPage(word: word, isExpanded: isExpanded))
             view.backgroundColor = .clear
         }
 
@@ -385,14 +355,14 @@ private struct WordDetailPager: UIViewControllerRepresentable {
         }
 
         func page(id: WordCard.ID) -> Page {
-            Page(word: parent.words.first(where: { $0.id == id }) ?? parent.words[0])
+            Page(word: parent.words.first(where: { $0.id == id }) ?? parent.words[0], isExpanded: parent.isExpanded)
         }
 
         private func neighbor(of controller: UIViewController, step: Int) -> UIViewController? {
             guard parent.words.count > 1, let current = controller as? Page,
                   let index = parent.words.firstIndex(where: { $0.id == current.wordID }) else { return nil }
             let next = WordDetailSelection.wrappedIndex(index + step, count: parent.words.count)
-            return Page(word: parent.words[next])
+            return Page(word: parent.words[next], isExpanded: parent.isExpanded)
         }
 
         func pageViewController(_ pageViewController: UIPageViewController, viewControllerBefore viewController: UIViewController) -> UIViewController? {
@@ -416,27 +386,70 @@ private struct WordDetailPager: UIViewControllerRepresentable {
     }
 }
 
+/// 1語ぶんのシートの中身。頭のときは単語・意味と3項目だけを見せ、ほかは7割まで上げたときに出す。
 private struct WordDetailPage: View {
     let word: WordCard
+    let isExpanded: Bool
+
+    /// 浮かべたアクションバーの下に、最後の項目が隠れないよう空ける量。
+    private static let footerClearance: CGFloat = 88
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 Text(word.text).font(.largeTitle.bold())
                 Text(word.meaning).font(.title3)
-                WordMetaRow(word: word)
-                if !word.tags.isEmpty { TagChipRow(tags: word.tags) }
-                DetailBlock(title: "例文", text: word.sentenceEnglish ?? "例文は準備中です。")
-                if let japanese = word.sentenceJapanese {
-                    DetailBlock(title: "日本語", text: japanese)
+                metrics
+                // 頭のときは、バーの周りに下の情報を透かさない。
+                Group {
+                    WordMetaRow(word: word)
+                    if !word.tags.isEmpty { TagChipRow(tags: word.tags) }
+                    DetailBlock(title: "例文", text: word.sentenceEnglish ?? "例文は準備中です。")
+                    if let japanese = word.sentenceJapanese {
+                        DetailBlock(title: "日本語", text: japanese)
+                    }
+                    DetailBlock(title: "学習メモ", text: word.learning?.studySummary ?? "まだ学習していないカードです。")
+                    DetailBlock(title: "覚え方 · サンプル", text: "絵の場面を思い浮かべながら、単語を声に出してみましょう。")
                 }
-                DetailBlock(title: "学習メモ", text: word.learning?.studySummary ?? "まだ学習していないカードです。")
-                DetailBlock(title: "覚え方 · サンプル", text: "絵の場面を思い浮かべながら、単語を声に出してみましょう。")
+                .opacity(isExpanded ? 1 : 0)
+                .accessibilityHidden(!isExpanded)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(24)
         }
-        .foregroundStyle(Color(red: 0.19, green: 0.25, blue: 0.32))
+        .scrollDisabled(!isExpanded)
+        .contentMargins(.bottom, Self.footerClearance, for: .scrollContent)
+        .animation(.easeOut(duration: 0.2), value: isExpanded)
+        .foregroundStyle(WireColor.ink)
+    }
+
+    /// デッキ追加画面の収録語数・容量・レベルと同じ帯に、CEFR・品詞・習得度を並べる。
+    private var metrics: some View {
+        SheetMetricsRow {
+            SheetMetric(title: "CEFR") { Text(word.cefrLevel ?? "—").wireFont(.titleS) }
+            Divider()
+            SheetMetric(title: "品詞") {
+                Text(WordPartOfSpeech(englishOrJapanese: word.partOfSpeech)?.rawValue ?? word.partOfSpeech ?? "—")
+                    .wireFont(.titleS)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+            }
+            Divider()
+            SheetMetric(title: "習得度") {
+                StarRating(filled: word.masteryStars, label: "星3つ中\(word.masteryStars)つ")
+            }
+        }
+    }
+}
+
+extension WordCard {
+    /// 習得度の星（3つ中いくつ塗るか）。未学習は0、復習中は Lv.1〜2 で1・Lv.3 以上で2、習得済みは3。
+    var masteryStars: Int {
+        switch learningStatus {
+        case "mastered": 3
+        case "learning": (learning?.srsLevel ?? 1) >= 3 ? 2 : 1
+        default: 0
+        }
     }
 }
 
@@ -497,7 +510,7 @@ private struct InteractiveWordCard: View {
             )
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(showsBack ? "\(word.text) の裏面" : word.text)
-            .accessibilityHint("タップで拡大。左右に払うと裏返ります")
+            .accessibilityHint("タップで詳細を表示。左右に払うと裏返ります")
             .accessibilityAction(named: showsBack ? "表に戻す" : "裏返す") { flip() }
         }
         .coordinateSpace(name: "wordCardTouch")
@@ -588,11 +601,8 @@ struct WordMetaRow: View {
     let word: WordCard
 
     var body: some View {
+        // 状態と品詞は上の3項目に出すので、ここでは重ねない。
         HStack(spacing: WireMetrics.spacingS) {
-            StatusBadge(status: word.learningStatus)
-            if let part = word.partOfSpeech {
-                WirePill(title: part.uppercased(), font: .caption)
-            }
             if let learning = word.learning {
                 WirePill(title: "Lv.\(learning.srsLevel)", font: .caption)
             }

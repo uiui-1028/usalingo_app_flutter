@@ -1,16 +1,19 @@
 import Foundation
 
-/// 1つの意味と、その意味に付く品詞。
+/// 1つの意味と、その意味に付く品詞・CEFR。
 ///
-/// 品詞は意味ごとに変わる（`light` ＝ 明かり／名詞、軽い／形容詞）ため、
-/// 意味と品詞は必ず組にして持つ。
+/// 品詞とCEFRは意味ごとに変わる（`light` ＝ 明かり／名詞、軽い／形容詞）ため、
+/// 意味と必ず組にして持つ。
 struct WordSense: Codable, Hashable {
     let meaning: String
     let partOfSpeech: String?
+    /// `word_meanings.cefr_level`（A1〜C2）。配信データに無い意味と、古い保存データは nil。
+    let cefrLevel: String?
 
-    init(meaning: String, partOfSpeech: String? = nil) {
+    init(meaning: String, partOfSpeech: String? = nil, cefrLevel: String? = nil) {
         self.meaning = meaning
         self.partOfSpeech = partOfSpeech
+        self.cefrLevel = cefrLevel
     }
 }
 
@@ -70,6 +73,11 @@ struct WordCard: Identifiable, Codable, Hashable {
     /// 代表の品詞。1つしか置けない場所（詳細画面の見出しなど）で使う。
     var partOfSpeech: String? {
         senses.compactMap(\.partOfSpeech).first
+    }
+
+    /// 主の意味のCEFR。
+    var cefrLevel: String? {
+        senses.first?.cefrLevel
     }
 
     /// 意味ごとの品詞。重複は取り除き、出てきた順を保つ。
@@ -202,7 +210,7 @@ struct WordCard: Identifiable, Codable, Hashable {
         else {
             return senses
         }
-        return [WordSense(meaning: value, partOfSpeech: partOfSpeech)]
+        return [WordSense(meaning: value, partOfSpeech: partOfSpeech, cefrLevel: cefrLevel)]
     }
 
     func withTags(_ tags: [String]) -> WordCard {
@@ -376,7 +384,7 @@ struct WordRecord: Decodable {
             cardId: cardId,
             text: wordText,
             senses: meanings.map {
-                WordSense(meaning: $0.definitionJapanese, partOfSpeech: $0.partOfSpeechEnglish)
+                WordSense(meaning: $0.definitionJapanese, partOfSpeech: $0.partOfSpeechEnglish, cefrLevel: $0.cefrLevel)
             },
             sentenceEnglish: example?.sentenceEnglish,
             sentenceJapanese: example?.sentenceJapanese,
@@ -431,6 +439,7 @@ struct WordMeaning: Decodable {
     let priority: Int?
     let partOfSpeechEnglish: String?
     let definitionJapanese: String
+    let cefrLevel: String?
     let etymology: String?
     /// `word_meanings.synonyms`（text[]）。1要素が `単語 :: 訳 :: 補足` の1件にあたる。
     let synonyms: [String]?
@@ -441,6 +450,7 @@ struct WordMeaning: Decodable {
         case priority
         case partOfSpeechEnglish = "part_of_speech_en"
         case definitionJapanese = "definition_jp"
+        case cefrLevel = "cefr_level"
         case etymology
         case synonyms
         case exampleContents = "example_contents"
