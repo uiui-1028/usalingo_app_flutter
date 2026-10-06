@@ -2,6 +2,43 @@ import XCTest
 @testable import UsalingoIOS
 
 final class WordListColumnLayoutTests: XCTestCase {
+    func testCardProgressWaitsForNextRowToReachFixedLineAndMovesBackWhenScrollingUp() {
+        let layout = WordListCardLayout(viewportWidth: 390, headerClearance: 70)
+        func frames(secondRowTop: CGFloat) -> [CGRect?] {
+            [70 + layout.topPadding, secondRowTop, secondRowTop + layout.cardHeight + 8].flatMap { top in
+                Array<CGRect?>(repeating: CGRect(x: 0, y: top, width: 114, height: layout.cardHeight), count: 3)
+            }
+        }
+        XCTAssertEqual(layout.countedCards(frames: frames(secondRowTop: layout.countLine + 1)), 3)
+        XCTAssertEqual(layout.countedCards(frames: frames(secondRowTop: layout.countLine)), 6)
+        XCTAssertEqual(layout.countedCards(frames: frames(secondRowTop: layout.countLine - 1)), 6)
+        XCTAssertEqual(layout.countedCards(frames: frames(secondRowTop: layout.countLine + 1)), 3)
+    }
+
+    func testCardProgressHandlesPartialRowsMissingFramesAndEmptyDecks() {
+        let layout = WordListCardLayout(viewportWidth: 390, headerClearance: 70)
+        let reached = CGRect(x: 0, y: layout.countLine, width: 114, height: layout.cardHeight)
+        let below = reached.offsetBy(dx: 0, dy: 1)
+        XCTAssertEqual(layout.countedCards(frames: []), 0)
+        XCTAssertEqual(layout.countedCards(frames: [nil, nil]), 2)
+        XCTAssertEqual(layout.countedCards(frames: [reached, reached, reached, below]), 3)
+        XCTAssertEqual(layout.countedCards(frames: [nil, nil, nil, reached]), 4)
+        XCTAssertEqual(layout.countedCards(frames: [nil, nil, nil, reached, reached]), 5)
+    }
+
+    func testCardSpacingAndLastRowCanReachProgressLineAtDifferentWidths() {
+        for width: CGFloat in [320, 390, 430] {
+            let layout = WordListCardLayout(viewportWidth: width, headerClearance: 70)
+            XCTAssertEqual(layout.topPadding - WireMetrics.screenPadding, layout.cardHeight + 8, accuracy: 0.001)
+            XCTAssertEqual(layout.countLine - (70 + layout.topPadding), 16, accuracy: 0.001)
+            let viewportHeight: CGFloat = 900
+            let bottomPadding = layout.bottomPadding(viewportHeight: viewportHeight, minimum: 96)
+            XCTAssertGreaterThanOrEqual(bottomPadding, 96)
+            XCTAssertLessThan(viewportHeight - bottomPadding - layout.emptyRowsHeight - layout.cardHeight, layout.countLine)
+            XCTAssertEqual(layout.bottomPadding(viewportHeight: 500, minimum: 200), 200)
+        }
+    }
+
     func testLeadingBlankSplitsIntoIndividualRowsWithoutChangingTotalHeightOrDividers() {
         XCTAssertEqual(WordListRowSnapping.emptyRowHeights(totalHeight: 400), Array(repeating: 80, count: 5))
         XCTAssertEqual(WordListRowSnapping.emptyRowHeights(totalHeight: 480), Array(repeating: 80, count: 6))

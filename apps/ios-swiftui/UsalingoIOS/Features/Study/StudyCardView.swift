@@ -36,9 +36,11 @@ struct StudyCardView: View {
 /// 学習画面と単語詳細で共通のカード外形。
 struct StudyCardFace<Content: View>: View {
     let content: Content
+    let fill: Color
 
-    init(@ViewBuilder content: () -> Content) {
+    init(fill: Color = WireColor.surface, @ViewBuilder content: () -> Content) {
         self.content = content()
+        self.fill = fill
     }
 
     var body: some View {
@@ -48,7 +50,8 @@ struct StudyCardFace<Content: View>: View {
             .outlineSurface(
                 radius: WireMetrics.radiusCard,
                 stroke: WireMetrics.strokeHeavy,
-                shadow: .card
+                shadow: .card,
+                fill: fill
             )
     }
 }
@@ -73,7 +76,6 @@ struct StudyCardFront: View {
                 .minimumScaleFactor(0.6)
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
-                .modifier(CardTextPlaceholder(progress: placeholderProgress))
 
             illustration
 

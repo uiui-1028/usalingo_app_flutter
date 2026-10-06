@@ -310,6 +310,30 @@ final class DeckDropTests: XCTestCase {
 final class DeckRadialMenuLayoutTests: XCTestCase {
     private let card = CGRect(x: 0, y: 200, width: 400, height: 400)
 
+    func testThreeItemMenusStayInsideViewportForBothEdgeCardsAndRemainSelectable() {
+        for width: CGFloat in [320, 390, 430] {
+            let viewport = CGRect(x: 0, y: 0, width: width, height: 844)
+            let cardWidth = (width - 48) / 3
+            for cardX in [CGFloat(16), width - 16 - cardWidth] {
+                let frame = CGRect(x: cardX, y: 300, width: cardWidth, height: cardWidth / 0.74)
+                for x in [frame.minX + 1, frame.midX - 1, frame.midX + 1, frame.maxX - 1] {
+                    for y: CGFloat in [120, 500, 828] {
+                        let layout = DeckRadialMenuLayout(anchor: CGPoint(x: x, y: y), cardFrame: frame,
+                                                          count: 3, viewport: viewport)
+                        for (index, center) in layout.centers.enumerated() {
+                            let button = CGRect(x: center.x - 28, y: center.y - 28, width: 56, height: 56)
+                            XCTAssertGreaterThanOrEqual(button.minX, viewport.minX - 0.001)
+                            XCTAssertLessThanOrEqual(button.maxX, viewport.maxX + 0.001)
+                            XCTAssertGreaterThanOrEqual(button.minY, viewport.minY - 0.001)
+                            XCTAssertLessThanOrEqual(button.maxY, viewport.maxY + 0.001)
+                            XCTAssertEqual(layout.item(at: center), index)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /// 画面の下の方で左寄りを押すと、上へ開き、カードの中央の側（右）へ傾く。
     func testOpensUpAndTowardCardCenter() {
         let layout = DeckRadialMenuLayout(anchor: CGPoint(x: 60, y: 500), cardFrame: card, count: 2)
