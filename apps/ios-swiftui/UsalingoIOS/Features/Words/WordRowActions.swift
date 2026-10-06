@@ -125,11 +125,11 @@ struct WordRowActions<Content: View>: View {
 }
 
 /// UIKit が最初に横方向を判定するので、縦スクロールと戻るスワイプを横操作で奪わない。
-private struct WordRowTouchSurface: UIViewRepresentable {
+struct WordRowTouchSurface: UIViewRepresentable {
     let isDisabled: Bool
     let isOpen: Bool
     let onTap: (CGPoint) -> Void
-    let onPan: (CGFloat, CGFloat, UIGestureRecognizer.State) -> Void
+    var onPan: ((CGFloat, CGFloat, UIGestureRecognizer.State) -> Void)? = nil
     let onHold: (CGRect, CGPoint) -> Void
     let onHoldMove: (CGPoint) -> Void
     /// 長押しを終えた。指を離したときは true、システムに取り上げられたときは false。
@@ -139,15 +139,18 @@ private struct WordRowTouchSurface: UIViewRepresentable {
     func makeUIView(context: Context) -> UIView {
         let view = UIView()
         let coordinator = context.coordinator
-        let pan = UIPanGestureRecognizer(target: coordinator, action: #selector(Coordinator.pan(_:)))
-        pan.delegate = coordinator
         let hold = UILongPressGestureRecognizer(target: coordinator, action: #selector(Coordinator.hold(_:)))
         hold.minimumPressDuration = 0.35
         hold.delegate = coordinator
         let tap = UITapGestureRecognizer(target: coordinator, action: #selector(Coordinator.tap(_:)))
-        tap.require(toFail: pan)
+        // カード一覧では横操作を登録せず、スクロールと戻るスワイプへ譲る。
+        if onPan != nil {
+            let pan = UIPanGestureRecognizer(target: coordinator, action: #selector(Coordinator.pan(_:)))
+            pan.delegate = coordinator
+            tap.require(toFail: pan)
+            view.addGestureRecognizer(pan)
+        }
         tap.require(toFail: hold)
-        view.addGestureRecognizer(pan)
         view.addGestureRecognizer(hold)
         view.addGestureRecognizer(tap)
         return view
@@ -171,7 +174,7 @@ private struct WordRowTouchSurface: UIViewRepresentable {
             parent.onTap(gesture.location(in: gesture.view))
         }
         @objc func pan(_ gesture: UIPanGestureRecognizer) {
-            parent.onPan(gesture.translation(in: gesture.view).x, gesture.view?.bounds.width ?? 0, gesture.state)
+            parent.onPan?(gesture.translation(in: gesture.view).x, gesture.view?.bounds.width ?? 0, gesture.state)
         }
         @objc func hold(_ gesture: UILongPressGestureRecognizer) {
             guard let view = gesture.view else { return }

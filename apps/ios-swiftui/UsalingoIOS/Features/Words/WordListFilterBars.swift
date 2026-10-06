@@ -27,7 +27,7 @@ struct WordListRedSheetBar: View {
 
     var body: some View {
         Button {
-            if !isRedSheetEnabled { selectedDisplayMode = .list }
+            guard selectedDisplayMode == .list else { return }
             withAnimation(reduceMotion ? nil : .spring(response: 0.36, dampingFraction: 0.88)) {
                 isRedSheetEnabled.toggle()
             }
@@ -39,7 +39,7 @@ struct WordListRedSheetBar: View {
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .disabled(!canToggleRedSheet)
+        .disabled(!canToggleRedSheet || selectedDisplayMode != .list)
         .accessibilityLabel("赤シート")
         .accessibilityValue(isRedSheetEnabled ? "オン" : "オフ")
         .accessibilityHint("意味欄を隠すシートを切り替えます")
@@ -63,6 +63,7 @@ struct WordListBottomBars<RedSheetActions: View>: View {
     @ViewBuilder let redSheetActions: RedSheetActions
 
     @State private var isSearchExpanded = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         // 左のバーは左端、右のバーは右端に留める。中身が変わっても、真ん中へ寄せ直さない。
@@ -110,6 +111,10 @@ struct WordListBottomBars<RedSheetActions: View>: View {
                 selectedDisplayMode: $selectedDisplayMode,
                 canToggleRedSheet: canToggleRedSheet
             )
+            .opacity(selectedDisplayMode == .list ? 1 : 0)
+            .allowsHitTesting(selectedDisplayMode == .list)
+            .accessibilityHidden(selectedDisplayMode != .list)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: selectedDisplayMode)
         }
     }
 
