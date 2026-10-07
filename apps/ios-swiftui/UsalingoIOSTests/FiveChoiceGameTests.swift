@@ -191,7 +191,7 @@ final class FiveChoiceGameTests: XCTestCase {
         let queueBinding = Binding(get: { queue }, set: { queue = $0 })
         let errorBinding = Binding(get: { error }, set: { error = $0 })
         drainStudyAnswerQueue(queueBinding, appState: state, saveErrorMessage: errorBinding, source: source)
-        for _ in 0..<100 where queue.isDraining { await Task.yield() }
+        for _ in 0..<10_000 where queue.isDraining { await Task.yield() }
         XCTAssertNotNil(error)
         XCTAssertEqual(queue.pending.count, 2)
         XCTAssertEqual(source.saved.map(\.0), [1])
@@ -199,11 +199,12 @@ final class FiveChoiceGameTests: XCTestCase {
         drainStudyAnswerQueue(queueBinding, appState: state, saveErrorMessage: errorBinding, source: source)
         // 連続した排出要求でも同じ回答を二重に送らない。
         drainStudyAnswerQueue(queueBinding, appState: state, saveErrorMessage: errorBinding, source: source)
-        for _ in 0..<100 where queue.isDraining { await Task.yield() }
+        for _ in 0..<10_000 where queue.isDraining { await Task.yield() }
         XCTAssertNil(error)
         XCTAssertTrue(queue.isEmpty)
         XCTAssertEqual(source.saved.map(\.0), [1, 1, 2])
         XCTAssertEqual(source.saved.map(\.1), [false, false, true])
+        guard source.attempts.count == 3 else { return XCTFail("保存の回数: \(source.attempts.count)") }
         XCTAssertTrue(source.attempts[0] === source.attempts[1])
         XCTAssertFalse(source.attempts[1] === source.attempts[2])
     }
