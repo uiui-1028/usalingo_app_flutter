@@ -45,7 +45,7 @@ struct MatchingGameView: View {
                 } else if wordsById.isEmpty {
                     StudyStatusView(
                         symbol: "rectangle.stack.badge.minus",
-                        title: "カードがありません",
+                        title: "今日の学習は完了です",
                         message: "別の学習モードを選ぶか、デッキに戻ってください。",
                         actionTitle: "デッキに戻る"
                     ) {

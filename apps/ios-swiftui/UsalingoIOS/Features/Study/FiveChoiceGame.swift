@@ -1,14 +1,20 @@
 import Foundation
 
 /// 英→日の5択。選択肢は出題時に一度だけ作り、答え合わせまで同じ並びを保つ。
+/// 間違えた問題は1周の最後へ回し、正解するまで出す。
 struct FiveChoiceGame {
     struct Question {
         let card: WordCard
         let choices: [WordCard]
+        /// この回ですでに間違えた問題。保存では学習記録を進めない。
+        let isRetry: Bool
         var correctIndex: Int { choices.firstIndex { $0.id == card.id }! }
     }
 
-    private let cards: [WordCard]
+    private var cards: [WordCard]
+    /// 重複を除いた出題数。やり直しで `cards` が伸びても進み具合の分母は変えない。
+    let questionCount: Int
+    private var missedCardIds: Set<Int> = []
     private let candidates: [Candidate]
     private let shufflesOrder: Bool
     private var nextCardIndex = 0
@@ -21,18 +27,20 @@ struct FiveChoiceGame {
     var isFinished: Bool { question == nil }
     var isRevealed: Bool { selectedIndex != nil }
     /// 正解した問題の割合。間違えた問題は進めない。
-    var progress: Double { cards.isEmpty ? 0 : Double(correctCount) / Double(cards.count) }
+    var progress: Double { questionCount == 0 ? 0 : Double(correctCount) / Double(questionCount) }
 
     init(cards: [WordCard], candidates: [WordCard], shufflesOrder: Bool = true) {
         var seen = Set<Int>()
         let uniqueCards = cards.filter { seen.insert($0.id).inserted }
         self.cards = shufflesOrder ? uniqueCards.shuffled() : uniqueCards
+        questionCount = uniqueCards.count
         self.shufflesOrder = shufflesOrder
         self.candidates = candidates.map(Candidate.init).filter(\.isUsable)
         prepareQuestion()
     }
 
     /// 公開されている全単語ではなく、学習タブに追加済みのデッキだけを読む。
+    /// 出題は今日の分（期限が来た復習と新規）だけ。選択肢には今日解いた単語も使う。
     static func load(deckId: Int, source: any StudyDataSource) async throws -> FiveChoiceGame {
         let decks = try await source.fetchDecks()
         let isFolder = LocalStudyDataSource.isFolderDeckId(deckId)
@@ -50,7 +58,7 @@ struct FiveChoiceGame {
             cards = try await source.fetchCards(deckId: deckId).filter { !$0.isSuspended }
         }
         try Task.checkCancellation()
-        return FiveChoiceGame(cards: cards, candidates: candidates)
+        return FiveChoiceGame(cards: StudyQueueRules.limitedStudyQueue(cards), candidates: candidates)
     }
 
     /// 1問につき最初の回答だけを返す。無効な番号や連打では学習記録を増やさない。
@@ -59,7 +67,12 @@ struct FiveChoiceGame {
         selectedIndex = index
         answeredCount += 1
         let isCorrect = index == question.correctIndex
-        if isCorrect { correctCount += 1 }
+        if isCorrect {
+            correctCount += 1
+        } else {
+            missedCardIds.insert(question.card.id)
+            cards.append(question.card)
+        }
         return isCorrect
     }
 
@@ -96,7 +109,11 @@ struct FiveChoiceGame {
                 continue
             }
             let choices = picked.map(\.card)
-            question = Question(card: card, choices: shufflesOrder ? choices.shuffled() : choices)
+            question = Question(
+                card: card,
+                choices: shufflesOrder ? choices.shuffled() : choices,
+                isRetry: missedCardIds.contains(card.id)
+            )
             return
         }
     }

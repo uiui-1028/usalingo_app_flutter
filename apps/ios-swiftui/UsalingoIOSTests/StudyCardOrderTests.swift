@@ -70,18 +70,21 @@ final class StudyCardOrderTests: XCTestCase {
         XCTAssertEqual(order.progress, 0)
     }
 
-    func testEveryRetryKeepsIncorrectHistoryAndExistingReviewCalculation() {
-        var order = StudyCardOrder(count: 1)
-        let now = Date(timeIntervalSince1970: 1_735_732_800)
-        var progress = LearningProgress.initial(userId: "user", cardId: 42, now: now)
-        for isCorrect in [false, false, true] {
-            order.answer(isCorrect: isCorrect)
-            progress = progress.marking(isCorrect: isCorrect, now: now)
-        }
-        XCTAssertNil(order.current)
-        XCTAssertEqual(progress.incorrectCount, 2)
-        XCTAssertEqual(progress.repetitions, 1)
-        XCTAssertEqual(progress.intervalDays, 1)
-        XCTAssertEqual(progress.easinessFactor, 2.1, accuracy: 0.000_001)
+    func testOnlyCardsMissedInThisSessionAreRetriesAndUndoClearsIt() {
+        var order = StudyCardOrder(count: 2)
+        XCTAssertFalse(order.isRetry)
+        order.answer(isCorrect: false)
+        XCTAssertFalse(order.isRetry, "まだ解いていない2枚目")
+        order.answer(isCorrect: true)
+        XCTAssertTrue(order.isRetry)
+        order.answer(isCorrect: false)
+        XCTAssertTrue(order.isRetry, "やり直しでも間違えたら、次もやり直し")
+
+        order.undo(cardIndex: 0, isCorrect: false)
+        XCTAssertTrue(order.isRetry, "1回目の不正解はまだ残っている")
+        order.undo(cardIndex: 1, isCorrect: true)
+        order.undo(cardIndex: 0, isCorrect: false)
+        XCTAssertEqual(order.remaining, [0, 1])
+        XCTAssertFalse(order.isRetry)
     }
 }

@@ -43,8 +43,7 @@ enum WordDueFilter: String, CaseIterable, Identifiable {
         case .due:
             return StudyQueueRules.isDue(word, now: Date())
         case .future:
-            guard let date = StudyQueueRules.nextReviewDate(for: word) else { return false }
-            return date > Date()
+            return StudyQueueRules.nextReviewDate(for: word) != nil && !StudyQueueRules.isDue(word, now: Date())
         }
     }
 }

@@ -104,10 +104,49 @@ final class LocalStudyDataSourceTests: XCTestCase {
         let reopened = makeDataSource()
         let counts = try reopened.counts(deckId: deck.id)
         XCTAssertEqual(counts.newCount, 2)
-        let reloaded = try await reopened.fetchStudyQueue(deckId: deck.id, mode: .all)
+        let reloaded = try await reopened.fetchCards(deckId: deck.id)
         let studied = try XCTUnwrap(reloaded.first { $0.id == card.id })
         XCTAssertEqual(studied.learning?.repetitions, 1)
         XCTAssertEqual(studied.learning?.nextReviewDate, saved.progress.nextReviewDate)
+    }
+
+    func testAnsweredCardLeavesTodayQueueUntilUndone() async throws {
+        let dataSource = makeDataSource()
+        let deck = try dataSource.importDeck(from: sampleDeckData(cardCount: 3))
+        let queue = try await dataSource.fetchStudyQueue(deckId: deck.id, mode: .all)
+        let correct = try XCTUnwrap(queue.first)
+        let incorrect = try XCTUnwrap(queue.last)
+
+        _ = try await dataSource.saveAnswerWithUndo(card: correct, isCorrect: true)
+        let undoable = try await dataSource.saveAnswerWithUndo(card: incorrect, isCorrect: false)
+        let today = try await dataSource.fetchStudyQueue(deckId: deck.id, mode: .all)
+        XCTAssertEqual(today.map(\.id), [queue[1].id])
+
+        let incorrectCardId = try XCTUnwrap(incorrect.cardId)
+        try await dataSource.restoreLearningProgress(cardId: incorrectCardId, previousProgress: undoable.previousProgress)
+        let afterUndo = try await dataSource.fetchStudyQueue(deckId: deck.id, mode: .all)
+        XCTAssertEqual(afterUndo.map(\.id), [queue[1].id, incorrect.id])
+    }
+
+    func testRetryAnswerKeepsFirstIncorrectRecord() async throws {
+        let dataSource = makeDataSource()
+        let deck = try dataSource.importDeck(from: sampleDeckData(cardCount: 1))
+        let queue = try await dataSource.fetchStudyQueue(deckId: deck.id, mode: .all)
+        let card = try XCTUnwrap(queue.first)
+
+        let first = try await dataSource.saveAnswerWithUndo(card: card, isCorrect: false)
+        for isCorrect in [false, true] {
+            let retry = try await dataSource.saveAnswerWithUndo(
+                card: card,
+                isCorrect: isCorrect,
+                attempt: AnswerSaveAttempt(isRetry: true)
+            )
+            XCTAssertEqual(retry.previousProgress?.updatedAt, first.progress.updatedAt)
+            XCTAssertEqual(retry.progress.incorrectCount, 1)
+            XCTAssertEqual(retry.progress.repetitions, 0)
+            XCTAssertEqual(retry.progress.easinessFactor, first.progress.easinessFactor, accuracy: 0.000_001)
+            XCTAssertEqual(retry.progress.nextReviewDate, first.progress.nextReviewDate)
+        }
     }
 
     func testFirstOfflineGuestAnswerMovesToAnonymousAccountOnce() async throws {
