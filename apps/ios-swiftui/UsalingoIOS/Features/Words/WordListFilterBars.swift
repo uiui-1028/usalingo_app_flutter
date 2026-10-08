@@ -462,16 +462,20 @@ struct WordListProgressBar: View {
     }
 }
 
-/// 学習画面の上端に浮かべるヘッダー。戻るボタンと進み具合を2枚のガラスに分け、
+/// 学習画面の上端に浮かべるヘッダー。戻るボタンと中身を2枚のガラスに分け、
 /// iOS 26 ではガラス同士を溶け合わせて、ブリッジでつないだ1つの形に見せる。
+/// 中身は進み具合のバーが基本で、学習状況の一覧ではデッキ名と枚数を載せる。
 ///
 /// ponytail: iOS 17〜25 にはガラスの融合が無いので、すき間を空けた2枚の板になる。
 /// 同じくびれを古いOSでも出すなら、2枚とつなぎ目を1つの Shape として描いて板にする。
-struct StudyBridgeHeader: View {
-    /// 0...1 の進み具合。
-    let progress: Double
+struct StudyBridgeHeader<Center: View>: View {
     var isBackDisabled = false
+    var backLabel = "学習に戻る"
+    /// 中身を押したとき。nil なら押せない。
+    var onCenterTap: (() -> Void)?
+    var centerLabel = ""
     let onBack: () -> Void
+    @ViewBuilder let center: Center
 
     private let height: CGFloat = 48
 
@@ -506,13 +510,48 @@ struct StudyBridgeHeader: View {
             .buttonStyle(.plain)
             .disabled(isBackDisabled)
             .glassBarSurface(in: Circle())
-            .accessibilityLabel("学習に戻る")
+            .accessibilityLabel(backLabel)
 
-            WordListProgressBar(progress: progress)
+            centerSegment
                 .padding(.horizontal, WireMetrics.spacingL)
                 .frame(maxWidth: .infinity)
                 .frame(height: height)
                 .glassBarSurface(in: Capsule())
+        }
+    }
+
+    @ViewBuilder
+    private var centerSegment: some View {
+        if let onCenterTap {
+            Button(action: onCenterTap) {
+                center
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            // ponytail: VoiceOverは後日まとめて整える。今は押せることと行き先だけを出す。
+            .accessibilityLabel(centerLabel)
+        } else {
+            center
+        }
+    }
+}
+
+extension StudyBridgeHeader where Center == WordListProgressBar {
+    /// 進み具合のバーを載せる学習画面用。`onProgressTap` を渡すとバーから学習状況を開ける。
+    init(
+        progress: Double,
+        isBackDisabled: Bool = false,
+        onProgressTap: (() -> Void)? = nil,
+        onBack: @escaping () -> Void
+    ) {
+        self.init(
+            isBackDisabled: isBackDisabled,
+            onCenterTap: onProgressTap,
+            centerLabel: "学習状況を開く",
+            onBack: onBack
+        ) {
+            WordListProgressBar(progress: progress)
         }
     }
 }

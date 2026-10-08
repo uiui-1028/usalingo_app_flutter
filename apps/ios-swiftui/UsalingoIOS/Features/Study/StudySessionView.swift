@@ -32,6 +32,9 @@ struct StudySessionView: View {
     @State private var sessionProgresses: [LearningProgress] = []
     @State private var answerHistory: [AnswerCheckpoint] = []
     @StateObject private var audioPlaybackService = AudioPlaybackService()
+    /// 進み具合のバーから開いた学習状況の一覧。
+    @State private var isShowingProgress = false
+    @State private var hasStarted = false
 
     init(deck: Deck, studyMode: StudyMode = .all) {
         self.deck = deck
@@ -41,7 +44,7 @@ struct StudySessionView: View {
     var body: some View {
         VStack(spacing: 0) {
             if !isLoading, loadErrorMessage == nil, !cards.isEmpty {
-                StudyBridgeHeader(progress: cardOrder.progress) { dismiss() }
+                StudyBridgeHeader(progress: cardOrder.progress, onProgressTap: { isShowingProgress = true }) { dismiss() }
                     .zIndex(1)
             }
 
@@ -98,7 +101,11 @@ struct StudySessionView: View {
         }
         .onDisappear {
             audioPlaybackService.stop()
-            CardImageCache.stopPrefetching()
+            // 学習状況を開いている間は学習を続けているので、先読みは止めない。
+            if !isShowingProgress { CardImageCache.stopPrefetching() }
+        }
+        .navigationDestination(isPresented: $isShowingProgress) {
+            DeckProgressGridView(deck: deck, currentCardId: currentCard?.id)
         }
         .sheet(item: $editingWord) { word in
             WordEditSheet(word: word) { savedWord in
@@ -116,7 +123,12 @@ struct StudySessionView: View {
             }
                 .presentationDetents([.medium])
         }
-        .task { await load() }
+        .task {
+            // 学習状況から戻ると task がもう一度走るので、読み込みは最初の1回だけにする。
+            guard !hasStarted else { return }
+            hasStarted = true
+            await load()
+        }
     }
 
     /// 束の中のカードはすべて同じ寸法・同じ位置に重ねる。順位による拡大縮小も位置差も

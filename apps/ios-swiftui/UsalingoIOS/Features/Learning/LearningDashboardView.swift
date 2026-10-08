@@ -94,6 +94,7 @@ struct LearningDashboardView: View {
     @State private var radioDeck: Deck?
     @State private var matchingDeck: Deck?
     @State private var choiceDeck: Deck?
+    @State private var progressDeck: Deck?
     @AppStorage(DeckPlayStyle.storageKey) private var playStyle: DeckPlayStyle = .card
     @State private var errorMessage: String?
 
@@ -123,6 +124,9 @@ struct LearningDashboardView: View {
                 .navigationDestination(item: $choiceDeck) { deck in
                     FiveChoiceView(deck: deck)
                 }
+                .navigationDestination(item: $progressDeck) { deck in
+                    DeckProgressGridView(deck: deck)
+                }
         }
         .task(id: reloadKey) { await reload() }
         .onChange(of: appState.session?.user.id) { _, _ in
@@ -133,6 +137,7 @@ struct LearningDashboardView: View {
             radioDeck = nil
             matchingDeck = nil
             choiceDeck = nil
+            progressDeck = nil
             tree = []
             openFolderId = nil
             covers = [:]
@@ -167,6 +172,7 @@ struct LearningDashboardView: View {
             || radioDeck != nil
             || matchingDeck != nil
             || choiceDeck != nil
+            || progressDeck != nil
     }
 
     /// デッキのカードを上下に回すカルーセル。お知らせがあるときだけ下に足す。
@@ -461,13 +467,14 @@ struct LearningDashboardView: View {
         withTransaction(transaction, change)
     }
 
-    /// 長押しメニュー。名前の変更、並べ替え、削除。消す操作は最後に置き、選ぶと赤くなる。
+    /// 長押しメニュー。学習状況、名前の変更、並べ替え、削除。消す操作は最後に置き、選ぶと赤くなる。
     /// 並べ替えのボタンの上で離すと、デッキが浮いたままになり、次に触って運ぶと置ける。
     /// ボタンを使わずに長押しのまま動かしても運べる。
     /// ダウンロード中のデッキでは「削除」を出さない（取りやめにあたるため。要件 R5・T4）。
     private func menuItems(for deck: Deck) -> [DeckMenuItem] {
         let folder = folder(of: deck)
         var items = [
+            DeckMenuItem(title: "学習状況", systemImage: "square.grid.3x3") { progressDeck = deck },
             DeckMenuItem(title: "名前を変更", systemImage: "pencil") { beginRename(deck) },
             // ponytail: 支援技術からタップしても同じく浮かせるだけで、運ぶには指で触る必要がある。代わりの操作は後でまとめて作る。
             DeckMenuItem(title: "並び替え", systemImage: "arrow.up.arrow.down", startsDrag: true) { liftDeckId = deck.id }
