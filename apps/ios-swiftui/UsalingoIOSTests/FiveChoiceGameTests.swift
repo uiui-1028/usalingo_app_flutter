@@ -101,6 +101,34 @@ final class FiveChoiceGameTests: XCTestCase {
         XCTAssertEqual(game.progress, 1)
     }
 
+    func testPeekRecordsNothingUntilSelfGradeAndThenAdvances() throws {
+        var game = FiveChoiceGame(cards: words(1...2), candidates: words(1...20), shufflesOrder: false)
+        XCTAssertFalse(game.grade(isCorrect: true), "見る前は自己評価できない")
+
+        game.peek()
+        XCTAssertTrue(game.isRevealed)
+        XCTAssertNil(game.selectedIndex)
+        XCTAssertEqual(game.answeredCount, 0)
+        XCTAssertNil(game.answer(at: 0), "見た後は選んで正解にできない")
+        game.advance()
+        XCTAssertEqual(game.question?.card.id, 1, "自己評価せずに次へ進めない")
+
+        XCTAssertTrue(game.grade(isCorrect: false))
+        XCTAssertEqual(game.question?.card.id, 2)
+        XCTAssertFalse(game.isRevealed)
+        XCTAssertEqual(game.answeredCount, 1)
+        XCTAssertEqual(game.progress, 0)
+
+        game.peek()
+        XCTAssertTrue(game.grade(isCorrect: true))
+        XCTAssertFalse(game.grade(isCorrect: true), "同じ問題を二重に記録しない")
+        let retry = try XCTUnwrap(game.question)
+        XCTAssertEqual(retry.card.id, 1, "不正解は最後に再出題する")
+        XCTAssertTrue(retry.isRetry)
+        XCTAssertEqual(game.answeredCount, 2)
+        XCTAssertEqual(game.progress, 0.5)
+    }
+
     func testProgressCountsOnlyCorrectAnswers() throws {
         var game = FiveChoiceGame(cards: words(1...4), candidates: words(1...20), shufflesOrder: false)
         XCTAssertEqual(game.progress, 0)
