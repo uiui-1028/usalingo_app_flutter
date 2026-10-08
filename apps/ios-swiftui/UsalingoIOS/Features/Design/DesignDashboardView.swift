@@ -4,25 +4,30 @@ import SwiftUI
 ///
 /// 画面上 4 割はデザインのプレビュー枠、下 6 割は 4 つの設定モジュールの入口。
 /// 実際の設定反映や永続化は行わず、ページ内で選択とスイッチの操作だけを確認する。
+/// 学習画面の左の引き出しに入るので幅が狭い。モジュールのページは全画面で重ね、閉じるとこの一覧へ戻る。
 struct DesignDashboardView: View {
     @State private var selectedModule: DesignMockModule?
 
     var body: some View {
-        NavigationStack {
-            GeometryReader { proxy in
-                let spacing = WireMetrics.spacingL
-                let contentHeight = max(proxy.size.height - WireMetrics.screenPadding * 2 - spacing, 0)
-                VStack(spacing: spacing) {
-                    DesignPreviewStage()
-                        .frame(height: contentHeight * 0.4)
-                    DesignModuleGrid(spacing: spacing) { selectedModule = $0 }
-                        .frame(height: contentHeight * 0.6)
-                }
-                .padding(WireMetrics.screenPadding)
+        GeometryReader { proxy in
+            let spacing = WireMetrics.spacingL
+            let contentHeight = max(proxy.size.height - WireMetrics.screenPadding * 2 - spacing, 0)
+            VStack(spacing: spacing) {
+                DesignPreviewStage()
+                    .frame(height: contentHeight * 0.4)
+                DesignModuleGrid(spacing: spacing) { selectedModule = $0 }
+                    .frame(height: contentHeight * 0.6)
             }
-            .toolbar(.hidden, for: .navigationBar)
-            .navigationDestination(item: $selectedModule) { module in
+            .padding(WireMetrics.screenPadding)
+        }
+        .fullScreenCover(item: $selectedModule) { module in
+            NavigationStack {
                 DesignModulePage(module: module)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button("閉じる") { selectedModule = nil }
+                        }
+                    }
             }
         }
     }
