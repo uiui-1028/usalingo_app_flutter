@@ -27,7 +27,8 @@ python3 scripts/check-generated-content.py sample --dir <フォルダ> --output 
 | `02_content_examples` | 必須 | この回の例文 |
 | `04_deck_words` | 必須 | この回の単語が入るデッキと、主の意味 |
 | `02_content_concepts` | 必須 | 使うコンセプトの一覧（`simple`、`anime` など） |
-| `04_decks` | 必須 | 使うデッキの一覧 |
+| `04_deck_boxes` | 必須 | 使う箱の一覧。デッキのコンセプトは箱で決まる |
+| `04_decks` | 必須 | 使うデッキの一覧と、入れる箱 |
 | `03_audio_*` | 任意 | 置かなければ空のシートとして扱う |
 
 列の決まりは [V5の設計](../content/source-database-v5.md) と同じ。TSVでは `"` を囲みの記号として扱わないので、

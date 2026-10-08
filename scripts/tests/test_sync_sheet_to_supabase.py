@@ -39,7 +39,11 @@ def csvs(**overrides: str) -> dict[str, str]:
             "example_audio_id,example_id,audio_asset_path,voice_label\n"
             "0001,0001,content-audio/example/simple/000/example-000001.mp3,default\n"
         ),
-        "04_decks": "deck_id,deck_name,concept_id\n0001,大学受験頻出1000語,0001\n",
+        "04_deck_boxes": (
+            "box_id,box_name,description,genre,concept_id,cover_example_id\n"
+            "0001,大学受験 シリーズA,,exam,0001,0001\n"
+        ),
+        "04_decks": "deck_id,deck_name,box_id\n0001,1〜100,0001\n",
         "04_deck_words": "deck_id,sense_id\n0001,0002\n0001,0001\n",
     }
     sheets.update(overrides)
@@ -84,6 +88,16 @@ class BuildDocumentTest(unittest.TestCase):
             ],
         )
 
+    def test_decks_take_the_concept_of_their_box(self) -> None:
+        document = MODULE.build_document(csvs())
+
+        self.assertEqual(
+            document["boxes"],
+            [{"id": 1, "box_name": "大学受験 シリーズA", "description": None, "genre": "exam",
+              "concept_id": 1, "cover_example_id": 1, "sort_order": 0}],
+        )
+        self.assertEqual(document["decks"], [{"id": 1, "deck_name": "1〜100", "box_id": 1, "concept_id": 1}])
+
     def assert_stops(self, message: str, **overrides: str) -> None:
         with self.assertRaises(MODULE.SyncError) as raised:
             MODULE.build_document(csvs(**overrides))
@@ -108,6 +122,25 @@ class BuildDocumentTest(unittest.TestCase):
     def test_stops_on_missing_reference(self) -> None:
         self.assert_stops("sense 9 is not in 01_core_senses", **{"04_deck_words": "deck_id,sense_id\n1,9\n"})
 
+    def test_stops_on_deck_without_a_known_box(self) -> None:
+        self.assert_stops("box 2 is not in 04_deck_boxes", **{"04_decks": "deck_id,deck_name,box_id\n1,1〜100,2\n"})
+
+    def test_stops_on_unknown_genre(self) -> None:
+        self.assert_stops(
+            "'eiken' must be one of exam, toeic",
+            **{"04_deck_boxes": "box_id,box_name,description,genre,concept_id,cover_example_id\n1,A,,eiken,1,\n"},
+        )
+
+    def test_stops_on_cover_from_another_concept(self) -> None:
+        concepts = csvs()["02_content_concepts"] + "2,anime,アニメ,,TRUE\n"
+        self.assert_stops(
+            "example 1 is not in the box's concept 2",
+            **{
+                "02_content_concepts": concepts,
+                "04_deck_boxes": "box_id,box_name,description,genre,concept_id,cover_example_id\n1,A,,exam,2,1\n",
+            },
+        )
+
     def test_stops_on_duplicate_ids(self) -> None:
         self.assert_stops("duplicate IDs [1]", **{"01_core_words": "word_id,word_text\n1,create\n0001,creates\n2,increase\n"})
 
@@ -122,10 +155,13 @@ class RenderSqlTest(unittest.TestCase):
         self.assertIn("U&'\\4F5C\\308A\\51FA\\3059'", sql)  # 作り出す
         self.assertIn("'{\"past\":\"created\"}'::jsonb", sql)
 
-    def test_fills_deck_size_and_difficulty_for_official_decks(self) -> None:
+    def test_fills_size_and_difficulty_for_official_decks_and_boxes(self) -> None:
         sql = MODULE.render_sql(MODULE.build_document(csvs()), dry_run=False)
 
-        self.assertIn("update public.decks d set\n  media_bytes =", sql)
+        self.assertIn("update public.decks t set\n  media_bytes =", sql)
+        self.assertIn("update public.deck_boxes t set\n  media_bytes =", sql)
+        self.assertIn("select distinct d.box_id as group_id", sql)
+        self.assertLess(sql.index("insert into public.deck_boxes"), sql.index("insert into public.decks"))
         self.assertIn("join storage.objects o on o.bucket_id = split_part(p.path, '/', 1)", sql)
         self.assertLess(sql.index("media_bytes ="), sql.index("commit;"))
 

@@ -66,6 +66,7 @@ python3 scripts/sync-sheet-to-supabase.py sync --target production --confirm-pro
 
 | 項目 | 意味 | ふつうの値 |
 |---|---|---|
+| `boxes` | シートから入れた箱の数 | `04_deck_boxes` の行数と同じ |
 | `words` / `meanings` / `examples` | シートから入れた行の数 | シートの行数と同じ |
 | `images_present` | Storage に画像があった数 | 例文の数と同じ |
 | `example_audio_present` | 例文の音声があった数 | 例文の数と同じ |

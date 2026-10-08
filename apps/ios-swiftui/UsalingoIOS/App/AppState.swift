@@ -339,9 +339,14 @@ final class AppState: ObservableObject {
             official.isAdded = official.isAdded
                 && !localStudy.isHidden(deckId: LocalStudyDataSource.cachedDeckId(remoteDeckId: official.deck.id))
             // 押したあと、学習タブに入る途中のデッキも追加済みとして見せ、二重に追加させない。
-            if addingDecks.contains(where: { $0.id == official.id }) { official.isAdded = true }
+            if addingDecks.contains(where: { $0.deckIds.contains(official.id) }) { official.isAdded = true }
             return official
         }
+    }
+
+    /// ギャラリーに並べる箱。箱に入っていない公式デッキは、1つだけの箱として並べる。
+    func fetchOfficialBoxes() async throws -> [OfficialBox] {
+        OfficialBox.grouping(try await fetchOfficialDecks())
     }
 
     /// ギャラリーの詳細画面で見せる、公式デッキの収録単語。
@@ -351,18 +356,31 @@ final class AppState: ObservableObject {
 
     /// 公式デッキを学習タブへ追加し、端末の控えまで更新してから戻る。
     func addOfficialDeck(id: Int) async throws {
+        try await addOfficialDecks(ids: [id])
+    }
+
+    /// 公式デッキをまとめて学習タブへ追加し、端末の控えを1回だけ読み直す。
+    func addOfficialDecks(ids: [Int]) async throws {
         let session = try connectedSession()
-        try localStudy.unhideDeck(id: LocalStudyDataSource.cachedDeckId(remoteDeckId: id))
-        try await remoteStudy.addOfficialDeck(id: id, session: session)
+        for id in ids {
+            try localStudy.unhideDeck(id: LocalStudyDataSource.cachedDeckId(remoteDeckId: id))
+            try await remoteStudy.addOfficialDeck(id: id, session: session)
+        }
         try await loadOfficialContent(session: session)
     }
 
     /// ギャラリーでダウンロードを押した。すぐ学習タブへ戻れるよう、追加と先取りは裏で進める（R4・R5）。
     /// 学習タブに出た瞬間から開けないよう、追加の前に「開けない」印を付ける（D3）。
-    func beginAddingDeck(_ official: OfficialDeck, coverURL: URL?, atTop: Bool) {
-        guard !addingDecks.contains(where: { $0.id == official.id }) else { return }
-        let pending = PendingDeckAdd(official: official, coverURL: coverURL, atTop: atTop)
-        mediaDownloader?.lock(deckId: pending.localDeckId, expectedBytes: official.mediaBytes)
+    /// 箱はフォルダにして入れる。フォルダの番号を先に取っておき、押した時点からその番号で中央に置く（X6）。
+    func beginAddingBox(_ box: OfficialBox, coverURL: URL?, atTop: Bool) {
+        guard !box.missingDecks.isEmpty, !addingDecks.contains(where: { $0.id == box.id }) else { return }
+        var pending = PendingDeckAdd(box: box, coverURL: coverURL, atTop: atTop)
+        // ponytail: 番号を取れなかった（端末に書けなかった）ときは、フォルダにせずデッキを1つずつ入れる。
+        if box.makesFolder { pending.folderId = try? localStudy.reserveFolderId() }
+        for deck in box.missingDecks {
+            mediaDownloader?.lock(deckId: LocalStudyDataSource.cachedDeckId(remoteDeckId: deck.id),
+                                  expectedBytes: deck.mediaBytes)
+        }
         DeckOrderStore(accountId: session?.user.id ?? "guest").selectedDeckId = pending.localDeckId
         addingDecks.append(pending)
         Task { await runAdding(pending) }
@@ -382,8 +400,8 @@ final class AppState: ObservableObject {
         let waits: [Double] = [2, 4, 8, 16, 30]
         for attempt in 0...waits.count {
             do {
-                try await addOfficialDeck(id: pending.id)
-                try? localStudy.placeDeck(id: pending.localDeckId, atTop: pending.atTop)
+                try await addOfficialDecks(ids: pending.deckIds)
+                try? place(pending)
                 if let index = addingDecks.firstIndex(where: { $0.id == pending.id }) {
                     addingDecks[index].isPlaced = true
                 }
@@ -399,19 +417,43 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// 追加した箱を、選んだ空き枠の側の端へ置く。箱はフォルダにし、1つで入るデッキはそのまま置く。
+    private func place(_ pending: PendingDeckAdd) throws {
+        let localIds = pending.box.decks.map { LocalStudyDataSource.cachedDeckId(remoteDeckId: $0.id) }
+        if let folderId = pending.folderId {
+            try localStudy.placeBoxFolder(id: folderId, named: pending.name, deckIds: localIds, atTop: pending.atTop)
+        } else {
+            // 上の端へ入れるときは、箱の順が崩れないよう後ろのデッキから先頭へ置いていく。
+            for id in pending.atTop ? localIds.reversed() : localIds {
+                try localStudy.placeDeck(id: id, atTop: pending.atTop)
+            }
+        }
+    }
+
     /// 学習タブが読み直して、並びに入れ終えたデッキを出せたら、追加の途中の枠を片付ける。
     func clearPlacedAdds(presentDeckIds: Set<Int>) {
         addingDecks.removeAll { $0.isPlaced && presentDeckIds.contains($0.localDeckId) }
     }
 
     /// 学習タブのカードに出す、ダウンロードの状態。開けるデッキは nil。
+    /// フォルダは中のデッキの状態をまとめる。中にダウンロード中のデッキがあれば、フォルダも開けない（X16）。
     func downloadState(forDeckId deckId: Int) -> DeckDownloadState? {
+        if LocalStudyDataSource.isFolderDeckId(deckId) {
+            let folder = localStudy.deckFolders.first { LocalStudyDataSource.folderDeckId(folderId: $0.id) == deckId }
+            return DeckDownloadState.combined((folder?.deckIds ?? []).map { downloadState(forDeckId: $0) })
+        }
         guard let mediaDownloader, mediaDownloader.isLocked(deckId) else { return nil }
         if mediaDownloader.failedDeckIds.contains(deckId) { return .failed }
         return .downloading(mediaDownloader.progress[deckId] ?? 0)
     }
 
+    /// フォルダの「再試行」は、中のデッキをまとめてやり直す。
     func retryDownload(deckId: Int) {
+        if LocalStudyDataSource.isFolderDeckId(deckId) {
+            let folder = localStudy.deckFolders.first { LocalStudyDataSource.folderDeckId(folderId: $0.id) == deckId }
+            folder?.deckIds.forEach { mediaDownloader?.retry(deckId: $0) }
+            return
+        }
         mediaDownloader?.retry(deckId: deckId)
     }
 

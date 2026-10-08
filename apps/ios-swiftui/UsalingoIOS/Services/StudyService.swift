@@ -58,14 +58,49 @@ private struct CardIdRecord: Decodable {
 
 /// ギャラリーに並べる公式デッキ。`isAdded` は、この利用者の学習タブに出ているか。
 /// 容量・易しさ・世界観の名前は教材の同期が前もって入れた値で、入っていなければ nil。
+/// `box` はこのデッキが入っている箱。箱に入っていないデッキは、1つだけで並べる。
 struct OfficialDeck: Identifiable, Hashable {
     let deck: Deck
     var isAdded: Bool
     var mediaBytes: Int64? = nil
     var difficulty: DeckDifficulty? = nil
     var conceptName: String? = nil
+    var box: DeckBoxRecord? = nil
 
     var id: Int { deck.id }
+}
+
+/// 公式デッキをまとめる箱（`deck_boxes` の行）。単語リストの一部 × 世界観1つで、ギャラリーで選ぶ単位になる。
+/// 容量と易しさは教材の同期が箱ぜんたいで数えた値。要件は docs/plans/deck-box-requirements.md。
+struct DeckBoxRecord: Decodable, Hashable {
+    let id: Int
+    let boxName: String
+    let description: String?
+    let genre: String
+    let sortOrder: Int
+    let mediaBytes: Int64?
+    let difficulty: DeckDifficulty?
+    let cover: CoverRecord?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case boxName = "box_name"
+        case description
+        case genre
+        case sortOrder = "sort_order"
+        case mediaBytes = "media_bytes"
+        case difficulty
+        case cover
+    }
+
+    /// 表紙に指定した例文の画像。
+    struct CoverRecord: Decodable, Hashable {
+        let imageAssetPath: String?
+
+        enum CodingKeys: String, CodingKey {
+            case imageAssetPath = "image_asset_path"
+        }
+    }
 }
 
 /// デッキの易しさ。`decks.difficulty` の値。
@@ -101,6 +136,7 @@ private struct DeckCatalogRecord: Decodable {
     let mediaBytes: Int64?
     let difficulty: DeckDifficulty?
     let concept: ConceptRecord?
+    let box: DeckBoxRecord?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -112,6 +148,7 @@ private struct DeckCatalogRecord: Decodable {
         case mediaBytes = "media_bytes"
         case difficulty
         case concept
+        case box
     }
 
     struct ConceptRecord: Decodable {
@@ -125,7 +162,7 @@ private struct DeckCatalogRecord: Decodable {
     var deck: Deck { Deck(id: id, deckName: deckName, description: description, ownerId: ownerId) }
     var officialDeck: OfficialDeck {
         OfficialDeck(deck: deck, isAdded: isOnStudyList, mediaBytes: mediaBytes,
-                     difficulty: difficulty, conceptName: concept?.conceptName)
+                     difficulty: difficulty, conceptName: concept?.conceptName, box: box)
     }
     /// RLS で本人の追加記録しか返らないので、空でなければ本人が追加済み。
     var isOnStudyList: Bool { ownerId != nil || isStarter || !addedBy.isEmpty }
@@ -234,6 +271,7 @@ final class StudyService: RemoteStudyImporting {
         static let progress = "user_id,card_id,status,last_reviewed_at,next_review_date,srs_level,easiness_factor,repetitions,incorrect_count,interval_days,created_at,updated_at"
         static let word = "id,word_text,word_meanings(id,priority,part_of_speech_en,definition_jp,cefr_level,etymology,synonyms,example_contents(id,sentence_en,sentence_jp,image_asset_path,audio_asset_path)),word_pronunciations(audio_asset_path,is_primary)"
         static let studyCard = "id,word_id,sort_order,primary_meaning_id,word:words!inner(\(word))"
+        static let box = "id,box_name,description,genre,sort_order,media_bytes,difficulty,cover:example_contents(image_asset_path)"
     }
 
     /// 学習タブに並べるデッキ。最初から出す公式デッキ、本人が追加した公式デッキ、本人のデッキ。
@@ -265,7 +303,7 @@ final class StudyService: RemoteStudyImporting {
         try await fetchAllPages(
             path: "decks",
             queryItems: [
-                URLQueryItem(name: "select", value: "id,deck_name,description,owner_id,is_starter,media_bytes,difficulty,concept:content_concepts(concept_name),user_added_decks(deck_id)"),
+                URLQueryItem(name: "select", value: "id,deck_name,description,owner_id,is_starter,media_bytes,difficulty,concept:content_concepts(concept_name),user_added_decks(deck_id),box:deck_boxes(\(SelectColumns.box))"),
                 URLQueryItem(name: "order", value: "id.asc")
             ],
             accessToken: session.accessToken

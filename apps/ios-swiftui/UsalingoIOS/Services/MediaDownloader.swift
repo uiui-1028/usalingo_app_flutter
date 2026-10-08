@@ -255,18 +255,41 @@ extension MediaDownloader: URLSessionDownloadDelegate {
 enum DeckDownloadState: Equatable {
     case downloading(Double)
     case failed
+
+    /// フォルダの見せ方。中のデッキの状態をまとめ、1デッキのときと同じ見せ方にする（要件 X16）。
+    /// どれもダウンロード中でなければ nil。1つでも止まっていれば「失敗」。
+    /// ％は中のデッキの％をならしたもので、終わったデッキは100%として数える。
+    /// ponytail: 箱の中のデッキの容量はほぼ同じ（約11MB）なので、バイト数で重みを付けずにならす。
+    /// 容量が大きく違うデッキを同じ箱に入れるようになったら、デッキの容量で重みを付ける。
+    static func combined(_ states: [DeckDownloadState?]) -> DeckDownloadState? {
+        guard states.contains(where: { $0 != nil }) else { return nil }
+        if states.contains(.failed) { return .failed }
+        let total = states.reduce(0.0) { sum, state in
+            if case .downloading(let ratio) = state { return sum + ratio }
+            return sum + 1
+        }
+        return .downloading(total / Double(states.count))
+    }
 }
 
-/// ギャラリーで押してから、学習タブに入るまで（追加の記録と文字データの読み込み中）のデッキ。
+/// ギャラリーで押してから、学習タブに入るまで（追加の記録と文字データの読み込み中）の箱。
 struct PendingDeckAdd: Identifiable, Hashable {
-    let official: OfficialDeck
+    let box: OfficialBox
     let coverURL: URL?
     let atTop: Bool
+    /// 箱をフォルダにして入れるときの、押した時点で取っておいたフォルダの番号。1つで入るデッキは nil。
+    var folderId: Int? = nil
     var isFailed = false
     /// 学習タブの並びに入れ終えた。学習タブが読み直してデッキを出すまで、この枠を残して途切れさせない。
     var isPlaced = false
 
-    var id: Int { official.id }
-    /// 学習タブに入ったときの番号。入る前から同じ番号でカルーセルの中央に置く。
-    var localDeckId: Int { LocalStudyDataSource.cachedDeckId(remoteDeckId: official.id) }
+    var id: String { box.id }
+    var name: String { box.name }
+    /// 追加するデッキ（サーバーの番号）。押した時点で学習タブに無かったものだけ。
+    var deckIds: [Int] { box.missingDecks.map(\.id) }
+    /// 学習タブに入ったときの番号（フォルダならフォルダの番号）。入る前から同じ番号でカルーセルの中央に置く。
+    var localDeckId: Int {
+        if let folderId { return LocalStudyDataSource.folderDeckId(folderId: folderId) }
+        return LocalStudyDataSource.cachedDeckId(remoteDeckId: box.decks[0].id)
+    }
 }

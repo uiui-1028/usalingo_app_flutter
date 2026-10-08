@@ -618,6 +618,32 @@ final class LocalStudyDataSource: StudyDataSource {
         try moveEntry(.deck(id), toTopLevelIndex: atTop ? 0 : Int.max)
     }
 
+    /// 箱を追加するときのフォルダの番号を、先に取っておく。押した時点から学習タブの中央に置くため。
+    func reserveFolderId() throws -> Int {
+        let id = library.nextFolderId
+        library.nextFolderId += 1
+        try persistLibrary()
+        return id
+    }
+
+    /// 箱をフォルダにして、選んだ空き枠の側の端へ置く（要件 X6・X8）。
+    /// 渡したデッキのうち、どのフォルダにも入っていないものだけを箱の順で入れる。
+    /// 利用者が自分でフォルダに入れたデッキは動かさない。入れるデッキが無ければフォルダは作らない。
+    func placeBoxFolder(id folderId: Int, named name: String, deckIds: [Int], atTop: Bool) throws {
+        let inFolders = Set(library.folders.flatMap(\.deckIds))
+        let loose = deckIds.filter { !inFolders.contains($0) }
+        guard !loose.isEmpty, !library.folders.contains(where: { $0.id == folderId }) else { return }
+        var entries = (library.layout ?? []).filter { entry in
+            if case .deck(let id) = entry { return !loose.contains(id) }
+            return true
+        }
+        entries.insert(.folder(folderId), at: atTop ? 0 : entries.count)
+        library.layout = entries
+        library.folders.append(LocalDeckFolder(id: folderId, name: name, deckIds: loose))
+        library.nextFolderId = max(library.nextFolderId, folderId + 1)
+        try persistLibrary()
+    }
+
     /// デッキかフォルダを、一番上の階層の `index` 番目へ動かす。デッキはフォルダに入っていれば出す。
     /// `index` は動かすものを除いた並びでの位置で、範囲の外なら端に寄せる。
     func moveEntry(_ entry: DeckLayoutEntry, toTopLevelIndex index: Int) throws {

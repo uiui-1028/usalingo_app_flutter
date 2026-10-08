@@ -1,38 +1,39 @@
 import SwiftUI
 
-/// 学習タブの空き枠から開く、公式デッキを1つ選んで追加する画面。
+/// 学習タブの空き枠から開く、公式デッキの箱を1つ選んで追加する画面。
 ///
 /// 上にジャンルのセグメント、真ん中に学習タブと同じ縦のカルーセル、下に標準のシートを置く。
 /// シートは頭（収録語数・容量・レベル）と約7割（詳しい情報と単語一覧）の2段で、中身はカルーセルの
-/// 中央のデッキに合わせて変わる。要件は docs/plans/deck-gallery-redesign-requirements.md。
-/// ダウンロードを押したら、すぐ `onAdded` にデッキと表紙を渡す。追加と画像・音声のダウンロードは呼び出し側が裏で進め、
+/// 中央の箱に合わせて変わる。要件は docs/plans/deck-gallery-redesign-requirements.md と
+/// docs/plans/deck-box-requirements.md。
+/// ダウンロードを押したら、すぐ `onAdded` に箱と表紙を渡す。追加と画像・音声のダウンロードは呼び出し側が裏で進め、
 /// 進み具合は学習タブの枠に出す（要件 R4・R5）。戻るのも呼び出し側が決める。
 struct DeckLibraryView: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    let onAdded: (OfficialDeck, URL?) -> Void
+    let onAdded: (OfficialBox, URL?) -> Void
 
     @State private var genre = GalleryGenre.exam
-    @State private var decks: [OfficialDeck] = []
+    @State private var boxes: [OfficialBox] = []
     @State private var isLoading = true
     @State private var loadFailed = false
-    /// カルーセルの中央にいるデッキ（サーバーの番号）。
-    @State private var selectedId: Int?
-    /// デッキごとの収録カード。読めなかったデッキは入らない。
+    /// カルーセルの中央にいる箱。
+    @State private var selectedId: OfficialBox.ID?
+    /// デッキ（サーバーの番号）ごとの収録カード。読めなかったデッキは入らない。
     @State private var cardsByDeck: [Int: [WordCard]] = [:]
-    @State private var covers: [Int: URL] = [:]
+    @State private var covers: [OfficialBox.ID: URL] = [:]
     /// 学習タブにある公式デッキ（端末の番号）ごとの、サーバーの単語番号。重なる語数を数えるのに使う。
     @State private var ownedWords: [Int: Set<Int>] = [:]
     @State private var isSheetPresented = false
     @State private var detent = GallerySheetDetent.peek
-    /// モバイル回線で押したときに、確認を出しているデッキ（要件 D7）。
-    @State private var deckAwaitingCellularConsent: OfficialDeck?
+    /// モバイル回線で押したときに、確認を出している箱（要件 D7）。
+    @State private var boxAwaitingCellularConsent: OfficialBox?
     /// シートを閉じ切ってから行うこと。シートを出したまま戻ると、画面だけが先に消えてしまう。
     @State private var afterSheetDismiss: (() -> Void)?
 
-    private var genreDecks: [OfficialDeck] { decks.filter(genre.contains) }
-    private var selectedDeck: OfficialDeck? { genreDecks.first { $0.id == selectedId } }
+    private var genreBoxes: [OfficialBox] { boxes.filter { $0.genre == genre } }
+    private var selectedBox: OfficialBox? { genreBoxes.first { $0.id == selectedId } }
     /// シートが7割まで上がっている。カードを1枚だけ上に出し、回せなくする。
     private var isFocused: Bool { detent == GallerySheetDetent.expanded }
 
@@ -62,7 +63,7 @@ struct DeckLibraryView: View {
         .sheet(isPresented: $isSheetPresented, onDismiss: runAfterSheetDismiss) { sheet }
         .task { await reload() }
         .onChange(of: genre) { _, _ in selectFirstDeckIfNeeded() }
-        .onChange(of: selectedDeck?.id) { _, _ in updateSheetPresence() }
+        .onChange(of: selectedBox?.id) { _, _ in updateSheetPresence() }
         .onDisappear { isSheetPresented = false }
     }
 
@@ -73,14 +74,14 @@ struct DeckLibraryView: View {
         if isLoading {
             ProgressView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if loadFailed || genreDecks.isEmpty {
+        } else if loadFailed || genreBoxes.isEmpty {
             GalleryUnavailableBoard { Task { await reload() } }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             let peekCover = max(0, GallerySheetDetent.peekHeight - proxy.safeAreaInsets.bottom)
             let areaHeight = proxy.size.height - peekCover
             DeckGalleryCarousel(
-                decks: genreDecks,
+                boxes: genreBoxes,
                 selectedId: selectedId,
                 covers: covers,
                 isLocked: isFocused,
@@ -122,13 +123,13 @@ struct DeckLibraryView: View {
     @ViewBuilder
     private var sheet: some View {
         Group {
-            if let deck = selectedDeck {
+            if let box = selectedBox {
                 DeckGallerySheet(
-                    deck: deck,
-                    words: cardsByDeck[deck.id],
-                    overlap: overlapCount(for: deck),
+                    box: box,
+                    cardsByDeck: cardsByDeck,
+                    overlap: overlapCount(for: box),
                     isExpanded: isFocused,
-                    onDownload: { download(deck) }
+                    onDownload: { download(box) }
                 )
             } else {
                 Color.clear
@@ -136,13 +137,13 @@ struct DeckLibraryView: View {
         }
         // シートが出ている間は、確認もシートの上に出す。
         .alert("モバイル回線でダウンロードしますか？", isPresented: Binding(
-            get: { deckAwaitingCellularConsent != nil },
-            set: { if !$0 { deckAwaitingCellularConsent = nil } }
-        ), presenting: deckAwaitingCellularConsent) { deck in
+            get: { boxAwaitingCellularConsent != nil },
+            set: { if !$0 { boxAwaitingCellularConsent = nil } }
+        ), presenting: boxAwaitingCellularConsent) { box in
             Button("やめる", role: .cancel) {}
-            Button("ダウンロード") { startAdding(deck) }
-        } message: { deck in
-            Text(deck.mediaBytes.map {
+            Button("ダウンロード") { startAdding(box) }
+        } message: { box in
+            Text(box.missingBytes.map {
                 "約\(ByteCountFormatter.string(fromByteCount: $0, countStyle: .file))を使います。"
             } ?? "画像と音声をダウンロードします。")
         }
@@ -170,54 +171,61 @@ struct DeckLibraryView: View {
         action?()
     }
 
-    /// 選べるデッキがあるときだけシートを出す。無いときは看板だけを見せる。
+    /// 選べる箱があるときだけシートを出す。無いときは看板だけを見せる。
     private func updateSheetPresence() {
-        let shouldPresent = selectedDeck != nil && afterSheetDismiss == nil
+        let shouldPresent = selectedBox != nil && afterSheetDismiss == nil
         if !shouldPresent { detent = GallerySheetDetent.peek }
         if isSheetPresented != shouldPresent { isSheetPresented = shouldPresent }
     }
 
     private func selectFirstDeckIfNeeded() {
         detent = GallerySheetDetent.peek
-        if selectedDeck == nil { selectedId = genreDecks.first?.id }
+        if selectedBox == nil { selectedId = genreBoxes.first?.id }
     }
 
     private func reload() async {
-        isLoading = decks.isEmpty
+        isLoading = boxes.isEmpty
         defer {
             isLoading = false
             selectFirstDeckIfNeeded()
             updateSheetPresence()
         }
         do {
-            decks = try await appState.fetchOfficialDecks()
+            boxes = try await appState.fetchOfficialBoxes()
             loadFailed = false
         } catch {
-            loadFailed = decks.isEmpty
+            loadFailed = boxes.isEmpty
             return
         }
         await loadOwnedWords()
         await loadCards()
     }
 
-    /// デッキごとの収録カードを並行して読み、表紙を学習タブと同じ選び方で決める。
-    /// ponytail: 表紙のために全デッキのカードを読む。デッキが増えて重くなったら、
-    /// 表紙に使うイラストを decks の列で指定する形（要件 U5 の後続）に置き換える。
+    /// デッキごとの収録カードを並行して読み、箱の表紙を決める。
+    /// 表紙は箱で指定した例文の画像。指定が無ければ、学習タブと同じ選び方で収録単語のイラストから選ぶ（要件 X11）。
+    /// ponytail: 単語一覧と重なる語数のために、全部の箱のカードを読む。箱が増えて重くなったら、
+    /// 中央の箱とその隣だけを読む形にする。
     private func loadCards() async {
-        let ids = decks.map(\.id).filter { cardsByDeck[$0] == nil }
+        let ids = boxes.flatMap(\.decks).map(\.id).filter { cardsByDeck[$0] == nil }
         await withTaskGroup(of: (Int, [WordCard]?).self) { group in
             for id in ids {
                 group.addTask { [appState] in (id, try? await appState.fetchOfficialDeckCards(deckId: id)) }
             }
-            let store = DeckCoverStore()
             for await (id, cards) in group {
-                guard let cards else { continue }
-                cardsByDeck[id] = cards
-                // 端末は公式デッキのカード番号の符号を反転して持つ（`LocalStudyDataSource.makeCachedCard`）。
-                // 学習タブと同じ1枚を選び、覚えた1枚を互いに上書きし合わないよう、同じ番号に直してから選ぶ。
-                let cachedForm = cards.map { $0.withCardId($0.cardId.map { -$0 }) }
-                covers[id] = store.coverURL(deckId: LocalStudyDataSource.cachedDeckId(remoteDeckId: id), cards: cachedForm)
+                if let cards { cardsByDeck[id] = cards }
             }
+        }
+        let store = DeckCoverStore()
+        for box in boxes where covers[box.id] == nil {
+            if let path = box.coverImagePath, let url = SupabaseConfig.publicStorageURL(for: path) {
+                covers[box.id] = url
+                continue
+            }
+            // 端末は公式デッキのカード番号の符号を反転して持つ（`LocalStudyDataSource.makeCachedCard`）。
+            // 学習タブと同じ1枚を選び、覚えた1枚を互いに上書きし合わないよう、同じ番号に直してから選ぶ。
+            let cards = box.decks.flatMap { cardsByDeck[$0.id] ?? [] }
+            let cachedForm = cards.map { $0.withCardId($0.cardId.map { -$0 }) }
+            covers[box.id] = store.coverURL(deckId: box.leadLocalDeckId, cards: cachedForm)
         }
     }
 
@@ -234,27 +242,28 @@ struct DeckLibraryView: View {
         ownedWords = words
     }
 
-    private func overlapCount(for deck: OfficialDeck) -> Int? {
-        guard let cards = cardsByDeck[deck.id] else { return nil }
+    /// 箱ぜんたいの単語のうち、学習タブのほかのデッキにもある数。追加済みなら箱のデッキ自身は数えない。
+    private func overlapCount(for box: OfficialBox) -> Int? {
+        guard let cards = box.cards(in: cardsByDeck) else { return nil }
         return DeckGalleryFacts.overlapCount(
             words: cards,
             ownedWords: ownedWords,
-            excludingDeckId: LocalStudyDataSource.cachedDeckId(remoteDeckId: deck.id)
+            excludingDeckIds: Set(box.decks.map { LocalStudyDataSource.cachedDeckId(remoteDeckId: $0.id) })
         )
     }
 
     /// モバイル回線なら、使う大きさを伝えてから始める（要件 D7）。
-    private func download(_ deck: OfficialDeck) {
-        guard !deck.isAdded else { return }
+    private func download(_ box: OfficialBox) {
+        guard !box.isAdded else { return }
         if appState.mediaDownloader?.isExpensiveNetwork == true {
-            deckAwaitingCellularConsent = deck
+            boxAwaitingCellularConsent = box
         } else {
-            startAdding(deck)
+            startAdding(box)
         }
     }
 
-    private func startAdding(_ deck: OfficialDeck) {
-        afterSheetDismiss = { onAdded(deck, covers[deck.id]) }
+    private func startAdding(_ box: OfficialBox) {
+        afterSheetDismiss = { onAdded(box, covers[box.id]) }
         isSheetPresented = false
     }
 }
@@ -264,10 +273,84 @@ enum GalleryGenre: String, CaseIterable {
     case exam = "大学受験"
     case toeic = "TOEIC"
 
-    // ponytail: 公式デッキは今は大学受験向けだけなので、全部を大学受験に入れる。
-    // TOEIC のデッキを配るときに decks へジャンルの列を足し、ここをその列で分ける。
-    func contains(_ deck: OfficialDeck) -> Bool {
-        self == .exam
+    /// `deck_boxes.genre` の値から。箱に入っていないデッキと知らない値は大学受験に入れる。
+    init(code: String?) {
+        self = code == "toeic" ? .toeic : .exam
+    }
+}
+
+/// ギャラリーで選ぶ1つ。公式デッキの箱か、箱に入っていない公式デッキ1つ（要件 X1・X7）。
+struct OfficialBox: Identifiable, Hashable {
+    /// 箱の番号。箱に入っていないデッキは nil で、そのデッキ1つだけを並べる。
+    let boxId: Int?
+    let name: String
+    let description: String?
+    let genre: GalleryGenre
+    /// 中のデッキ。箱の中の順（デッキの番号の順）。
+    let decks: [OfficialDeck]
+    /// 箱ぜんたいの容量と易しさ。同期がまだ入れていなければ nil。
+    let mediaBytes: Int64?
+    let difficulty: DeckDifficulty?
+    /// 箱で指定した表紙の画像。無ければ収録単語のイラストから選ぶ。
+    let coverImagePath: String?
+
+    var id: String { boxId.map { "box-\($0)" } ?? "deck-\(decks[0].id)" }
+    /// 中のデッキが全部学習タブにあれば追加済み。どのフォルダに入っていてもよい（要件 X7）。
+    var isAdded: Bool { decks.allSatisfy(\.isAdded) }
+    /// まだ学習タブに無いデッキ。追加するとこれだけを入れる。
+    var missingDecks: [OfficialDeck] { decks.filter { !$0.isAdded } }
+    /// 学習タブではフォルダにして入れるか。箱に入っていないデッキは、今までどおり1つで入る。
+    var makesFolder: Bool { boxId != nil }
+    /// 表紙の飾りと表紙の選び方に使う、先頭のデッキの端末の番号。
+    var leadLocalDeckId: Int { LocalStudyDataSource.cachedDeckId(remoteDeckId: decks[0].id) }
+
+    /// これからダウンロードする量。足りないデッキの容量の合計で、どれか分からなければ箱の容量。
+    var missingBytes: Int64? {
+        let sizes = missingDecks.map(\.mediaBytes)
+        guard sizes.allSatisfy({ $0 != nil }) else { return mediaBytes }
+        return sizes.reduce(Int64(0)) { $0 + ($1 ?? 0) }
+    }
+
+    /// 箱ぜんたいの収録カード。まだ読めていないデッキがあれば nil。
+    func cards(in cardsByDeck: [Int: [WordCard]]) -> [WordCard]? {
+        var cards: [WordCard] = []
+        for deck in decks {
+            guard let deckCards = cardsByDeck[deck.id] else { return nil }
+            cards += deckCards
+        }
+        return cards
+    }
+
+    /// 公式デッキを箱ごとにまとめる。箱は箱の並び順（シリーズ順。要件 X17）、
+    /// 箱に入っていないデッキはそのあとにデッキの番号の順で、1つずつの箱にする。
+    static func grouping(_ decks: [OfficialDeck]) -> [OfficialBox] {
+        let sorted = decks.sorted { $0.id < $1.id }
+        var members: [Int: [OfficialDeck]] = [:]
+        var records: [Int: DeckBoxRecord] = [:]
+        var singles: [OfficialBox] = []
+        for deck in sorted {
+            guard let box = deck.box else {
+                singles.append(OfficialBox(
+                    boxId: nil, name: deck.deck.deckName, description: deck.deck.description,
+                    genre: .exam, decks: [deck], mediaBytes: deck.mediaBytes,
+                    difficulty: deck.difficulty, coverImagePath: nil
+                ))
+                continue
+            }
+            members[box.id, default: []].append(deck)
+            records[box.id] = box
+        }
+        let boxes = records.values
+            .sorted { ($0.sortOrder, $0.id) < ($1.sortOrder, $1.id) }
+            .map { record in
+                OfficialBox(
+                    boxId: record.id, name: record.boxName, description: record.description,
+                    genre: GalleryGenre(code: record.genre), decks: members[record.id] ?? [],
+                    mediaBytes: record.mediaBytes, difficulty: record.difficulty,
+                    coverImagePath: record.cover?.imageAssetPath
+                )
+            }
+        return boxes + singles
     }
 }
 
@@ -323,17 +406,17 @@ private struct GalleryUnavailableBoard: View {
 
 // MARK: - カルーセル
 
-/// デッキ追加画面の縦のカルーセル。動き（`AudioCarouselMotion`）と寸法は学習タブと同じで、
+/// デッキ追加画面の縦のカルーセル。1枚が1つの箱。動き（`AudioCarouselMotion`）と寸法は学習タブと同じで、
 /// 空き枠・長押し・フォルダは持たない。中央のカードをタップすると `onOpen` を呼ぶ。
 private struct DeckGalleryCarousel: View {
     private typealias Metrics = DeckCarouselView.Metrics
 
-    let decks: [OfficialDeck]
-    let selectedId: Int?
-    let covers: [Int: URL]
+    let boxes: [OfficialBox]
+    let selectedId: OfficialBox.ID?
+    let covers: [OfficialBox.ID: URL]
     /// シートが7割のあいだは回さず、中央の1枚だけを見せる（要件 G1）。
     let isLocked: Bool
-    let onSelect: (OfficialDeck) -> Void
+    let onSelect: (OfficialBox) -> Void
     let onOpen: () -> Void
 
     private let layout = DeckCarouselLayout(
@@ -350,11 +433,11 @@ private struct DeckGalleryCarousel: View {
         GeometryReader { proxy in
             let center = -motion.position / layout.stride
             ZStack {
-                ForEach(Array(decks.enumerated()), id: \.element.id) { index, deck in
+                ForEach(Array(boxes.enumerated()), id: \.element.id) { index, box in
                     let offset = CGFloat(index) - center
                     let y = layout.y(offset: offset)
                     if abs(y) < proxy.size.height {
-                        card(deck, index: index, expansion: layout.expansion(offset: offset),
+                        card(box, index: index, expansion: layout.expansion(offset: offset),
                              width: proxy.size.width, height: layout.height(offset: offset))
                             .offset(y: y)
                             .zIndex(Double(layout.expansion(offset: offset)))
@@ -368,18 +451,17 @@ private struct DeckGalleryCarousel: View {
         }
         .onAppear(perform: synchronize)
         .onDisappear { motion.stop() }
-        .onChange(of: decks.map(\.id)) { _, _ in synchronize() }
+        .onChange(of: boxes.map(\.id)) { _, _ in synchronize() }
     }
 
-    private func card(_ deck: OfficialDeck, index: Int, expansion: CGFloat, width: CGFloat, height: CGFloat) -> some View {
+    private func card(_ box: OfficialBox, index: Int, expansion: CGFloat, width: CGFloat, height: CGFloat) -> some View {
         let cardWidth = width * (Metrics.bandWidthRatio + (1 - Metrics.bandWidthRatio) * expansion)
         // 追加済みは面を暗くして文字を白にする（要件 G6）。膜を文字の上に重ねると文字まで沈むので、面の色を変える。
-        let textColor = deck.isAdded ? WireColor.surface : WireColor.ink
+        let textColor = box.isAdded ? WireColor.surface : WireColor.ink
         return HStack(alignment: .top, spacing: WireMetrics.spacingM) {
-            DeckCoverImage(url: covers[deck.id],
-                           symbol: DeckCoverSymbol.forDeck(id: LocalStudyDataSource.cachedDeckId(remoteDeckId: deck.id)))
+            DeckCoverImage(url: covers[box.id], symbol: DeckCoverSymbol.forDeck(id: box.leadLocalDeckId))
                 .overlay {
-                    if deck.isAdded {
+                    if box.isAdded {
                         RoundedRectangle(cornerRadius: WireMetrics.radiusControl, style: .continuous)
                             .fill(Color.black.opacity(0.45))
                     }
@@ -388,13 +470,13 @@ private struct DeckGalleryCarousel: View {
                 .frame(maxHeight: .infinity)
 
             VStack(alignment: .leading, spacing: WireMetrics.spacingS) {
-                Text(deck.deck.deckName)
+                Text(box.name)
                     .wireFont(expansion > 0.5 ? .titleS : .label, color: textColor)
                     .lineLimit(2)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                if let description = deck.deck.description {
+                if let description = box.description {
                     Text(description)
-                        .wireFont(.caption, color: deck.isAdded ? WireColor.surface.opacity(0.85) : WireColor.subText)
+                        .wireFont(.caption, color: box.isAdded ? WireColor.surface.opacity(0.85) : WireColor.subText)
                         .lineLimit(2)
                         .opacity(Double(expansion))
                 }
@@ -405,12 +487,12 @@ private struct DeckGalleryCarousel: View {
         .frame(width: cardWidth, height: height, alignment: .topLeading)
         .clipped()
         .outlineSurface(radius: WireMetrics.radiusCard,
-                        fill: deck.isAdded ? Color(white: 0.32) : BentoTone.l2.fill)
+                        fill: box.isAdded ? Color(white: 0.32) : BentoTone.l2.fill)
         .contentShape(Rectangle())
         .onTapGesture { index == centerIndex ? onOpen() : snap(to: index) }
         // ponytail: VoiceOver は中央の枠だけを読み、上下の操作で隣へ移すだけの最低限。
         .accessibilityElement(children: .combine)
-        .accessibilityValue(deck.isAdded ? "追加済み" : "")
+        .accessibilityValue(box.isAdded ? "追加済み" : "")
         .accessibilityAddTraits(.isButton)
         .accessibilityAdjustableAction { direction in
             switch direction {
@@ -425,7 +507,7 @@ private struct DeckGalleryCarousel: View {
     private var dragGesture: some Gesture {
         DragGesture(minimumDistance: 12)
             .onChanged { value in
-                guard decks.count > 1 else { return }
+                guard boxes.count > 1 else { return }
                 if !motion.isDragging {
                     motion.beginDrag(at: value.time.timeIntervalSinceReferenceDate)
                 }
@@ -439,30 +521,33 @@ private struct DeckGalleryCarousel: View {
     }
 
     private func synchronize() {
-        centerIndex = decks.firstIndex { $0.id == selectedId } ?? 0
-        motion.configure(stride: layout.stride, count: decks.count, index: centerIndex)
-        if decks.indices.contains(centerIndex) { onSelect(decks[centerIndex]) }
+        centerIndex = boxes.firstIndex { $0.id == selectedId } ?? 0
+        motion.configure(stride: layout.stride, count: boxes.count, index: centerIndex)
+        if boxes.indices.contains(centerIndex) { onSelect(boxes[centerIndex]) }
     }
 
     private func snap(to index: Int) {
-        let target = min(max(0, index), decks.count - 1)
+        let target = min(max(0, index), boxes.count - 1)
         guard target != centerIndex, !isLocked else { return }
         motion.snap(to: target, animated: !reduceMotion, completion: complete)
     }
 
     private func complete(at index: Int) {
         centerIndex = index
-        onSelect(decks[index])
+        onSelect(boxes[index])
     }
 }
 
 // MARK: - シート
 
 /// シートの中身。上に収録語数・容量・レベル、その下にほかの情報と、シート内シートの単語一覧。
+/// 上の数字・重なる語数・品詞の内訳は箱ぜんたいで数え、単語一覧はデッキごとの見出しで区切って
+/// 見出しにそのデッキの数字を出す（要件 X14）。
 /// ダウンロードボタンはタブバーと同じく地を持たずに下へ浮かべ、ボタンの周りは下の一覧が透ける。
 private struct DeckGallerySheet: View {
-    let deck: OfficialDeck
-    let words: [WordCard]?
+    let box: OfficialBox
+    /// デッキ（サーバーの番号）ごとの収録カード。まだ読めていないデッキは入っていない。
+    let cardsByDeck: [Int: [WordCard]]
     let overlap: Int?
     /// 7割まで上がっているか。頭だけのときは3項目だけを見せ、ボタンの周りに下の情報を透かさない。
     let isExpanded: Bool
@@ -470,6 +555,9 @@ private struct DeckGallerySheet: View {
 
     /// 浮かべたボタンの下に、一覧の最後の行が隠れないよう空ける量。
     private static let footerClearance: CGFloat = 88
+
+    /// 箱ぜんたいの収録カード。まだ読めていないデッキがあれば nil。
+    private var words: [WordCard]? { box.cards(in: cardsByDeck) }
 
     var body: some View {
         VStack(spacing: WireMetrics.spacingL) {
@@ -495,7 +583,7 @@ private struct DeckGallerySheet: View {
         SheetMetricsRow {
             SheetMetric(title: "収録語数") { Text(words.map { "\($0.count)語" } ?? "—").wireFont(.titleS) }
             Divider()
-            SheetMetric(title: "容量") { Text(DeckGalleryFacts.sizeText(deck.mediaBytes)).wireFont(.titleS) }
+            SheetMetric(title: "容量") { Text(DeckGalleryFacts.sizeText(box.mediaBytes)).wireFont(.titleS) }
             Divider()
             SheetMetric(title: "レベル") { level }
         }
@@ -504,7 +592,7 @@ private struct DeckGallerySheet: View {
     /// 易・中・難を、3つのうち塗った星の数で見せる（易 ★☆☆、中 ★★☆、難 ★★★）。
     @ViewBuilder
     private var level: some View {
-        if let difficulty = deck.difficulty {
+        if let difficulty = box.difficulty {
             StarRating(filled: difficulty.level, label: difficulty.title)
         } else {
             Text("—").wireFont(.titleS)
@@ -513,7 +601,7 @@ private struct DeckGallerySheet: View {
 
     private var details: some View {
         VStack(alignment: .leading, spacing: WireMetrics.spacingM) {
-            if let description = deck.deck.description {
+            if let description = box.description {
                 Text(description).wireFont(.body)
             }
             detailRow("重なる語数", overlap.map { "\($0)語" } ?? "—")
@@ -540,15 +628,25 @@ private struct DeckGallerySheet: View {
 
     /// 単語一覧。上端だけ角を丸めたシート内シートに入れ、この中だけでスクロールする（旧デッキ詳細と同じ形）。
     /// 赤シートは付けない（要件 R10）。行は単語一覧と同じ見た目にする。
+    /// 箱にデッキが2つ以上あれば、デッキごとの見出しで区切る。見出しはスクロールしても上に残る。
     private var wordSheet: some View {
         let shape = UnevenRoundedRectangle(topLeadingRadius: WireMetrics.radiusLarge,
                                            topTrailingRadius: WireMetrics.radiusLarge, style: .continuous)
         return Group {
-            if let words {
+            if words != nil {
                 ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(words) { word in
-                            WordRow(word: word)
+                    LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
+                        ForEach(box.decks) { deck in
+                            let deckWords = cardsByDeck[deck.id] ?? []
+                            Section {
+                                ForEach(deckWords) { word in
+                                    WordRow(word: word)
+                                }
+                            } header: {
+                                if box.decks.count > 1 {
+                                    DeckSectionHeader(deck: deck, wordCount: deckWords.count)
+                                }
+                            }
                         }
                     }
                 }
@@ -569,7 +667,7 @@ private struct DeckGallerySheet: View {
 
     private var downloadArea: some View {
         Button(action: onDownload) {
-            Text(deck.isAdded ? "追加済み" : "ダウンロード")
+            Text(box.isAdded ? "追加済み" : "ダウンロード")
                 .font(.headline)
                 // 白い文字は #FF5D97 の上では基準のコントラストに届かない。利用者の判断で今はこのまま（要件 G5）。
                 .foregroundStyle(.white)
@@ -578,13 +676,40 @@ private struct DeckGallerySheet: View {
         }
         .buttonStyle(.plain)
         .pinkGlassSurface(in: Capsule())
-        .disabled(deck.isAdded)
+        .disabled(box.isAdded)
         // 追加済みは透かさずに色を抜いて示す。薄くすると、後ろの一覧がボタン越しに透けて読みにくい。
-        .saturation(deck.isAdded ? 0 : 1)
+        .saturation(box.isAdded ? 0 : 1)
         .padding(.horizontal, WireMetrics.screenPadding)
         .padding(.bottom, WireMetrics.spacingS)
         // 利用者の希望で、ふつうの置き場所より10pt下げる。
         .offset(y: 10)
+    }
+}
+
+/// 箱の単語一覧で、デッキの区切りに置く見出し。デッキの名前と、そのデッキの語数・容量・レベル（要件 X14）。
+private struct DeckSectionHeader: View {
+    let deck: OfficialDeck
+    let wordCount: Int
+
+    var body: some View {
+        HStack(spacing: WireMetrics.spacingS) {
+            Text(deck.deck.deckName)
+                .wireFont(.label)
+                .lineLimit(1)
+            Spacer(minLength: WireMetrics.spacingS)
+            Text("\(wordCount)語・\(DeckGalleryFacts.sizeText(deck.mediaBytes))")
+                .wireFont(.caption)
+            if let difficulty = deck.difficulty {
+                StarRating(filled: difficulty.level, label: difficulty.title, font: .caption)
+            }
+        }
+        .padding(.horizontal, WireMetrics.screenPadding)
+        .padding(.vertical, WireMetrics.spacingS)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(WireColor.surface)
+        .overlay(alignment: .bottom) { Divider() }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
     }
 }
 
@@ -620,6 +745,7 @@ struct SheetMetric<Value: View>: View {
 struct StarRating: View {
     let filled: Int
     let label: String
+    var font: Font = .headline
 
     var body: some View {
         HStack(spacing: 2) {
@@ -627,7 +753,7 @@ struct StarRating: View {
                 Image(systemName: step <= filled ? "star.fill" : "star")
             }
         }
-        .font(.headline)
+        .font(font)
         .foregroundStyle(WireColor.ink)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(label)
@@ -706,10 +832,10 @@ enum DeckGalleryFacts {
         return others > 0 ? known + [PartCount(title: "その他", count: others)] : known
     }
 
-    /// 学習タブにあるほかのデッキと同じ単語の数。追加済みなら、そのデッキ自身は数えない。
+    /// 学習タブにあるほかのデッキと同じ単語の数。追加済みなら、その箱のデッキ自身は数えない。
     /// `ownedWords` はデッキ（端末の番号）ごとの、サーバーの単語番号。
-    static func overlapCount(words: [WordCard], ownedWords: [Int: Set<Int>], excludingDeckId: Int) -> Int {
-        let owned = ownedWords.filter { $0.key != excludingDeckId }.values.reduce(into: Set<Int>()) { $0.formUnion($1) }
+    static func overlapCount(words: [WordCard], ownedWords: [Int: Set<Int>], excludingDeckIds: Set<Int>) -> Int {
+        let owned = ownedWords.filter { !excludingDeckIds.contains($0.key) }.values.reduce(into: Set<Int>()) { $0.formUnion($1) }
         return Set(words.map(\.wordId)).intersection(owned).count
     }
 

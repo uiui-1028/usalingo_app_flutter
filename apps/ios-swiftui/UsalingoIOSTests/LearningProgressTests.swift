@@ -238,6 +238,10 @@ final class StudyFlowTests: XCTestCase {
         XCTAssertEqual(decks.map(\.mediaBytes), [nil, nil, 11_480_246])
         XCTAssertEqual(decks.map(\.difficulty), [nil, nil, .medium])
         XCTAssertEqual(decks.map(\.conceptName), [nil, nil, "シンプル"])
+        // 箱は同じ行から読む。箱に入っていないデッキは nil。
+        XCTAssertEqual(decks.map { $0.box?.boxName }, [nil, "シリーズA", "シリーズA"])
+        XCTAssertEqual(decks[1].box?.cover?.imageAssetPath, "content-images/simple/000/example-000001.webp")
+        XCTAssertEqual(OfficialBox.grouping(decks).map(\.id), ["box-1", "deck-1"])
     }
 
     func testAddingOfficialDeckRecordsItForTheSignedInUser() async throws {
@@ -449,6 +453,13 @@ final class StudyFlowTests: XCTestCase {
 }
 
 private final class FakeStudySupabaseClient: SupabaseRequesting {
+    /// デッキ一覧に埋め込む箱（`box:deck_boxes(...)`）。
+    static let seriesA: [String: Any] = [
+        "id": 1, "box_name": "シリーズA", "description": NSNull(), "genre": "exam", "sort_order": 0,
+        "media_bytes": 22_000_000, "difficulty": "medium",
+        "cover": ["image_asset_path": "content-images/simple/000/example-000001.webp"]
+    ]
+
     private struct FixtureCard {
         let id: Int
         let wordId: Int
@@ -525,10 +536,10 @@ private final class FakeStudySupabaseClient: SupabaseRequesting {
                 ["id": 1, "deck_name": "基礎", "description": "最初のデッキ", "owner_id": NSNull(),
                  "is_starter": true, "user_added_decks": []],
                 ["id": 2, "deck_name": "発展", "description": NSNull(), "owner_id": NSNull(),
-                 "is_starter": false, "user_added_decks": [["deck_id": 2]]],
+                 "is_starter": false, "user_added_decks": [["deck_id": 2]], "box": Self.seriesA],
                 ["id": 3, "deck_name": "応用", "description": NSNull(), "owner_id": NSNull(),
                  "is_starter": false, "user_added_decks": [], "media_bytes": 11_480_246, "difficulty": "medium",
-                 "concept": ["concept_name": "シンプル"]],
+                 "concept": ["concept_name": "シンプル"], "box": Self.seriesA],
                 ["id": 4, "deck_name": "自分のデッキ", "description": NSNull(), "owner_id": "user-1",
                  "is_starter": false, "user_added_decks": []]
             ])
