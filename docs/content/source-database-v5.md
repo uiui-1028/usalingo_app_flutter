@@ -9,7 +9,7 @@
 Supabaseは配信用の写しであり、人が直接編集しません。
 
 ```text
-Google Spreadsheet（V5の8シート）
+Google Spreadsheet（V5の9シート）
   → Supabase公式コンテンツ
   → SwiftUIアプリ
 ```
@@ -51,7 +51,7 @@ deck（デッキ）
 単語ではなく意味ごとに持ちます。経緯は
 [意味の行に活用と関連語を収める](../decisions/senses-hold-forms-and-relations-20260914.md) にあります。
 
-## 3. 原本の8シート
+## 3. 原本の9シート
 
 | シート | 主キー | 必須項目 | 用途 |
 |---|---|---|---|
@@ -61,7 +61,8 @@ deck（デッキ）
 | `02_content_examples` | `example_id` | `sense_id`, `concept_id`, `sentence_en`, `sentence_jp` | 例文と画像 |
 | `03_audio_pronunciations` | `pronunciation_id` | `word_id`, `voice_label` | 発音と単語音声 |
 | `03_audio_example_audio` | `example_audio_id` | `example_id`, `voice_label` | 例文音声 |
-| `04_decks` | `deck_id` | `deck_name`, `concept_id` | デッキ |
+| `04_deck_boxes` | `box_id` | `box_name`, `genre`, `concept_id` | 箱。ギャラリーで選ぶ単位 |
+| `04_decks` | `deck_id` | `deck_name`, `box_id` | デッキ（箱の中の1回分） |
 | `04_deck_words` | なし（`deck_id` と `sense_id` の組で重複させない） | `deck_id`, `sense_id` | デッキに入れる単語、並び順、主の意味 |
 
 共通ルール:
@@ -198,13 +199,31 @@ make :: 作る :: 最も一般的で「無から有を生み出す」広い意�
 標準の声を変えるときは、シートの行の並びを入れ替えます。経緯は
 [音声シートの状態・標準・順番の列は、取りこみで決める](../decisions/audio-sheet-derived-columns-20260914.md) にあります。
 
+### `04_deck_boxes`
+
+| 列 | 必須 | 内容 |
+|---|---:|---|
+| `box_id` | 必須 | 固定ID |
+| `box_name` | 必須 | 表示名。学習タブではフォルダの名前になる。例: `大学受験 シリーズA` |
+| `description` | 任意 | ギャラリーに出す説明 |
+| `genre` | 必須 | `exam`（大学受験）か `toeic` |
+| `concept_id` | 必須 | 箱のデッキの例文に使うコンセプト |
+| `cover_example_id` | 任意 | 表紙にする例文。箱のコンセプトの例文に限る。空ならアプリが収録単語のイラストから選ぶ |
+
+- 行の並びが、ギャラリーの並び順です。同じシリーズの別のコンセプトの箱は、隣の行に置きます。
+- 単語リストが同じでも、コンセプトが違えば別の箱にします。決まりは
+  [公式デッキを箱で配る要件](../plans/deck-box-requirements.md) にあります。
+
 ### `04_decks`
 
 | 列 | 必須 | 内容 |
 |---|---:|---|
 | `deck_id` | 必須 | 固定ID |
-| `deck_name` | 必須 | 表示名。例: `大学受験頻出1000語` |
-| `concept_id` | 必須 | このデッキの例文に使うコンセプト |
+| `deck_name` | 必須 | 表示名。箱の中の位置が分かる名前にする。例: `1〜100` |
+| `box_id` | 必須 | 入れる箱。デッキの例文は箱のコンセプトのものを使う |
+
+- 箱の中のデッキは `deck_id` の順に並びます。
+- 以前の `concept_id` 列は使いません。残っていても読み飛ばします。
 
 ### `04_deck_words`
 
@@ -245,7 +264,8 @@ make :: 作る :: 最も一般的で「無から有を生み出す」広い意�
 | `02_content_examples` | `example_contents` |
 | `03_audio_pronunciations` | `word_pronunciations` |
 | `03_audio_example_audio` | `example_audio` |
-| `04_decks` | `decks`（`concept_id` 列あり） |
+| `04_deck_boxes` | `deck_boxes`（`sort_order` は行の並び） |
+| `04_decks` | `decks`（`box_id`、`concept_id` は箱から写す） |
 | `04_deck_words` | `cards`（`deck_id`、`word_id`、`primary_meaning_id`、`sort_order`） |
 
 `04_deck_words` の1行から、デッキの出題形式（`card_templates`）ごとに `cards` を作ります。

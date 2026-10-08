@@ -38,7 +38,7 @@ python3 scripts/sync-sheet-to-supabase.py sync --target production \
 
 ## 何をするか
 
-1. 8枚のシートを CSV で読む。タブはシートの名前で探す
+1. 9枚のシートを CSV で読む。タブはシートの名前で探す
 2. 確かめる。1つでも問題があれば、**DBに触る前に全部を並べて止まる**
    - IDが1〜999999の数字か（`0001` も可）、同じシートで重複していないか
    - 参照先の行があるか、同じデッキに同じ単語が2回ないか
@@ -54,13 +54,15 @@ python3 scripts/sync-sheet-to-supabase.py sync --target production \
 | `02_content_examples` | `example_contents` | 画像は Storage にあれば `present` とパス、なければ `blank` と空。例文音声のパスも入れる（アプリの互換） |
 | `03_audio_pronunciations` | `word_pronunciations` | `voice_label` が空の行は飛ばす。`accent` は `US` |
 | `03_audio_example_audio` | `example_audio` | `voice_label` が空の行は飛ばす |
-| `04_decks` | `decks` | 個人デッキの番号なら止まる |
+| `04_deck_boxes` | `deck_boxes` | 行の並び＝`sort_order`（0始まり）。`genre` は `exam` か `toeic` |
+| `04_decks` | `decks` | 個人デッキの番号なら止まる。`concept_id` は箱から写す |
 | `04_deck_words` | `cards` | 出題形式ごとに1枚。行の並び＝`sort_order`（0始まり）、`sense_id`＝`primary_meaning_id` |
 
 - 状態（`present`/`blank`）・標準の声・順番は、シートに書かず同期が決める
 - **シートから消した行はDBから消さない。** デッキから外した単語のカードだけ `is_active = false` にする
 - 最後に、公式デッキ全部の `decks.media_bytes`（端末へ入れる画像・音声の合計バイト）と `decks.difficulty`
   （主の意味が B2 以上の割合：2割未満 `easy`、5割未満 `medium`、それ以上 `hard`）を計算し直す。
+  箱（`deck_boxes`）も、中のデッキぜんたいで同じように計算する。
   Storage に無いファイルは数えないので、ファイルを置いたら流し直す。決め方は
   [デッキ追加画面の要件](../plans/deck-gallery-redesign-requirements.md)（D6・D8）
 
