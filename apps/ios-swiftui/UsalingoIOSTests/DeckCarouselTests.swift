@@ -334,6 +334,27 @@ final class DeckRadialMenuLayoutTests: XCTestCase {
         }
     }
 
+    /// デッキのカードの左右の端で押しても、輪は指の真下のまま、扇を回して全部のボタンを画面に収める。
+    func testRotatesTheFanInwardAtTheScreenEdgesKeepingTheRingUnderTheFinger() {
+        let viewport = CGRect(x: 0, y: 0, width: 390, height: 844)
+        let deckCard = CGRect(x: 18, y: 300, width: 354, height: 280)
+        for x: CGFloat in [2, 20, 370, 388] {
+            for y: CGFloat in [120, 320, 560] {
+                let anchor = CGPoint(x: x, y: y)
+                let layout = DeckRadialMenuLayout(anchor: anchor, cardFrame: deckCard, count: 3, viewport: viewport)
+                XCTAssertEqual(layout.anchor, anchor)
+                for (index, center) in layout.centers.enumerated() {
+                    XCTAssertGreaterThanOrEqual(center.x - 28, viewport.minX - 0.001)
+                    XCTAssertLessThanOrEqual(center.x + 28, viewport.maxX + 0.001)
+                    XCTAssertGreaterThanOrEqual(center.y - 28, viewport.minY - 0.001)
+                    XCTAssertLessThanOrEqual(center.y + 28, viewport.maxY + 0.001)
+                    XCTAssertEqual(layout.item(at: center), index)
+                    XCTAssertTrue(layout.keepsMenu(center))
+                }
+            }
+        }
+    }
+
     /// 画面の下の方で左寄りを押すと、上へ開き、カードの中央の側（右）へ傾く。
     func testOpensUpAndTowardCardCenter() {
         let layout = DeckRadialMenuLayout(anchor: CGPoint(x: 60, y: 500), cardFrame: card, count: 2)

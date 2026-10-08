@@ -104,10 +104,49 @@ final class LocalStudyDataSourceTests: XCTestCase {
         let reopened = makeDataSource()
         let counts = try reopened.counts(deckId: deck.id)
         XCTAssertEqual(counts.newCount, 2)
-        let reloaded = try await reopened.fetchStudyQueue(deckId: deck.id, mode: .all)
+        let reloaded = try await reopened.fetchCards(deckId: deck.id)
         let studied = try XCTUnwrap(reloaded.first { $0.id == card.id })
         XCTAssertEqual(studied.learning?.repetitions, 1)
         XCTAssertEqual(studied.learning?.nextReviewDate, saved.progress.nextReviewDate)
+    }
+
+    func testAnsweredCardLeavesTodayQueueUntilUndone() async throws {
+        let dataSource = makeDataSource()
+        let deck = try dataSource.importDeck(from: sampleDeckData(cardCount: 3))
+        let queue = try await dataSource.fetchStudyQueue(deckId: deck.id, mode: .all)
+        let correct = try XCTUnwrap(queue.first)
+        let incorrect = try XCTUnwrap(queue.last)
+
+        _ = try await dataSource.saveAnswerWithUndo(card: correct, isCorrect: true)
+        let undoable = try await dataSource.saveAnswerWithUndo(card: incorrect, isCorrect: false)
+        let today = try await dataSource.fetchStudyQueue(deckId: deck.id, mode: .all)
+        XCTAssertEqual(today.map(\.id), [queue[1].id])
+
+        let incorrectCardId = try XCTUnwrap(incorrect.cardId)
+        try await dataSource.restoreLearningProgress(cardId: incorrectCardId, previousProgress: undoable.previousProgress)
+        let afterUndo = try await dataSource.fetchStudyQueue(deckId: deck.id, mode: .all)
+        XCTAssertEqual(afterUndo.map(\.id), [queue[1].id, incorrect.id])
+    }
+
+    func testRetryAnswerKeepsFirstIncorrectRecord() async throws {
+        let dataSource = makeDataSource()
+        let deck = try dataSource.importDeck(from: sampleDeckData(cardCount: 1))
+        let queue = try await dataSource.fetchStudyQueue(deckId: deck.id, mode: .all)
+        let card = try XCTUnwrap(queue.first)
+
+        let first = try await dataSource.saveAnswerWithUndo(card: card, isCorrect: false)
+        for isCorrect in [false, true] {
+            let retry = try await dataSource.saveAnswerWithUndo(
+                card: card,
+                isCorrect: isCorrect,
+                attempt: AnswerSaveAttempt(isRetry: true)
+            )
+            XCTAssertEqual(retry.previousProgress?.updatedAt, first.progress.updatedAt)
+            XCTAssertEqual(retry.progress.incorrectCount, 1)
+            XCTAssertEqual(retry.progress.repetitions, 0)
+            XCTAssertEqual(retry.progress.easinessFactor, first.progress.easinessFactor, accuracy: 0.000_001)
+            XCTAssertEqual(retry.progress.nextReviewDate, first.progress.nextReviewDate)
+        }
     }
 
     func testFirstOfflineGuestAnswerMovesToAnonymousAccountOnce() async throws {
@@ -641,7 +680,7 @@ final class LocalStudyDataSourceTests: XCTestCase {
         XCTAssertTrue(source.hasStudyRecord, "学習の記録は残す")
 
         try source.unhideDeck(id: starter.id)
-        let restored = try await source.fetchStudyQueue(deckId: starter.id, mode: .all)
+        let restored = try await source.fetchCards(deckId: starter.id)
         let shownDecks = try await source.fetchDecks()
         XCTAssertTrue(shownDecks.contains { $0.id == starter.id })
         XCTAssertNotNil(restored.first { $0.id == card.id }?.learning, "追加し直すと記録ごと戻る")
@@ -706,8 +745,9 @@ final class LocalStudyDataSourceTests: XCTestCase {
         }
         XCTAssertEqual(try reopened.counts(deckId: deck.id).newCount, 2)
         _ = try reopened.setSuspended(false, card: try XCTUnwrap(listed.first), deckId: deck.id)
-        let resumed = try await reopened.fetchStudyQueue(deckId: deck.id, mode: .all)
-        XCTAssertTrue(resumed.contains { $0.id == card.id && $0.learning?.incorrectCount == 1 })
+        // 今日解いたカードなので、再開しても今日の分には戻らない。記録と再開状態だけを確かめる。
+        let resumed = try await reopened.fetchCards(deckId: deck.id)
+        XCTAssertTrue(resumed.contains { $0.id == card.id && !$0.isSuspended && $0.learning?.incorrectCount == 1 })
     }
 
     func testDeletionPersistsKeepsProgressAndOmitsCardFromExport() async throws {
@@ -946,7 +986,7 @@ extension LocalStudyDataSourceTests {
         let restoredDeck = try XCTUnwrap(restored.decks().first { $0.key == deck.key })
         XCTAssertEqual(restoredDeck.name, deck.name)
         XCTAssertEqual(try restored.counts(deckId: restoredDeck.id), LocalDeckCounts(newCount: 2, dueCount: 0))
-        let restoredCards = try await restored.fetchStudyQueue(deckId: restoredDeck.id, mode: .all)
+        let restoredCards = try await restored.fetchCards(deckId: restoredDeck.id)
         let studied = try XCTUnwrap(restoredCards.first { $0.id == card.id })
         XCTAssertEqual(studied.learning?.nextReviewDate, saved.progress.nextReviewDate)
         XCTAssertEqual(studied.learning?.repetitions, 1)

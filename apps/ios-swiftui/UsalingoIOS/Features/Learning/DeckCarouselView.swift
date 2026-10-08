@@ -1078,7 +1078,14 @@ struct DeckCarouselView: View {
             .padding(WireMetrics.spacingS)
             .frame(width: width, height: liftFrame?.height ?? Metrics.bandHeight, alignment: .topLeading)
             .outlineSurface(radius: WireMetrics.radiusCard, fill: BentoTone.l2.fill)
+            // どのデッキを動かしているか分かるよう、ピンクの太い枠で光らせる。置き場所へ吸い込むときは消す。
+            .overlay {
+                RoundedRectangle(cornerRadius: WireMetrics.radiusCard, style: .continuous)
+                    .strokeBorder(WireColor.answerCorrect, lineWidth: 3)
+                    .opacity(isSettling ? 0 : 1)
+            }
             .scaleEffect(liftFrame == nil && !isSettling ? 1.05 : 1)
+            .shadow(color: WireColor.answerCorrect.opacity(isSettling ? 0 : 0.6), radius: 10)
             .shadow(color: .black.opacity(isSettling ? 0 : 0.2), radius: 12, y: 6)
             .position(liftFrame.map { CGPoint(x: $0.midX, y: $0.midY) } ?? drag.location)
             // 元のカードと入れ替わるので、薄く重ねずに一度で出し入れする。

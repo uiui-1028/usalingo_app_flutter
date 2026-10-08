@@ -459,7 +459,7 @@ final class LocalStudyDataSource: StudyDataSource {
             studiedCount: rows.count,
             dueCount: rows.filter { !library.suspendedCardIds.contains($0.cardId)
                 && !library.removedCardIds.contains($0.cardId)
-                && (StudyQueueRules.parseDate($0.nextReviewDate).map { $0 <= now } ?? false) }.count,
+                && StudyQueueRules.isDue($0.nextReviewDate, now: now) }.count,
             masteredCount: rows.filter { $0.status == "mastered" }.count,
             currentStreak: StudyQueueRules.currentStreak(from: reviewedDates),
             totalReviews: rows.reduce(0) { $0 + $1.repetitions },
@@ -487,7 +487,11 @@ final class LocalStudyDataSource: StudyDataSource {
         } else {
             let previous = progressByCardId[String(cardId)]
             let current = previous ?? LearningProgress.initial(userId: Self.guestUserId, cardId: cardId)
-            prepared = SavedAnswer(progress: current.marking(isCorrect: isCorrect), previousProgress: previous)
+            let isRetry = attempt.isRetry && previous != nil
+            prepared = SavedAnswer(
+                progress: isRetry ? current : current.marking(isCorrect: isCorrect),
+                previousProgress: previous
+            )
             attempt.prepared = prepared
         }
         try attempt.didPrepare?()

@@ -268,6 +268,42 @@ final class StudyFlowTests: XCTestCase {
         XCTAssertEqual(client.cardPageRequestCount, 6)
     }
 
+    func testDueIsJudgedByCalendarDayFromMidnight() throws {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let now = try XCTUnwrap(calendar.date(byAdding: .hour, value: 1, to: today))
+        let lateToday = try XCTUnwrap(calendar.date(byAdding: .minute, value: 23 * 60 + 59, to: today))
+        let tomorrow = StudyQueueRules.startOfTomorrow(now)
+
+        XCTAssertTrue(StudyQueueRules.isDue(lateToday, now: now), "今日の夜が期限でも、今日の0時から出る")
+        XCTAssertFalse(StudyQueueRules.isDue(tomorrow, now: now))
+        XCTAssertFalse(StudyQueueRules.isDue("not-a-date", now: now))
+    }
+
+    func testTodayQueueSkipsFutureReviewsButRadioKeepsThem() {
+        let now = Date()
+        let formatter = ISO8601DateFormatter()
+        func card(_ id: Int, dueInDays days: Int?) -> WordCard {
+            let base = LearningProgress.initial(userId: "user", cardId: id, now: now)
+            let progress = days.map { days in
+                LearningProgress(
+                    userId: base.userId, cardId: id, status: base.status, lastReviewedAt: base.updatedAt,
+                    nextReviewDate: formatter.string(from: now.addingTimeInterval(Double(days) * 24 * 60 * 60)),
+                    srsLevel: base.srsLevel, easinessFactor: base.easinessFactor, repetitions: 1,
+                    incorrectCount: 0, intervalDays: 1, createdAt: base.createdAt, updatedAt: base.updatedAt
+                )
+            }
+            return WordCard(id: id, cardId: id, text: "word\(id)", senses: [], sentenceEnglish: nil,
+                            sentenceJapanese: nil, imageAssetPath: nil, audioAssetPath: nil, tags: [],
+                            learningStatus: nil, learning: nil, synonyms: [])
+                .withLearningProgress(progress)
+        }
+        let cards = [card(1, dueInDays: 2), card(2, dueInDays: nil), card(3, dueInDays: -1)]
+
+        XCTAssertEqual(StudyQueueRules.limitedStudyQueue(cards, now: now).map(\.id), [3, 2])
+        XCTAssertEqual(StudyQueueRules.allCardsQueue(cards, now: now).map(\.id), [3, 2, 1])
+    }
+
     func testDeckQueueAnswerSaveAndReloadUseCardIdentity() async throws {
         let client = FakeStudySupabaseClient()
         let service = StudyService(client: client)

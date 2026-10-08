@@ -79,19 +79,26 @@ final class FiveChoiceGameTests: XCTestCase {
         XCTAssertFalse(game.isRevealed)
     }
 
-    func testOnePassUsesOnlySelectedDeckAndDoesNotRepeatMisses() throws {
-        let selected = words(1...8)
-        var game = FiveChoiceGame(cards: selected + [selected[0]], candidates: words(1...20))
+    func testMissedQuestionsReturnAtTheEndUntilCorrect() throws {
+        let selected = words(1...3)
+        var game = FiveChoiceGame(cards: selected + [selected[0]], candidates: words(1...20), shufflesOrder: false)
+        XCTAssertEqual(game.questionCount, 3)
         var seen: [Int] = []
+        var retries: [Bool] = []
         while let question = game.question {
             seen.append(question.card.id)
-            XCTAssertEqual(game.answer(at: (question.correctIndex + 1) % 5), false)
+            retries.append(question.isRetry)
+            // 1問目だけ2回間違え、ほかは正解する。
+            let isCorrect = question.card.id != 1 || seen.filter { $0 == 1 }.count > 2
+            let index = isCorrect ? question.correctIndex : (question.correctIndex + 1) % 5
+            XCTAssertEqual(game.answer(at: index), isCorrect)
             game.advance()
-            XCTAssertLessThanOrEqual(seen.count, selected.count)
+            XCTAssertLessThanOrEqual(seen.count, 5)
         }
-        XCTAssertEqual(Set(seen), Set(selected.map(\.id)))
-        XCTAssertEqual(seen.count, selected.count)
-        XCTAssertEqual(game.answeredCount, selected.count)
+        XCTAssertEqual(seen, [1, 2, 3, 1, 1])
+        XCTAssertEqual(retries, [false, false, false, true, true])
+        XCTAssertEqual(game.answeredCount, 5)
+        XCTAssertEqual(game.progress, 1)
     }
 
     func testProgressCountsOnlyCorrectAnswers() throws {
@@ -118,7 +125,35 @@ final class FiveChoiceGameTests: XCTestCase {
         XCTAssertEqual(Set(try XCTUnwrap(game.question).choices.map(\.id)), Set(1...5))
         XCTAssertEqual(game.question?.card.id, 1)
         XCTAssertEqual(source.wordListFetches, 0)
-        XCTAssertEqual(source.studyQueueFetches, 0, "復習期限やキューの件数制限で1周の対象を削らない")
+        XCTAssertEqual(source.studyQueueFetches, 0)
+    }
+
+    func testLoadingAsksOnlyTodaysCardsButKeepsAnsweredCardsAsChoices() async throws {
+        let source = ChoiceTestSource()
+        source.decks = [Deck(id: 1, deckName: "出題", description: nil)]
+        let tomorrow = ISO8601DateFormatter().string(from: Date().addingTimeInterval(24 * 60 * 60 + 1))
+        let answered = LearningProgress.initial(userId: "test", cardId: 1)
+        let answeredToday = word(1).withLearningProgress(
+            LearningProgress(
+                userId: answered.userId, cardId: answered.cardId, status: answered.status,
+                lastReviewedAt: answered.updatedAt, nextReviewDate: tomorrow, srsLevel: answered.srsLevel,
+                easinessFactor: answered.easinessFactor, repetitions: 1, incorrectCount: 0,
+                intervalDays: 1, createdAt: answered.createdAt, updatedAt: answered.updatedAt
+            )
+        )
+        source.cards = [1: [answeredToday] + words(2...6)]
+        var game = try await FiveChoiceGame.load(deckId: 1, source: source)
+        XCTAssertEqual(game.questionCount, 5)
+        var asked: Set<Int> = []
+        var choices: Set<Int> = []
+        while let question = game.question {
+            asked.insert(question.card.id)
+            choices.formUnion(question.choices.map(\.id))
+            _ = game.answer(at: question.correctIndex)
+            game.advance()
+        }
+        XCTAssertEqual(asked, Set(2...6))
+        XCTAssertTrue(choices.contains(1))
     }
 
     func testMissingSelectedDeckAndFailedCandidateFetchDoNotSilentlyUsePartialPool() async {
@@ -156,7 +191,7 @@ final class FiveChoiceGameTests: XCTestCase {
         let queueBinding = Binding(get: { queue }, set: { queue = $0 })
         let errorBinding = Binding(get: { error }, set: { error = $0 })
         drainStudyAnswerQueue(queueBinding, appState: state, saveErrorMessage: errorBinding, source: source)
-        for _ in 0..<100 where queue.isDraining { await Task.yield() }
+        for _ in 0..<10_000 where queue.isDraining { await Task.yield() }
         XCTAssertNotNil(error)
         XCTAssertEqual(queue.pending.count, 2)
         XCTAssertEqual(source.saved.map(\.0), [1])
@@ -164,11 +199,12 @@ final class FiveChoiceGameTests: XCTestCase {
         drainStudyAnswerQueue(queueBinding, appState: state, saveErrorMessage: errorBinding, source: source)
         // 連続した排出要求でも同じ回答を二重に送らない。
         drainStudyAnswerQueue(queueBinding, appState: state, saveErrorMessage: errorBinding, source: source)
-        for _ in 0..<100 where queue.isDraining { await Task.yield() }
+        for _ in 0..<10_000 where queue.isDraining { await Task.yield() }
         XCTAssertNil(error)
         XCTAssertTrue(queue.isEmpty)
         XCTAssertEqual(source.saved.map(\.0), [1, 1, 2])
         XCTAssertEqual(source.saved.map(\.1), [false, false, true])
+        guard source.attempts.count == 3 else { return XCTFail("保存の回数: \(source.attempts.count)") }
         XCTAssertTrue(source.attempts[0] === source.attempts[1])
         XCTAssertFalse(source.attempts[1] === source.attempts[2])
     }

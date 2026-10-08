@@ -336,8 +336,9 @@ struct AudioRadioView: View {
         isLoading = true
         loadErrorMessage = nil
         do {
-            let cards = try await appState.studyDataSource.fetchStudyQueue(deckId: deck.id, mode: .all)
-            player.start(cards: cards, deckName: deck.deckName)
+            // ラジオは聞き流しなので、今日の分に絞らず全カードを流す。
+            let cards = try await appState.studyDataSource.fetchCards(deckId: deck.id).filter { !$0.isSuspended }
+            player.start(cards: StudyQueueRules.allCardsQueue(cards), deckName: deck.deckName)
         } catch {
             loadErrorMessage = UserFacingError.message(for: error)
         }

@@ -52,6 +52,8 @@ struct LearningDashboardView: View {
     @State private var folderPendingDeletion: LocalDeckFolder?
     @State private var deckPendingDeletion: Deck?
     @State private var menuTarget: DeckMenuTarget?
+    /// 画面全体の場所。長押しメニューのボタンをこの中に収める。
+    @State private var screenFrame: CGRect?
     /// 長押しのまま指を動かして選んでいるメニューのボタン。
     @State private var menuHighlight: Int?
     /// 一度ボタンを選んだら、指を離すまでメニューを続け、運ぶ操作へ切り替えない。
@@ -160,6 +162,11 @@ struct LearningDashboardView: View {
             .padding(.horizontal, WireMetrics.screenPadding)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .ignoresSafeArea(edges: .vertical)
+            .background {
+                Color.clear
+                    .ignoresSafeArea()
+                    .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { screenFrame = $0 }
+            }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 notice
                     .padding(.horizontal, WireMetrics.screenPadding)
@@ -381,7 +388,8 @@ struct LearningDashboardView: View {
         isMenuConfirmed = false
         liftDeckId = nil
         dwellTask?.cancel()
-        let target = DeckMenuTarget(deck: deck, cardFrame: cardFrame, anchor: anchor, items: menuItems(for: deck))
+        let target = DeckMenuTarget(deck: deck, cardFrame: cardFrame, anchor: anchor, items: menuItems(for: deck),
+                                    viewport: screenFrame)
         withoutAnimation { menuTarget = target }
     }
 

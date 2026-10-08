@@ -28,9 +28,23 @@ enum StudyQueueRules {
         return parseDate(value)
     }
 
+    /// 期限は日付で判定する。期限の時刻に関係なく、その日の0時から出題する。
+    static func isDue(_ dueDate: Date, now: Date) -> Bool {
+        dueDate < startOfTomorrow(now)
+    }
+
+    static func isDue(_ value: String, now: Date) -> Bool {
+        parseDate(value).map { isDue($0, now: now) } ?? false
+    }
+
     static func isDue(_ card: WordCard, now: Date) -> Bool {
-        guard let dueDate = nextReviewDate(for: card) else { return false }
-        return dueDate <= now
+        card.learning.map { isDue($0.nextReviewDate, now: now) } ?? false
+    }
+
+    /// 端末の日付で翌日の0時。サーバへの期限問い合わせもこの境界を使う。
+    static func startOfTomorrow(_ now: Date) -> Date {
+        let calendar = Calendar.current
+        return calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: now)) ?? now
     }
 
     static func sortByNextReviewDateThenId(_ left: WordCard, _ right: WordCard) -> Bool {
@@ -49,7 +63,8 @@ enum StudyQueueRules {
         return left.id < right.id
     }
 
-    /// 期限切れの復習 → 新規 → まだ期限前の復習、の順に上限まで詰める。
+    /// 今日の分。期限が今日までの復習 → 新規、の順に上限まで詰める。
+    /// 解いたカードは正誤どちらでも期限が明日以降になるので、その日のうちは二度と入らない。
     static func limitedStudyQueue(_ cards: [WordCard], now: Date = Date()) -> [WordCard] {
         let dueCards = cards
             .filter { isDue($0, now: now) }
@@ -59,6 +74,11 @@ enum StudyQueueRules {
             .filter { $0.learning == nil }
             .sorted { $0.id < $1.id }
             .prefix(StudyQueueLimit.new)
+        return Array(dueCards) + Array(newCards)
+    }
+
+    /// ラジオ用。今日の分に絞らず、今日の分のあとへ期限前の復習も続ける。
+    static func allCardsQueue(_ cards: [WordCard], now: Date = Date()) -> [WordCard] {
         let futureReviewCards = cards
             .filter { card in
                 guard card.learning != nil else { return false }
@@ -67,7 +87,7 @@ enum StudyQueueRules {
             .sorted(by: sortByNextReviewDateThenId)
             .prefix(StudyQueueLimit.futureReview)
 
-        return Array(dueCards) + Array(newCards) + Array(futureReviewCards)
+        return limitedStudyQueue(cards, now: now) + Array(futureReviewCards)
     }
 
     /// 連続学習日数。今日から1日ずつさかのぼり、記録が途切れるまで数える。
