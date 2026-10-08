@@ -138,7 +138,7 @@ struct DeckStatusChips: View {
 }
 
 /// 仮の数字を出している場所に添える断り書き。
-/// デザインタブの「ワイヤーフレーム開発モード」と同じ役割。
+/// デザインのメニューの「ワイヤーフレーム開発モード」と同じ役割。
 struct WireframeNotice: View {
     let text: String
 
