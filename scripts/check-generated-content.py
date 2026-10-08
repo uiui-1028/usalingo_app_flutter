@@ -31,7 +31,7 @@ _spec.loader.exec_module(sync)
 
 REQUIRED_SHEETS = (
     "01_core_words", "01_core_senses", "02_content_concepts",
-    "02_content_examples", "04_decks", "04_deck_words",
+    "02_content_examples", "04_deck_boxes", "04_decks", "04_deck_words",
 )
 PARTS_OF_SPEECH = {
     "noun", "verb", "adjective", "adverb", "preposition", "conjunction",
@@ -99,6 +99,12 @@ def contains_word(sentence: str, forms: set[str]) -> bool:
     return any(re.search(rf"(?<![a-z]){re.escape(form)}(?![a-z])", text) for form in forms)
 
 
+def deck_concept_ids(boxes: list[dict[str, str]], decks: list[dict[str, str]]) -> dict[str, str]:
+    """デッキごとの世界観。デッキは箱の世界観を使う。"""
+    box_concepts = {r["box_id"].lstrip("0"): r["concept_id"].lstrip("0") for r in boxes}
+    return {r["deck_id"].lstrip("0"): box_concepts.get(r["box_id"].lstrip("0"), "") for r in decks}
+
+
 def extra_checks(csvs: dict[str, str]) -> tuple[list[str], list[str]]:
     """生成データ向けに足した確かめ。止める誤りと、注意だけの一覧を返す。"""
     errors: list[str] = []
@@ -143,7 +149,7 @@ def extra_checks(csvs: dict[str, str]) -> tuple[list[str], list[str]]:
         if word and row["sentence_en"] and not contains_word(row["sentence_en"], word_forms(word, sense["inflections"])):
             warnings.append(f"{where} sentence_en: {row['sentence_en']!r} does not contain {word!r}")
 
-    deck_concepts = {row["deck_id"].lstrip("0"): row["concept_id"].lstrip("0") for _, row in rows["04_decks"]}
+    deck_concepts = deck_concept_ids([row for _, row in rows["04_deck_boxes"]], [row for _, row in rows["04_decks"]])
     for line, row in rows["04_deck_words"]:
         sense_id, deck_id = row["sense_id"].lstrip("0"), row["deck_id"].lstrip("0")
         concept_id = deck_concepts.get(deck_id)
@@ -180,7 +186,7 @@ def sample(csvs: dict[str, str], rate: float, seed: int) -> list[dict[str, str]]
     first_example: dict[tuple[str, str], dict[str, str]] = {}
     for r in rows["02_content_examples"]:
         first_example.setdefault((r["sense_id"].lstrip("0"), r["concept_id"].lstrip("0")), r)
-    deck_concepts = {r["deck_id"].lstrip("0"): r["concept_id"].lstrip("0") for r in rows["04_decks"]}
+    deck_concepts = deck_concept_ids(rows["04_deck_boxes"], rows["04_decks"])
 
     by_deck: dict[str, list[str]] = defaultdict(list)
     for r in rows["04_deck_words"]:

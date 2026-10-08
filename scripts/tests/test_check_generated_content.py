@@ -36,7 +36,8 @@ def sheets(**overrides: str) -> dict[str, str]:
             "1\t1\t1\tShe created a new app.\t彼女は新しいアプリを作った。\t\n"
             "2\t2\t1\tSales are increasing.\t売上が増えている。\t\n"
         ),
-        "04_decks.tsv": "deck_id\tdeck_name\tconcept_id\n1\t高校\t1\n",
+        "04_deck_boxes.tsv": "box_id\tbox_name\tdescription\tgenre\tconcept_id\tcover_example_id\n1\t大学受験\t\texam\t1\t\n",
+        "04_decks.tsv": "deck_id\tdeck_name\tbox_id\n1\t高校\t1\n",
         "04_deck_words.tsv": "deck_id\tsense_id\n1\t1\n1\t2\n",
     }
     files.update(overrides)
@@ -122,7 +123,7 @@ class SampleTest(unittest.TestCase):
     def test_takes_at_least_one_word_from_each_deck_with_a_fixed_seed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             files = sheets(**{
-                "04_decks.tsv": "deck_id\tdeck_name\tconcept_id\n1\t中学\t1\n2\t高校\t1\n",
+                "04_decks.tsv": "deck_id\tdeck_name\tbox_id\n1\t中学\t1\n2\t高校\t1\n",
                 "04_deck_words.tsv": "deck_id\tsense_id\n1\t1\n2\t2\n",
             })
             for name, text in files.items():

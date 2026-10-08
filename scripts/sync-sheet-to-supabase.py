@@ -30,6 +30,7 @@ PRODUCTION_PROJECT_REF = "udvmzaodsrgwecfybkry"
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MAX_ID = 999_999
 CEFR_LEVELS = {"A1", "A2", "B1", "B2", "C1", "C2"}
+GENRES = {"exam", "toeic"}
 
 SHEET_COLUMNS: dict[str, tuple[str, ...]] = {
     "01_core_words": ("word_id", "word_text"),
@@ -44,7 +45,8 @@ SHEET_COLUMNS: dict[str, tuple[str, ...]] = {
     ),
     "03_audio_pronunciations": ("pronunciation_id", "word_id", "audio_asset_path", "voice_label"),
     "03_audio_example_audio": ("example_audio_id", "example_id", "audio_asset_path", "voice_label"),
-    "04_decks": ("deck_id", "deck_name", "concept_id"),
+    "04_deck_boxes": ("box_id", "box_name", "description", "genre", "concept_id", "cover_example_id"),
+    "04_decks": ("deck_id", "deck_name", "box_id"),
     "04_deck_words": ("deck_id", "sense_id"),
 }
 
@@ -63,7 +65,7 @@ def http_get(url: str) -> str:
 
 
 def fetch_csvs(sheet_id: str) -> dict[str, str]:
-    """公開シートの8枚を CSV で読む。タブの gid はシートの名前から探す。"""
+    """公開シートの9枚を CSV で読む。タブの gid はシートの名前から探す。"""
     base = f"https://docs.google.com/spreadsheets/d/{sheet_id}"
     html = http_get(f"{base}/htmlview")
     gids = dict(re.findall(r'\{name: "([^"]+)", pageUrl: "[^"]*", gid: "(\d+)"', html))
@@ -253,6 +255,7 @@ def build_document(csvs: dict[str, str]) -> dict[str, list[dict[str, Any]]]:
             "display_order": order_in_group[(sense_id, concept_id)],
         })
     example_concepts = {e["id"]: concept_codes.get(e["concept_id"]) for e in examples}
+    example_concept_ids = {e["id"]: e["concept_id"] for e in examples}
 
     def audio_rows(name: str, id_column: str, parent_column: str, parents: set[Any], path_of) -> tuple[list[dict[str, Any]], int]:
         rows, skipped = [], 0
@@ -291,15 +294,42 @@ def build_document(csvs: dict[str, str]) -> dict[str, list[dict[str, Any]]]:
         if example_concepts.get(parent) else None,
     )
 
+    # 箱はギャラリーで選ぶ単位。世界観は箱が持ち、デッキは箱の世界観を使う（docs/plans/deck-box-requirements.md）。
+    boxes = []
+    for position, (line, row) in enumerate(sheets["04_deck_boxes"]):
+        label = lambda column: at("04_deck_boxes", line, column)  # noqa: E731
+        concept_id = parse_id(row["concept_id"], label("concept_id"), errors)
+        if concept_id is not None and concept_id not in concept_codes:
+            errors.append(f"{label('concept_id')}: concept {concept_id} is not in 02_content_concepts")
+        genre = require(row["genre"], label("genre"), errors)
+        if genre and genre not in GENRES:
+            errors.append(f"{label('genre')}: {genre!r} must be one of {', '.join(sorted(GENRES))}")
+        cover = parse_id(row["cover_example_id"], label("cover_example_id"), errors) if row["cover_example_id"] else None
+        if cover is not None and cover not in example_concept_ids:
+            errors.append(f"{label('cover_example_id')}: example {cover} is not in 02_content_examples")
+        elif cover is not None and concept_id is not None and example_concept_ids[cover] != concept_id:
+            errors.append(f"{label('cover_example_id')}: example {cover} is not in the box's concept {concept_id}")
+        boxes.append({
+            "id": parse_id(row["box_id"], label("box_id"), errors),
+            "box_name": require(row["box_name"], label("box_name"), errors),
+            "description": row["description"] or None,
+            "genre": genre,
+            "concept_id": concept_id,
+            "cover_example_id": cover,
+            "sort_order": position,
+        })
+    box_concepts = {b["id"]: b["concept_id"] for b in boxes}
+
     decks = []
     for line, row in sheets["04_decks"]:
-        concept_id = parse_id(row["concept_id"], at("04_decks", line, "concept_id"), errors)
-        if concept_id is not None and concept_id not in concept_codes:
-            errors.append(f"{at('04_decks', line, 'concept_id')}: concept {concept_id} is not in 02_content_concepts")
+        box_id = parse_id(row["box_id"], at("04_decks", line, "box_id"), errors)
+        if box_id is not None and box_id not in box_concepts:
+            errors.append(f"{at('04_decks', line, 'box_id')}: box {box_id} is not in 04_deck_boxes")
         decks.append({
             "id": parse_id(row["deck_id"], at("04_decks", line, "deck_id"), errors),
             "deck_name": require(row["deck_name"], at("04_decks", line, "deck_name"), errors),
-            "concept_id": concept_id,
+            "box_id": box_id,
+            "concept_id": box_concepts.get(box_id),
         })
     deck_ids = {d["id"] for d in decks}
 
@@ -331,6 +361,7 @@ def build_document(csvs: dict[str, str]) -> dict[str, list[dict[str, Any]]]:
     check_unique([e["id"] for e in examples], "02_content_examples example_id", errors)
     check_unique([p["id"] for p in pronunciations], "03_audio_pronunciations pronunciation_id", errors)
     check_unique([a["id"] for a in example_audio], "03_audio_example_audio example_audio_id", errors)
+    check_unique([b["id"] for b in boxes], "04_deck_boxes box_id", errors)
     check_unique([d["id"] for d in decks], "04_decks deck_id", errors)
 
     if errors:
@@ -342,6 +373,7 @@ def build_document(csvs: dict[str, str]) -> dict[str, list[dict[str, Any]]]:
         "examples": examples,
         "pronunciations": pronunciations,
         "example_audio": example_audio,
+        "boxes": boxes,
         "decks": decks,
         "deck_words": deck_words,
         "skipped": [
@@ -414,7 +446,9 @@ create temp table sync_pronunciations (id integer primary key, word_id integer, 
   is_primary boolean, display_order integer);
 create temp table sync_example_audio (id integer primary key, example_id integer, path text, voice_label text,
   is_primary boolean, display_order integer);
-create temp table sync_decks (id integer primary key, deck_name text, concept_id integer);
+create temp table sync_boxes (id integer primary key, box_name text, description text, genre text,
+  concept_id integer, cover_example_id integer, sort_order integer);
+create temp table sync_decks (id integer primary key, deck_name text, concept_id integer, box_id integer);
 create temp table sync_deck_words (deck_id integer, word_id integer, meaning_id integer, sort_order integer,
   primary key (deck_id, word_id));
 """
@@ -427,6 +461,54 @@ def object_matches(path_sql: str) -> str:
 # Storage にファイルがあるか。
 def object_exists(path_sql: str) -> str:
     return f"exists (select 1 from storage.objects o where {object_matches(path_sql)})"
+
+
+def gallery_facts(table: str, key: str, scope: str) -> str:
+    """ギャラリーに出す容量と易・中・難を、公式デッキの key 列でまとめて table に入れる。
+    デッキごとなら key は id、箱ごとなら box_id。アプリは読むだけ（docs/plans/deck-gallery-redesign-requirements.md）。
+    media_bytes: each primary meaning's first example in the deck concept (image and audio), plus the word audio.
+    difficulty: share of B2+ primary meanings; under 20% easy, under 50% medium, otherwise hard.
+    """
+    return f"""with grouped_cards as (
+  select distinct d.{key} as group_id, d.concept_id, c.word_id,
+    coalesce(c.primary_meaning_id, (select m.id from public.word_meanings m where m.word_id = c.word_id
+      order by m.priority, m.id limit 1)) as meaning_id
+  from public.decks d
+  join public.cards c on c.deck_id = d.id and c.is_active
+  where d.owner_id is null and d.{key} is not null
+), paths as (
+  select gc.group_id, unnest(array[e.image_asset_path, e.audio_asset_path]) as path
+  from grouped_cards gc
+  cross join lateral (
+    select x.image_asset_path, x.audio_asset_path from public.example_contents x
+    where x.meaning_id = gc.meaning_id and x.concept_id = gc.concept_id
+    order by x.display_order, x.id limit 1
+  ) e
+  union
+  select gc.group_id, p.audio_asset_path
+  from grouped_cards gc
+  join public.word_pronunciations p on p.word_id = gc.word_id and p.is_primary
+), media as (
+  select p.group_id, sum((o.metadata->>'size')::bigint) as bytes
+  from paths p
+  join storage.objects o on {object_matches('p.path')}
+  group by p.group_id
+), levels as (
+  select gc.group_id, count(m.cefr_level) as rated,
+    count(*) filter (where m.cefr_level in ('B2', 'C1', 'C2')) as hard
+  from grouped_cards gc
+  join public.word_meanings m on m.id = gc.meaning_id
+  group by gc.group_id
+)
+update public.{table} t set
+  media_bytes = coalesce((select bytes from media where media.group_id = t.id), 0),
+  difficulty = (select case
+      when l.rated = 0 then null
+      when l.hard * 5 < l.rated then 'easy'
+      when l.hard * 2 < l.rated then 'medium'
+      else 'hard'
+    end from levels l where l.group_id = t.id)
+where {scope};"""
 
 
 APPLY = f"""
@@ -503,9 +585,16 @@ on conflict (id) do update set example_id = excluded.example_id, audio_asset_pat
   audio_state = excluded.audio_state, voice_label = excluded.voice_label,
   is_primary = excluded.is_primary, display_order = excluded.display_order;
 
-insert into public.decks (id, deck_name, concept_id)
-select id, deck_name, concept_id from sync_decks
-on conflict (id) do update set deck_name = excluded.deck_name, concept_id = excluded.concept_id;
+insert into public.deck_boxes (id, box_name, description, genre, concept_id, cover_example_id, sort_order)
+select id, box_name, description, genre, concept_id, cover_example_id, sort_order from sync_boxes
+on conflict (id) do update set box_name = excluded.box_name, description = excluded.description,
+  genre = excluded.genre, concept_id = excluded.concept_id, cover_example_id = excluded.cover_example_id,
+  sort_order = excluded.sort_order;
+
+insert into public.decks (id, deck_name, concept_id, box_id)
+select id, deck_name, concept_id, box_id from sync_decks
+on conflict (id) do update set deck_name = excluded.deck_name, concept_id = excluded.concept_id,
+  box_id = excluded.box_id;
 
 insert into public.cards (word_id, card_template_id, deck_id, sort_order, primary_meaning_id, is_active)
 select d.word_id, t.id, d.deck_id, d.sort_order, d.meaning_id, true
@@ -521,49 +610,10 @@ where c.is_active
   and c.deck_id in (select id from sync_decks)
   and not exists (select 1 from sync_deck_words d where d.deck_id = c.deck_id and d.word_id = c.word_id);
 
--- Deck facts for the deck gallery, so the app only reads them (docs/plans/deck-gallery-redesign-requirements.md).
--- media_bytes: the image and example audio of the deck-concept example of each primary meaning, plus the word audio.
--- difficulty: share of B2+ primary meanings; under 20% easy, under 50% medium, otherwise hard.
-with deck_cards as (
-  select distinct d.id as deck_id, d.concept_id, c.word_id,
-    coalesce(c.primary_meaning_id, (select m.id from public.word_meanings m where m.word_id = c.word_id
-      order by m.priority, m.id limit 1)) as meaning_id
-  from public.decks d
-  join public.cards c on c.deck_id = d.id and c.is_active
-  where d.owner_id is null
-), paths as (
-  select dc.deck_id, unnest(array[e.image_asset_path, e.audio_asset_path]) as path
-  from deck_cards dc
-  cross join lateral (
-    select x.image_asset_path, x.audio_asset_path from public.example_contents x
-    where x.meaning_id = dc.meaning_id and x.concept_id = dc.concept_id
-    order by x.display_order, x.id limit 1
-  ) e
-  union
-  select dc.deck_id, p.audio_asset_path
-  from deck_cards dc
-  join public.word_pronunciations p on p.word_id = dc.word_id and p.is_primary
-), media as (
-  select p.deck_id, sum((o.metadata->>'size')::bigint) as bytes
-  from paths p
-  join storage.objects o on {object_matches('p.path')}
-  group by p.deck_id
-), levels as (
-  select dc.deck_id, count(m.cefr_level) as rated,
-    count(*) filter (where m.cefr_level in ('B2', 'C1', 'C2')) as hard
-  from deck_cards dc
-  join public.word_meanings m on m.id = dc.meaning_id
-  group by dc.deck_id
-)
-update public.decks d set
-  media_bytes = coalesce((select bytes from media where media.deck_id = d.id), 0),
-  difficulty = (select case
-      when l.rated = 0 then null
-      when l.hard * 5 < l.rated then 'easy'
-      when l.hard * 2 < l.rated then 'medium'
-      else 'hard'
-    end from levels l where l.deck_id = d.id)
-where d.owner_id is null;
+-- Gallery facts per deck and per box.
+{gallery_facts('decks', 'id', 't.owner_id is null')}
+
+{gallery_facts('deck_boxes', 'box_id', 'true')}
 
 select setval(pg_get_serial_sequence('public.' || t, 'id'), greatest(m, 1))
 from (values
@@ -580,6 +630,7 @@ where pg_get_serial_sequence('public.' || t, 'id') is not null;
 
 SUMMARY = """
 select
+  (select count(*) from sync_boxes) as boxes,
   (select count(*) from sync_words) as words,
   (select count(*) from sync_senses) as meanings,
   (select count(*) from sync_examples) as examples,
@@ -638,8 +689,16 @@ def render_sql(document: dict[str, list[dict[str, Any]]], *, dry_run: bool) -> s
              sql_value(a["is_primary"]), sql_value(a["display_order"]))
             for a in document["example_audio"]
         ]),
-        insert_values("sync_decks", ("id", "deck_name", "concept_id"), [
-            (sql_value(d["id"]), sql_text(d["deck_name"]), sql_value(d["concept_id"])) for d in document["decks"]
+        insert_values("sync_boxes", (
+            "id", "box_name", "description", "genre", "concept_id", "cover_example_id", "sort_order",
+        ), [
+            (sql_value(b["id"]), sql_text(b["box_name"]), sql_text(b["description"]), sql_text(b["genre"]),
+             sql_value(b["concept_id"]), sql_value(b["cover_example_id"]), sql_value(b["sort_order"]))
+            for b in document["boxes"]
+        ]),
+        insert_values("sync_decks", ("id", "deck_name", "concept_id", "box_id"), [
+            (sql_value(d["id"]), sql_text(d["deck_name"]), sql_value(d["concept_id"]), sql_value(d["box_id"]))
+            for d in document["decks"]
         ]),
         insert_values("sync_deck_words", ("deck_id", "word_id", "meaning_id", "sort_order"), [
             (sql_value(d["deck_id"]), sql_value(d["word_id"]), sql_value(d["meaning_id"]), sql_value(d["sort_order"]))
@@ -750,7 +809,7 @@ def parser() -> argparse.ArgumentParser:
         command.add_argument("--sheet-id", default=DEFAULT_SHEET_ID)
         command.add_argument("--from-dir", help="read <sheet name>.csv files from this directory instead of Google")
 
-    fetch = commands.add_parser("fetch", help="save the 8 sheets as CSV")
+    fetch = commands.add_parser("fetch", help="save the 9 sheets as CSV")
     fetch.add_argument("--sheet-id", default=DEFAULT_SHEET_ID)
     fetch.add_argument("--output-dir", required=True)
     fetch.set_defaults(handler=command_fetch)
