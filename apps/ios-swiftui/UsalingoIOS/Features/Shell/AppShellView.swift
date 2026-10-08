@@ -1,19 +1,23 @@
 import SwiftUI
 
 /// 学習画面を土台にした外枠。下の純正タブバーで遊び方を選ぶ。
-/// 学習画面を横になぞるか、上の左右のボタンを押すと、学習画面が横へずれて、左から Design、右から Profile が出てくる。
+/// 学習画面を横になぞるか、上の左右のボタンを押すと、学習画面が横へずれて、左から Design、右から Profile のメニューが出てくる。
 struct AppShellView: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// 開き終えている引き出し。
     @State private var openedScreen: ShellScreen?
-    /// 学習画面の裏に置いている引き出し。閉じる動きが終わるまで残す。
+    /// 学習画面の裏に見せている引き出し。閉じる動きが終わるまで残す。
     @State private var revealedScreen: ShellScreen?
+    /// 一度開いた引き出し。閉じても片付けずに裏へ残し、次はすぐ出せるようにする。
+    @State private var loadedScreens: Set<ShellScreen> = []
     /// 横になぞっている間の指の移動量。
     @State private var dragWidth: CGFloat?
     /// なぞり始めの向きで、横（引き出し）か縦（デッキを回す）かを一度だけ決める。
     @State private var isHorizontalDrag: Bool?
     @GestureState private var isTouching = false
+    /// 遊び方のバーの位置。ここから始まった指は、バーの選択枠を滑らせる操作なので引き出しを動かさない。
+    @State private var tabBarFrame = CGRect.null
     @AppStorage(DeckPlayStyle.storageKey) private var playStyle: DeckPlayStyle = .card
 
     var body: some View {
@@ -23,10 +27,16 @@ struct AppShellView: View {
             let offset = contentOffset(translation: dragWidth ?? 0, panelWidth: panelWidth)
 
             ZStack {
-                if let revealedScreen {
-                    panel(revealedScreen)
-                        .frame(width: panelWidth)
-                        .frame(maxWidth: .infinity, alignment: revealedScreen == .design ? .leading : .trailing)
+                ForEach(ShellScreen.allCases, id: \.self) { screen in
+                    if loadedScreens.contains(screen) {
+                        let isRevealed = revealedScreen == screen
+                        panel(screen)
+                            .frame(width: panelWidth)
+                            .frame(maxWidth: .infinity, alignment: screen == .design ? .leading : .trailing)
+                            .opacity(isRevealed ? 1 : 0)
+                            .allowsHitTesting(isRevealed)
+                            .accessibilityHidden(!isRevealed)
+                    }
                 }
 
                 learningScreen(topInset: proxy.safeAreaInsets.top)
@@ -56,10 +66,11 @@ struct AppShellView: View {
                             .ignoresSafeArea()
                     }
                     .offset(x: offset)
-                    // 子画面を開いている間（バーを隠している間）は、横になぞっても開かない。
-                    .simultaneousGesture(drawerDrag(panelWidth: panelWidth),
-                                         including: appState.isShellChromeHidden ? .subviews : .all)
             }
+            // 学習画面の上でも引き出しの上でも、横になぞって開け閉めできる。
+            // 子画面を開いている間（バーを隠している間）は、横になぞっても開かない。
+            .simultaneousGesture(drawerDrag(panelWidth: panelWidth),
+                                 including: appState.isShellChromeHidden ? .subviews : .all)
         }
         // 名前の変更などでキーボードが出ても、遊び方のバーを押し上げずにキーボードの裏へ残す。
         // 子画面を開いている間（バーを隠している間）は、入力欄がキーボードをよけられるよう効かせない。
@@ -85,6 +96,7 @@ struct AppShellView: View {
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if !appState.isShellChromeHidden {
                     PlayStyleTabBar(selection: $playStyle)
+                        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { tabBarFrame = $0 }
                         // 古いOSのバーの地を、ホームインジケータの下まで伸ばす。
                         .ignoresSafeArea(edges: .bottom)
                         .background { bottomFade }
@@ -115,18 +127,19 @@ struct AppShellView: View {
     // MARK: - 引き出しを動かす
 
     private func drawerDrag(panelWidth: CGFloat) -> some Gesture {
-        DragGesture(minimumDistance: 12)
+        DragGesture(minimumDistance: 12, coordinateSpace: .global)
             .updating($isTouching) { _, state, _ in
                 state = true
             }
             .onChanged { value in
                 if isHorizontalDrag == nil {
-                    isHorizontalDrag = abs(value.translation.width) > abs(value.translation.height)
+                    isHorizontalDrag = !tabBarFrame.contains(value.startLocation)
+                        && abs(value.translation.width) > abs(value.translation.height)
                 }
                 guard isHorizontalDrag == true else { return }
                 dragWidth = value.translation.width
                 let offset = contentOffset(translation: value.translation.width, panelWidth: panelWidth)
-                if offset != 0 { revealedScreen = offset > 0 ? .design : .profile }
+                if offset != 0 { reveal(offset > 0 ? .design : .profile) }
             }
             .onEnded { value in
                 defer { isHorizontalDrag = nil }
@@ -154,22 +167,30 @@ struct AppShellView: View {
         return offset > 0 ? .design : .profile
     }
 
+    private func reveal(_ screen: ShellScreen) {
+        revealedScreen = screen
+        loadedScreens.insert(screen)
+    }
+
     private func setOpenedScreen(_ screen: ShellScreen?) {
-        if let screen { revealedScreen = screen }
-        let hidePanel = {
+        if let screen { reveal(screen) }
+        let isChanging = screen != openedScreen
+        // 開ききったとき・閉じきったときに、カルーセルと同じ軽い手ごたえを返す。元の位置へ戻るだけなら鳴らさない。
+        let didSettle = {
+            if isChanging { HapticFeedbackService.detent() }
             if openedScreen == nil, dragWidth == nil { revealedScreen = nil }
         }
         guard !reduceMotion else {
             openedScreen = screen
             dragWidth = nil
-            hidePanel()
+            didSettle()
             return
         }
         withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
             openedScreen = screen
             dragWidth = nil
         } completion: {
-            hidePanel()
+            didSettle()
         }
     }
 
@@ -210,8 +231,8 @@ struct AppShellView: View {
     }
 }
 
-/// 学習画面の左右から出す引き出し。
-enum ShellScreen: String {
+/// 学習画面の左右から出すメニュー。
+enum ShellScreen: String, CaseIterable {
     case design = "Design"
     case profile = "Profile"
 

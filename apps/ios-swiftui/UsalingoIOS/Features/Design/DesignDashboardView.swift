@@ -1,25 +1,29 @@
 import SwiftUI
 
-/// デザインカスタマイズタブ（モック）。
+/// デザインのメニュー（モック）。学習画面の左から出す。
 ///
-/// 画面上 4 割はデザインのプレビュー枠、下 6 割は 4 つの設定モジュールの入口。
+/// 4 つの設定モジュールの入口を縦 1 列に並べる。押したモジュールのページは全画面で重ね、閉じるとこのメニューへ戻る。
 /// 実際の設定反映や永続化は行わず、ページ内で選択とスイッチの操作だけを確認する。
-/// 学習画面の左の引き出しに入るので幅が狭い。モジュールのページは全画面で重ね、閉じるとこの一覧へ戻る。
 struct DesignDashboardView: View {
     @State private var selectedModule: DesignMockModule?
 
     var body: some View {
-        GeometryReader { proxy in
-            let spacing = WireMetrics.spacingL
-            let contentHeight = max(proxy.size.height - WireMetrics.screenPadding * 2 - spacing, 0)
-            VStack(spacing: spacing) {
-                DesignPreviewStage()
-                    .frame(height: contentHeight * 0.4)
-                DesignModuleGrid(spacing: spacing) { selectedModule = $0 }
-                    .frame(height: contentHeight * 0.6)
+        ScrollView {
+            VStack(spacing: WireMetrics.spacingM) {
+                ForEach(DesignMockModule.all) { module in
+                    Button {
+                        selectedModule = module
+                    } label: {
+                        DesignModuleRow(module: module)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(module.name)
+                    .accessibilityHint("詳細設定を表示します")
+                }
             }
             .padding(WireMetrics.screenPadding)
         }
+        .scrollBounceBehavior(.basedOnSize)
         .fullScreenCover(item: $selectedModule) { module in
             NavigationStack {
                 DesignModulePage(module: module)
@@ -312,43 +316,12 @@ extension DesignMockModule {
 
 // MARK: - 表示部品
 
-/// 4 つのモジュールを 2 x 2 に敷き詰めるグリッド。説明文は載せない。
-private struct DesignModuleGrid: View {
-    let spacing: CGFloat
-    let onSelect: (DesignMockModule) -> Void
-
-    private var rows: [[DesignMockModule]] {
-        stride(from: 0, to: DesignMockModule.all.count, by: 2).map { start in
-            Array(DesignMockModule.all[start..<min(start + 2, DesignMockModule.all.count)])
-        }
-    }
-
-    var body: some View {
-        VStack(spacing: spacing) {
-            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-                HStack(spacing: spacing) {
-                    ForEach(row) { module in
-                        Button {
-                            onSelect(module)
-                        } label: {
-                            DesignModuleTile(module: module)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(module.name)
-                        .accessibilityHint("詳細設定を表示します")
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// グリッド 1 マス分のボタン。アイコンと名前だけを見せる。
-private struct DesignModuleTile: View {
+/// メニューの 1 行。アイコンと名前だけを見せる。
+private struct DesignModuleRow: View {
     let module: DesignMockModule
 
     var body: some View {
-        VStack(spacing: WireMetrics.spacingM) {
+        HStack(spacing: WireMetrics.spacingM) {
             Image(systemName: module.symbol)
                 .wireFont(.titleS)
                 .frame(width: 44, height: 44)
@@ -356,10 +329,15 @@ private struct DesignModuleTile: View {
 
             Text(module.name)
                 .wireFont(.label)
-                .multilineTextAlignment(.center)
+
+            Spacer(minLength: 0)
+
+            Image(systemName: "chevron.right")
+                .wireFont(.caption)
+                .accessibilityHidden(true)
         }
-        .padding(WireMetrics.spacingL)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(WireMetrics.spacingM)
+        .frame(maxWidth: .infinity)
         .outlineSurface(radius: WireMetrics.radiusCard, shadow: .card)
     }
 }
