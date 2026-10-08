@@ -20,6 +20,11 @@ struct AudioRadioView: View {
     @State private var isLoading = true
     @State private var loadErrorMessage: String?
     @State private var openPanel: SettingPanel?
+    /// 進み具合のバーから開いた学習状況の一覧。開いている間はラジオを止める。
+    @State private var isShowingProgress = false
+    /// 学習状況を開く前に鳴っていた。戻ったら続きを鳴らす。
+    @State private var resumesAfterProgress = false
+    @State private var hasStarted = false
 
     var body: some View {
         // 単語カードを下、道具の帯を上に重ねる。スライダーを開いて帯が伸びても、
@@ -56,7 +61,8 @@ struct AudioRadioView: View {
             .overlay(alignment: .top) {
                 if !isLoading, loadErrorMessage == nil, player.playableCardCount > 0 {
                     StudyBridgeHeader(
-                        progress: Double(player.carouselIndex + 1) / Double(player.playableCardCount)
+                        progress: Double(player.carouselIndex + 1) / Double(player.playableCardCount),
+                        onProgressTap: openProgress
                     ) { dismiss() }
                 }
             }
@@ -75,8 +81,29 @@ struct AudioRadioView: View {
         }
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
-        .task { await load() }
-        .onDisappear { player.stop() }
+        .task {
+            // 学習状況から戻ると task がもう一度走るので、読み込みは最初の1回だけにする。
+            guard !hasStarted else { return }
+            hasStarted = true
+            await load()
+        }
+        .onDisappear {
+            if !isShowingProgress { player.stop() }
+        }
+        .navigationDestination(isPresented: $isShowingProgress) {
+            DeckProgressGridView(deck: deck, currentCardId: player.currentCard?.id)
+        }
+        .onChange(of: isShowingProgress) { _, isShowing in
+            guard !isShowing, resumesAfterProgress else { return }
+            resumesAfterProgress = false
+            player.togglePlay()
+        }
+    }
+
+    private func openProgress() {
+        resumesAfterProgress = player.isPlaying
+        if player.isPlaying { player.togglePlay() }
+        isShowingProgress = true
     }
 
     // MARK: - カード

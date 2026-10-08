@@ -27,6 +27,9 @@ struct MatchingGameView: View {
     @State private var flashingTileIds: Set<Int> = []
     /// 違って色を変えている札。
     @State private var missedTileIds: Set<Int> = []
+    /// 進み具合のバーから開いた学習状況の一覧。
+    @State private var isShowingProgress = false
+    @State private var hasStarted = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -61,7 +64,10 @@ struct MatchingGameView: View {
             // 進み具合は中身より1つ上の層に浮かべ、中身を押し下げない。
             .overlay(alignment: .top) {
                 if let game, !isLoading, loadErrorMessage == nil, game.pairCount > 0 {
-                    StudyBridgeHeader(progress: Double(game.matchedPairCount) / Double(game.pairCount)) { dismiss() }
+                    StudyBridgeHeader(
+                        progress: Double(game.matchedPairCount) / Double(game.pairCount),
+                        onProgressTap: { isShowingProgress = true }
+                    ) { dismiss() }
                 }
             }
 
@@ -75,7 +81,15 @@ struct MatchingGameView: View {
         }
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
-        .task { await load() }
+        .task {
+            // 学習状況から戻ると task がもう一度走るので、読み込みは最初の1回だけにする。
+            guard !hasStarted else { return }
+            hasStarted = true
+            await load()
+        }
+        .navigationDestination(isPresented: $isShowingProgress) {
+            DeckProgressGridView(deck: deck, currentCardId: nil)
+        }
     }
 
     /// 盤の下に置く道具。カード学習と違い正解・不正解は押さないので、帯だけを中央に出す。

@@ -13,10 +13,17 @@ struct FiveChoiceView: View {
     @State private var answerQueue = StudyAnswerQueue()
     @State private var showsLeaveConfirmation = false
     @StateObject private var audioPlaybackService = AudioPlaybackService()
+    /// 進み具合のバーから開いた学習状況の一覧。
+    @State private var isShowingProgress = false
+    @State private var hasStarted = false
 
     var body: some View {
         VStack(spacing: 0) {
-            StudyBridgeHeader(progress: game?.progress ?? 0, isBackDisabled: answerQueue.isDraining) {
+            StudyBridgeHeader(
+                progress: game?.progress ?? 0,
+                isBackDisabled: answerQueue.isDraining,
+                onProgressTap: { isShowingProgress = true }
+            ) {
                 if answerQueue.isEmpty { dismiss() } else { showsLeaveConfirmation = true }
             }
             content
@@ -30,11 +37,20 @@ struct FiveChoiceView: View {
         }
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
-        .task { await load() }
+        .task {
+            // 学習状況から戻ると task がもう一度走るので、読み込みは最初の1回だけにする。
+            guard !hasStarted else { return }
+            hasStarted = true
+            await load()
+        }
         .onAppear { appState.isShellChromeHidden = true }
         .onDisappear {
-            appState.isShellChromeHidden = false
             audioPlaybackService.stop()
+            // 学習状況を重ねている間は、まだ学習の中にいるのでタブバーを出さない。
+            if !isShowingProgress { appState.isShellChromeHidden = false }
+        }
+        .navigationDestination(isPresented: $isShowingProgress) {
+            DeckProgressGridView(deck: deck, currentCardId: game?.question?.card.id)
         }
         .confirmationDialog("未保存の回答があります", isPresented: $showsLeaveConfirmation, titleVisibility: .visible) {
             Button("保存せずに戻る", role: .destructive) { dismiss() }

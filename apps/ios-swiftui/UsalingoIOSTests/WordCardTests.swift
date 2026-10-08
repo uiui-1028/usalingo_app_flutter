@@ -977,4 +977,38 @@ final class WordCardTests: XCTestCase {
         XCTAssertEqual(card(status: "mastered", level: 5).masteryStars, 3)
     }
 
+    func testStudyStrengthStepsByLevelAndLeavesUnstudiedEmpty() {
+        func card(status: String?, level: Int?) -> WordCard {
+            WordCard(
+                id: 12,
+                text: "word",
+                meaning: "単語",
+                partOfSpeech: nil,
+                sentenceEnglish: nil,
+                sentenceJapanese: nil,
+                imageAssetPath: nil,
+                audioAssetPath: nil,
+                tags: [],
+                learningStatus: status,
+                learning: level.map {
+                    WordLearningSnapshot(progress: LearningProgress(
+                        userId: "user", cardId: 12, status: status ?? "learning", lastReviewedAt: nil,
+                        nextReviewDate: "2026-10-07T00:00:00Z", srsLevel: $0, easinessFactor: 2.5,
+                        repetitions: 1, incorrectCount: 0, intervalDays: 1, createdAt: nil, updatedAt: "2026-10-06T00:00:00Z"
+                    ))
+                }
+            )
+        }
+
+        XCTAssertNil(card(status: nil, level: nil).studyStrength)
+        XCTAssertFalse(card(status: nil, level: nil).isStudied)
+        XCTAssertEqual(card(status: "learning", level: 1).studyStrength, 0.2)
+        XCTAssertEqual(card(status: "learning", level: 2).studyStrength, 0.4)
+        XCTAssertEqual(card(status: "learning", level: 3).studyStrength, 0.6)
+        XCTAssertEqual(card(status: "learning", level: 4).studyStrength, 0.8)
+        XCTAssertEqual(card(status: "learning", level: 5).studyStrength, 1)
+        XCTAssertEqual(card(status: "mastered", level: 3).studyStrength, 1)
+        XCTAssertTrue(card(status: "learning", level: 1).isStudied)
+    }
+
 }
