@@ -229,11 +229,13 @@ struct DeckMenuTarget: Identifiable {
     /// 長押しした指の場所。ボタンはここを中心に扇形に並ぶ。
     var anchor: CGPoint
     let items: [DeckMenuItem]
+    /// 画面全体の場所。ボタンをこの中に収める。
+    var viewport: CGRect? = nil
 
     var id: Int { deck.id }
 
     var layout: DeckRadialMenuLayout {
-        DeckRadialMenuLayout(anchor: anchor, cardFrame: cardFrame, count: items.count)
+        DeckRadialMenuLayout(anchor: anchor, cardFrame: cardFrame, count: items.count, viewport: viewport)
     }
 }
 
@@ -252,7 +254,7 @@ struct RadialMenuTarget: Identifiable {
 
 /// 長押しメニューのボタンの並び。指の場所を中心に扇形に置く。見た目と切り離してあるので、単体で確かめられる。
 ///
-/// 上に余白があれば上へ、なければ下へ開き、カードの中央の側へ傾けて画面の外へはみ出さないようにする。
+/// 上に余白があれば上へ、なければ下へ開き、カードの中央の側へ傾ける。画面の端では扇を内側へ回して、はみ出さないようにする。
 /// 指を離さずにボタンの方へ動かして選び、そのボタンの上で離すと決まる。
 struct DeckRadialMenuLayout {
     /// 指の場所からボタンの中心までの距離。
@@ -286,13 +288,27 @@ struct DeckRadialMenuLayout {
         let opensUp = anchor.y >= Self.opensDownBelowY
         let towardRight = anchor.x < (viewport ?? cardFrame).midX
         let base: Double = (opensUp ? -90 : 90) + (towardRight == opensUp ? 30 : -30)
-        let angles = (0..<count).map { base + (Double($0) - Double(count - 1) / 2) * Self.spread }
+        let fan = { (base: Double) in (0..<count).map { base + (Double($0) - Double(count - 1) / 2) * Self.spread } }
+        var angles = fan(base)
+        let halfButton = Self.buttonSize / 2
+        if let viewport {
+            // 輪を指の真下に置いたまま、全部のボタンが画面に収まるまで扇を少しずつ回す。回す角度が小さい方を選ぶ。
+            let fits = { (angles: [Double]) in
+                angles.allSatisfy { angle in
+                    let x = anchor.x + Self.radius * CGFloat(cos(angle * .pi / 180))
+                    let y = anchor.y + Self.radius * CGFloat(sin(angle * .pi / 180))
+                    return x - halfButton >= viewport.minX && x + halfButton <= viewport.maxX
+                        && y - halfButton >= viewport.minY && y + halfButton <= viewport.maxY
+                }
+            }
+            let turns = stride(from: 0.0, through: 180, by: 5).flatMap { [$0, -$0] }
+            angles = turns.lazy.map { fan(base + $0) }.first(where: fits) ?? angles
+        }
         self.angles = angles
         if let viewport, !angles.isEmpty {
-            // カードの切り抜き枠は動かさず、ボタン全体が画面内に収まる位置へ扇の中心を寄せる。
+            // 回しても収まらない画面の隅だけ、扇の中心を画面の内側へ寄せる。カードの切り抜き枠は動かさない。
             let xs = angles.map { Self.radius * CGFloat(cos($0 * .pi / 180)) }
             let ys = angles.map { Self.radius * CGFloat(sin($0 * .pi / 180)) }
-            let halfButton = Self.buttonSize / 2
             self.anchor = CGPoint(
                 x: min(max(anchor.x, viewport.minX + halfButton - xs.min()!), viewport.maxX - halfButton - xs.max()!),
                 y: min(max(anchor.y, viewport.minY + halfButton - ys.min()!), viewport.maxY - halfButton - ys.max()!)
@@ -388,7 +404,7 @@ struct DeckRadialMenuOverlay: View {
     init(target: DeckMenuTarget, highlighted: Int?, release: DeckMenuRelease?,
          onFinish: @escaping ((() -> Void)?) -> Void) {
         self.init(target: RadialMenuTarget(id: target.id, cardFrame: target.cardFrame,
-                                          anchor: target.anchor, items: target.items),
+                                          anchor: target.anchor, items: target.items, viewport: target.viewport),
                   highlighted: highlighted, release: release, onFinish: onFinish)
     }
 
