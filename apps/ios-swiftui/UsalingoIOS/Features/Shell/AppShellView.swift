@@ -1,76 +1,63 @@
 import SwiftUI
 
+/// 学習画面を土台にした外枠。下の純正タブバーで遊び方を選び、Design と Profile は上の左右のボタンからシートで開く。
 struct AppShellView: View {
     @EnvironmentObject private var appState: AppState
-    @State private var selectedTab = 1
-    @State private var isTabBarHiddenByScroll = false
-    @State private var previousVerticalDragTranslation: CGFloat?
+    @State private var openedScreen: ShellScreen?
     @AppStorage(DeckPlayStyle.storageKey) private var playStyle: DeckPlayStyle = .card
 
     var body: some View {
-        TabView(selection: $selectedTab) {
-            DesignDashboardView()
-                .tabItem { Label("Design", systemImage: "paintpalette") }
-                .tag(0)
-                .glassTabBar(tabBarVisibility)
-
-            LearningDashboardView()
-                .safeAreaInset(edge: .bottom, spacing: 0) {
-                    if !appState.isShellChromeHidden {
-                        playStyleBar
-                            .padding(.horizontal, WireMetrics.screenPadding)
-                            .padding(.bottom, WireMetrics.spacingM)
-                            .background { bottomFade }
+        LearningDashboardView()
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if !appState.isShellChromeHidden {
+                    PlayStyleTabBar(selection: $playStyle)
+                        // 古いOSのバーの地を、ホームインジケータの下まで伸ばす。
+                        .ignoresSafeArea(edges: .bottom)
+                        .background { bottomFade }
+                }
+            }
+            // 名前の変更などでキーボードが出ても、遊び方のバーを押し上げずにキーボードの裏へ残す。
+            // 子画面を開いている間（バーを隠している間）は、入力欄がキーボードをよけられるよう効かせない。
+            .ignoresSafeArea(.keyboard, edges: appState.isShellChromeHidden ? [] : .bottom)
+            .overlay(alignment: .top) {
+                if !appState.isShellChromeHidden {
+                    HStack {
+                        screenButton(.design)
+                        Spacer()
+                        screenButton(.profile)
+                    }
+                    .padding(.horizontal, WireMetrics.screenPadding)
+                }
+            }
+            .sheet(item: $openedScreen) { screen in
+                Group {
+                    switch screen {
+                    case .design: DesignDashboardView()
+                    case .profile: ProfileDashboardView()
                     }
                 }
-                // 名前の変更などでキーボードが出ても、遊び方のバーを押し上げずにキーボードの裏へ残す。
-                // 子画面を開いている間（バーを隠している間）は、入力欄がキーボードをよけられるよう効かせない。
-                .ignoresSafeArea(.keyboard, edges: appState.isShellChromeHidden ? [] : .bottom)
-                .tabItem { Label("Game", systemImage: "bolt") }
-                .tag(1)
-                .glassTabBar(tabBarVisibility)
-
-            ProfileDashboardView(onScrollDrag: updateTabBarVisibility)
-                .tabItem { Label("Profile", systemImage: "person.crop.circle") }
-                .tag(2)
-                .glassTabBar(tabBarVisibility)
-        }
-        .onChange(of: selectedTab) { _, _ in
-            isTabBarHiddenByScroll = false
-            previousVerticalDragTranslation = nil
-        }
-        .onChange(of: appState.isShellChromeHidden) { _, isHidden in
-            previousVerticalDragTranslation = nil
-            if !isHidden {
-                isTabBarHiddenByScroll = false
+                // 下へのスワイプは中の引っぱる操作とぶつかることがあるので、必ず閉じられるボタンも置く。
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    HStack {
+                        Spacer()
+                        Button {
+                            openedScreen = nil
+                        } label: {
+                            Text("閉じる").wireFont(.label)
+                        }
+                        .accessibilityLabel("\(screen.rawValue)を閉じる")
+                    }
+                    .padding(.horizontal, WireMetrics.screenPadding)
+                    .padding(.top, WireMetrics.spacingM)
+                }
             }
-        }
+            // ログアウトや退会で利用者がいなくなったら、シートを閉じて、ログインや退会のお知らせを出せるようにする。
+            .onChange(of: appState.session == nil) { _, isSignedOut in
+                if isSignedOut { openedScreen = nil }
+            }
     }
 
-    private var tabBarVisibility: Visibility {
-        appState.isShellChromeHidden || isTabBarHiddenByScroll ? .hidden : .visible
-    }
-
-    private func updateTabBarVisibility(_ value: DragGesture.Value?) {
-        guard let value else {
-            previousVerticalDragTranslation = nil
-            return
-        }
-        // 横スクロール（保存済みコンセプトなど）の僅かな縦ブレでは反応しない。
-        guard abs(value.translation.height) > abs(value.translation.width) else {
-            previousVerticalDragTranslation = nil
-            return
-        }
-
-        defer { previousVerticalDragTranslation = value.translation.height }
-        guard let previousVerticalDragTranslation else { return }
-
-        let verticalMovement = value.translation.height - previousVerticalDragTranslation
-        guard abs(verticalMovement) > 0.5 else { return }
-        isTabBarHiddenByScroll = verticalMovement < 0
-    }
-
-    /// 重なるデッキでバーが見えにくくならないよう、遊び方バーの少し上から画面の下端へ、すりガラスと地の色を薄く敷く。
+    /// 重なるデッキでバーが見えにくくならないよう、バーの少し上から画面の下端へ、すりガラスと遊び方の地の色を薄く敷く。
     /// ponytail: すりガラスはぼかしの強さが一定で、見える量だけを下へ増やす。下ほど強くぼかすには
     /// デッキ一覧へシェーダーが要るが、フォルダの中の ScrollView（UIKit）がシェーダーで描けないので見送った。
     private var bottomFade: some View {
@@ -79,33 +66,98 @@ struct AppShellView: View {
             .mask(LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom))
             .overlay(
                 LinearGradient(
-                    colors: [Color(.systemBackground).opacity(0), Color(.systemBackground).opacity(0.6)],
+                    colors: [playStyle.background.opacity(0), playStyle.background.opacity(0.6)],
                     startPoint: .top,
                     endPoint: .bottom
                 )
+                // 学習画面の下地と同じ速さで色を変える。
+                .animation(.easeOut(duration: 0.2), value: playStyle)
             )
             .padding(.top, -WireMetrics.spacingXL)
-        .ignoresSafeArea(edges: .bottom)
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
+            .ignoresSafeArea(edges: .bottom)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 
-    private var playStyleBar: some View {
-        SegmentSlider(items: DeckPlayStyle.allCases, selection: $playStyle, title: \.title) { style in
-            Image(systemName: style.symbol)
+    private func screenButton(_ screen: ShellScreen) -> some View {
+        Button {
+            openedScreen = screen
+        } label: {
+            Image(systemName: screen.symbol)
                 .font(.system(size: 20))
                 .foregroundStyle(WireColor.ink)
+                .frame(width: 44, height: 44)
+                .glassBarSurface(in: Circle())
         }
-        .frame(height: 48)
-        .padding(WireMetrics.spacingXS)
-        .background(WireColor.surface, in: Capsule())
-        .overlay(Capsule().strokeBorder(WireColor.ink, lineWidth: 1))
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("デッキの遊び方")
+        .buttonStyle(.plain)
+        .accessibilityLabel(screen.rawValue)
     }
 }
 
-/// 選択枠が指の下へ滑って来る、横に等分したセグメント。学習タブの遊び方バーとデッキ追加画面のジャンルで使う。
+/// 学習画面の上から開く画面。
+enum ShellScreen: String, Identifiable {
+    case design = "Design"
+    case profile = "Profile"
+
+    var id: Self { self }
+
+    var symbol: String {
+        switch self {
+        case .design: return "paintpalette"
+        case .profile: return "person.crop.circle"
+        }
+    }
+}
+
+/// 遊び方を選ぶ純正のタブバー。画面は切り替えず、選んだ遊び方を返すだけ。iOS 26 からはシステムが Liquid Glass で描く。
+/// TabView にすると遊び方ごとに学習画面が別々に作られ、開いたフォルダや並びの状態を保てないため、バーだけを使う。
+/// ponytail: 単体の UITabBar には、後ろを流れる内容をぼかす効果（スクロール端の効果）が付かない。デッキ一覧は
+/// スクロールビューではないので今は困らない。要るなら学習画面の状態を親へ持ち上げて TabView に替える。
+struct PlayStyleTabBar: UIViewRepresentable {
+    @Binding var selection: DeckPlayStyle
+
+    func makeUIView(context: Context) -> UITabBar {
+        let tabBar = UITabBar()
+        tabBar.items = DeckPlayStyle.allCases.enumerated().map { index, style in
+            UITabBarItem(title: style.title, image: UIImage(systemName: style.symbol), tag: index)
+        }
+        tabBar.tintColor = UIColor(WireColor.ink)
+        tabBar.delegate = context.coordinator
+        return tabBar
+    }
+
+    func updateUIView(_ tabBar: UITabBar, context: Context) {
+        context.coordinator.selection = $selection
+        let index = DeckPlayStyle.allCases.firstIndex(of: selection) ?? 0
+        if tabBar.selectedItem?.tag != index {
+            tabBar.selectedItem = tabBar.items?[index]
+        }
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITabBar, context: Context) -> CGSize? {
+        guard let width = proposal.width else { return nil }
+        let height = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height
+        return CGSize(width: width, height: height)
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(selection: $selection)
+    }
+
+    final class Coordinator: NSObject, UITabBarDelegate {
+        var selection: Binding<DeckPlayStyle>
+
+        init(selection: Binding<DeckPlayStyle>) {
+            self.selection = selection
+        }
+
+        func tabBar(_ tabBar: UITabBar, didSelect item: UITabBarItem) {
+            selection.wrappedValue = DeckPlayStyle.allCases[item.tag]
+        }
+    }
+}
+
+/// 選択枠が指の下へ滑って来る、横に等分したセグメント。デッキ追加画面のジャンルで使う。
 /// 固定した等分の領域で、表示位置と選択判定をそろえる。地の面と高さは使う側が決める。
 struct SegmentSlider<Item: Hashable, Label: View>: View {
     let items: [Item]

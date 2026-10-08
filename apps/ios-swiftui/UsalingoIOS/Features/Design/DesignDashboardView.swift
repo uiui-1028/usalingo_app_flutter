@@ -31,7 +31,6 @@ struct DesignDashboardView: View {
 /// モジュールごとの仮編集ページ。設定状態はこのページ内だけで保持する。
 private struct DesignModulePage: View {
     let module: DesignMockModule
-    @EnvironmentObject private var appState: AppState
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isExpanded = false
     @GestureState private var sheetDrag: CGFloat = 0
@@ -102,14 +101,6 @@ private struct DesignModulePage: View {
         .navigationTitle(module.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
-        .onAppear {
-            withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
-                appState.isShellChromeHidden = true
-            }
-        }
-        .onDisappear {
-            withAnimation(nil) { appState.isShellChromeHidden = false }
-        }
     }
 
     private func setExpanded(_ expanded: Bool) {

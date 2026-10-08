@@ -2,7 +2,6 @@ import SwiftUI
 import WebKit
 
 struct ProfileDashboardView: View {
-    var onScrollDrag: (DragGesture.Value?) -> Void = { _ in }
     @EnvironmentObject private var appState: AppState
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var stats = StudyStats.empty
@@ -138,11 +137,6 @@ struct ProfileDashboardView: View {
             .padding(.bottom, WireMetrics.screenPadding)
         }
         .scrollBounceBehavior(.basedOnSize)
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 1)
-                .onChanged { onScrollDrag($0) }
-                .onEnded { _ in onScrollDrag(nil) }
-        )
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(
             UnevenRoundedRectangle(

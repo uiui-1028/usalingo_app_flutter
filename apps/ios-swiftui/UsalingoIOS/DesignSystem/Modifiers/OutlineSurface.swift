@@ -80,17 +80,6 @@ extension View {
         }
     }
 
-    @ViewBuilder
-    func glassTabBar(_ visibility: Visibility) -> some View {
-        if #available(iOS 26.0, *) {
-            toolbar(visibility, for: .tabBar)
-        } else {
-            toolbar(visibility, for: .tabBar)
-                .toolbarBackground(.regularMaterial, for: .tabBar)
-                .toolbarBackground(.visible, for: .tabBar)
-        }
-    }
-
     func outlineSurface(
         radius: CGFloat = WireMetrics.radiusCard,
         stroke: CGFloat = WireMetrics.strokeBase,
