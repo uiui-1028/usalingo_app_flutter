@@ -82,7 +82,6 @@
 		A1000000000000000000901 /* Features/Learning/DeckCarouselView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000901 /* Features/Learning/DeckCarouselView.swift */; };
 		A1000000000000000000903 /* Features/Learning/DeckFolderViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000903 /* Features/Learning/DeckFolderViews.swift */; };
 		A1000000000000000000902 /* Features/Learning/DeckCoverStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000902 /* Features/Learning/DeckCoverStore.swift */; };
-		A10000000000000000000F02 /* Features/Design/DesignPreviewStage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000F02 /* Features/Design/DesignPreviewStage.swift */; };
 		A10000000000000000000FA1 /* Features/Study/WordCardContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000FA1 /* Features/Study/WordCardContent.swift */; };
 		A100000000000000000070 /* Features/Words/WordListViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200000000000000000070 /* Features/Words/WordListViewModel.swift */; };
 		A100000000000000000071 /* Features/Words/WordListFilters.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200000000000000000071 /* Features/Words/WordListFilters.swift */; };
@@ -202,7 +201,6 @@
 		A2000000000000000000901 /* Features/Learning/DeckCarouselView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Learning/DeckCarouselView.swift; sourceTree = "<group>"; };
 		A2000000000000000000903 /* Features/Learning/DeckFolderViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Learning/DeckFolderViews.swift; sourceTree = "<group>"; };
 		A2000000000000000000902 /* Features/Learning/DeckCoverStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Learning/DeckCoverStore.swift; sourceTree = "<group>"; };
-		A20000000000000000000F02 /* Features/Design/DesignPreviewStage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Design/DesignPreviewStage.swift; sourceTree = "<group>"; };
 		A20000000000000000000FA1 /* Features/Study/WordCardContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Study/WordCardContent.swift; sourceTree = "<group>"; };
 		A200000000000000000070 /* Features/Words/WordListViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Words/WordListViewModel.swift; sourceTree = "<group>"; };
 		A200000000000000000071 /* Features/Words/WordListFilters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Words/WordListFilters.swift; sourceTree = "<group>"; };
@@ -329,7 +327,6 @@
 				A20000000000000000000029 /* Services/StudyBackupSyncer.swift */,
 				A20000000000000000000028 /* Services/GuestStudyBackupService.swift */,
 				A20000000000000000000015 /* Features/Design/DesignDashboardView.swift */,
-				A20000000000000000000F02 /* Features/Design/DesignPreviewStage.swift */,
 				A20000000000000000000016 /* Features/Profile/ProfileDashboardView.swift */,
 				A2000000000000000000F301 /* Features/Profile/LegalDocument.swift */,
 				A20000000000000000000018 /* Features/Words/WordListView.swift */,
@@ -546,7 +543,6 @@
 				A10000000000000000000029 /* Services/StudyBackupSyncer.swift in Sources */,
 				A10000000000000000000028 /* Services/GuestStudyBackupService.swift in Sources */,
 				A10000000000000000000015 /* Features/Design/DesignDashboardView.swift in Sources */,
-				A10000000000000000000F02 /* Features/Design/DesignPreviewStage.swift in Sources */,
 				A10000000000000000000016 /* Features/Profile/ProfileDashboardView.swift in Sources */,
 				A1000000000000000000F301 /* Features/Profile/LegalDocument.swift in Sources */,
 				A10000000000000000000017 /* Services/SessionStore.swift in Sources */,

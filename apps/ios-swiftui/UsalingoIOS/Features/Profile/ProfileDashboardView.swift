@@ -1,6 +1,7 @@
 import SwiftUI
 import WebKit
 
+/// プロフィールのメニュー。学習画面の右から出す。アカウントの要約と学習の記録を縦 1 列に並べる。
 struct ProfileDashboardView: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -115,7 +116,7 @@ struct ProfileDashboardView: View {
 
                 HeatmapTile(reviewedDays: stats.reviewedDays, tone: .l2)
 
-                HStack(spacing: WireMetrics.spacingL) {
+                VStack(spacing: WireMetrics.spacingM) {
                     ProfileTile(
                         title: "\(stats.currentStreak)",
                         symbol: "flame",
@@ -647,38 +648,29 @@ private struct ProfileTile: View {
     /// まとまりの面。タイルの枠が浮かないよう、囲っている面と同じ濃さで塗る。
     var tone: BentoTone = .l1
 
+    /// メニューの幅に収まるよう、アイコン・名前・数字を横 1 行に並べる。
     var body: some View {
-        VStack(spacing: WireMetrics.spacingS) {
+        HStack(spacing: WireMetrics.spacingM) {
             Image(systemName: symbol)
-                .wireFont(.titleL)
-            Text(title)
                 .wireFont(.titleS)
-                .multilineTextAlignment(.center)
-                .lineLimit(2)
-                .minimumScaleFactor(0.72)
+                .frame(width: 44)
             if let caption {
                 Text(caption)
-                    .wireFont(.caption)
-                    .multilineTextAlignment(.center)
+                    .wireFont(.label)
                     .lineLimit(2)
-                    .minimumScaleFactor(0.72)
             }
+            Spacer(minLength: WireMetrics.spacingS)
+            Text(title)
+                .wireFont(.titleS)
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
         }
-        .wireTile(tone: tone)
+        .padding(WireMetrics.spacingM)
+        .frame(maxWidth: .infinity)
+        .outlineSurface(radius: WireMetrics.radiusCard, shadow: .card, fill: tone.fill)
         // 「0 連続日数」ではなく「連続日数 0」と読ませる。
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(caption.map { "\($0) \(title)" } ?? title)
-    }
-}
-
-private extension View {
-    /// プロフィールの正方形タイル。
-    func wireTile(tone: BentoTone) -> some View {
-        frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding(WireMetrics.spacingM)
-            .frame(maxWidth: .infinity)
-            .aspectRatio(1, contentMode: .fill)
-            .outlineSurface(radius: WireMetrics.radiusCard, shadow: .card, fill: tone.fill)
     }
 }
 
