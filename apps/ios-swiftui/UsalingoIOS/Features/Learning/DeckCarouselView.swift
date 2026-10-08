@@ -115,6 +115,8 @@ struct DeckCarouselView: View {
     var children: (Deck) -> [Deck] = { _ in [] }
     /// フォルダの「＋」「－」。
     var onToggleFolder: (Deck) -> Void = { _ in }
+    /// 外枠の引き出しを横になぞって動かしている。その指ではフォルダの中をスクロールしない。
+    var isDrawerDragging = false
     /// 長押し。押したカードと指の画面上の位置を渡し、呼ぶ側が自前のメニューを重ねる。
     let onLongPress: (Deck, CGRect, CGPoint) -> Void
     /// 長押しのまま指を動かした。指の画面上の位置を渡す。メニューを続けるなら true を返し、
@@ -169,6 +171,9 @@ struct DeckCarouselView: View {
     /// 指を離したあと、浮かせたカードを置き場所へ吸い込ませている。終わってから並びを変える。
     @State private var isSettling = false
     @GestureState private var isPressing = false
+    /// なぞり始めの向きで、縦（回す）かどうかを一度だけ決める。指を離すまで決め直さない。
+    @State private var isVerticalDrag: Bool?
+    @GestureState private var isScrollTouching = false
     /// 長押しの途中（メニューが出る前）で押さえているデッキ。そのカードを少し縮めて、押していることを見せる。
     /// 指を離して長押しをやめたときは、ばねで元の大きさへ戻す。
     @GestureState(resetTransaction: Transaction(animation: .spring(response: 0.25, dampingFraction: 0.7)))
@@ -262,6 +267,14 @@ struct DeckCarouselView: View {
         .onChange(of: reduceMotion) { _, reduced in
             if reduced, motion.isMoving {
                 motion.snap(to: motion.nearestIndex, animated: false, completion: complete)
+            }
+        }
+        .onChange(of: isScrollTouching) { _, touching in
+            // システムに指を取り上げられたときは onEnded が来ないので、向きを忘れ、回している途中なら止める。
+            guard !touching else { return }
+            isVerticalDrag = nil
+            if motion.isDragging {
+                motion.endDrag(at: Date().timeIntervalSinceReferenceDate, animated: !reduceMotion, completion: complete)
             }
         }
         .onChange(of: isPressing) { _, pressing in
@@ -648,7 +661,8 @@ struct DeckCarouselView: View {
         }
         .coordinateSpace(name: Self.gridCoordinateSpace)
         // 長押しで掴んでいる間は、フォルダの中のスクロールに指を取られないよう止める。
-        .scrollDisabled(contentHeight + padding * 2 <= height || pressedDeckId != nil)
+        // 引き出しを横になぞっている間も止め、斜めにずれた指で中身が上下に動かないようにする。
+        .scrollDisabled(contentHeight + padding * 2 <= height || pressedDeckId != nil || isDrawerDragging)
         .scrollIndicators(.hidden)
         .onPreferenceChange(FolderGridOffsetKey.self) { gridScrollOffset = $0 }
     }
@@ -773,7 +787,9 @@ struct DeckCarouselView: View {
 
     /// 長押しと、そのあと指で運ぶ操作。
     private func pressGesture(deck: Deck, source: CardDrag.Source) -> AnyGesture<Void> {
-        let press = LongPressGesture(minimumDuration: Self.holdDuration)
+        // 指が10より動いたら長押しをやめる。引き出しやカルーセルが向きを決める12より小さいので、
+        // 横や縦になぞると決まった指でメニューは出ない。
+        let press = LongPressGesture(minimumDuration: Self.holdDuration, maximumDistance: 10)
             .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.coordinateSpace)))
             .updating($isPressing) { _, state, _ in state = true }
             .updating($holdingDeckId) { value, state, transaction in
@@ -1100,16 +1116,22 @@ struct DeckCarouselView: View {
 
     private var dragGesture: some Gesture {
         DragGesture(minimumDistance: 12)
+            .updating($isScrollTouching) { _, state, _ in state = true }
             .onChanged { value in
                 guard slots.count > 1 else { return }
-                // 横になぞる指は外枠の Design / Profile を開く操作なので、回し始めない。
-                guard motion.isDragging || abs(value.translation.height) >= abs(value.translation.width) else { return }
+                // 向きは外枠の引き出しと同じ決め方で、なぞり始めに一度だけ決める。横と決まった指は外枠の
+                // Design / Profile だけを動かし、途中で縦へずれても回さない。長押しが決まった指はメニューと並べ替えに使う。
+                if isVerticalDrag == nil {
+                    isVerticalDrag = pressedDeckId == nil && abs(value.translation.height) >= abs(value.translation.width)
+                }
+                guard isVerticalDrag == true else { return }
                 if !motion.isDragging {
                     motion.beginDrag(at: value.time.timeIntervalSinceReferenceDate)
                 }
                 motion.drag(translation: value.translation.height, at: value.time.timeIntervalSinceReferenceDate)
             }
             .onEnded { value in
+                isVerticalDrag = nil
                 guard motion.isDragging else { return }
                 motion.endDrag(at: value.time.timeIntervalSinceReferenceDate,
                                animated: !reduceMotion, completion: complete)

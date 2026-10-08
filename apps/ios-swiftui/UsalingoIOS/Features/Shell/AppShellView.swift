@@ -13,8 +13,10 @@ struct AppShellView: View {
     @State private var loadedScreens: Set<ShellScreen> = []
     /// 横になぞっている間の指の移動量。
     @State private var dragWidth: CGFloat?
-    /// なぞり始めの向きで、横（引き出し）か縦（デッキを回す）かを一度だけ決める。
+    /// なぞり始めの向きで、横（引き出し）か縦（デッキを回す）かを一度だけ決める。指を離すまで決め直さない。
     @State private var isHorizontalDrag: Bool?
+    /// 学習画面で長押しのメニューを出しているか、デッキを運んでいる。その指では引き出しを動かさない。
+    @State private var isHoldingDeck = false
     @GestureState private var isTouching = false
     /// 遊び方のバーの位置。ここから始まった指は、バーの選択枠を滑らせる操作なので引き出しを動かさない。
     @State private var tabBarFrame = CGRect.null
@@ -90,7 +92,9 @@ struct AppShellView: View {
     }
 
     private func learningScreen(topInset: CGFloat) -> some View {
-        LearningDashboardView(topControls: AnyView(topControls(topInset: topInset)))
+        LearningDashboardView(topControls: AnyView(topControls(topInset: topInset)),
+                              isDrawerDragging: isHorizontalDrag == true,
+                              isHoldingDeck: $isHoldingDeck)
             // 引き出しを開いている間は、残った端を押しても学習画面の中身が反応せず、戻るボタンだけが受ける。
             .allowsHitTesting(openedScreen == nil)
             .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -135,7 +139,9 @@ struct AppShellView: View {
             }
             .onChanged { value in
                 if isHorizontalDrag == nil {
+                    // 遊び方のバーから始まった指と、長押しでデッキのメニューや並べ替えに入った指は、横へ動いても引き出しに使わない。
                     isHorizontalDrag = !tabBarFrame.contains(value.startLocation)
+                        && !isHoldingDeck
                         && abs(value.translation.width) > abs(value.translation.height)
                 }
                 guard isHorizontalDrag == true else { return }
