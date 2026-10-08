@@ -57,7 +57,8 @@ struct FiveChoiceView: View {
             ) { Task { await load() } }
         } else if let game, let question = game.question {
             // 結果側だけにタップ判定を置く。回答した同じタップで次の問題へ飛ばない。
-            if game.isRevealed {
+            // 見ただけの問題は、左右の余白での自己評価だけを受け付ける。
+            if game.selectedIndex != nil {
                 questionScroll(question, game: game)
                     .contentShape(Rectangle())
                     .onTapGesture { advance() }
@@ -129,7 +130,20 @@ struct FiveChoiceView: View {
                 .padding(WireMetrics.screenPadding)
                 .frame(minHeight: geometry.size.height, alignment: .top)
                 .frame(maxWidth: .infinity)
-                .contentShape(Rectangle())
+                // 部品の無い余白のタップ。選ぶ前は答えを見るだけ（記録しない）、見た後は
+                // 画面の中央より右を正解、左を不正解として自己評価する。答え合わせ後は次へ進む。
+                // 部品より後ろに敷くので、品詞の帯・問題文・選択肢の上のタップはそれぞれが受け取る。
+                .background {
+                    GeometryReader { zone in
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture { location in
+                                tapMargin(isRightSide: location.x >= zone.size.width / 2)
+                            }
+                    }
+                    // ponytail: 余白タップは補助操作。VoiceOverの詳細対応は後日の一括対応。
+                    .accessibilityHidden(true)
+                }
             }
         }
     }
@@ -220,7 +234,7 @@ struct FiveChoiceView: View {
         .padding(.top, WireMetrics.spacingXS)
         .padding(.bottom, WireMetrics.spacingXL)
         .background {
-            if game?.isRevealed == true {
+            if game?.selectedIndex != nil {
                 Color.clear.contentShape(Rectangle()).onTapGesture { advance() }
             }
         }
@@ -255,8 +269,29 @@ struct FiveChoiceView: View {
               let isCorrect = game.answer(at: index) else { return }
         self.game = game
         HapticFeedbackService.tap()
+        enqueueAnswer(question, isCorrect: isCorrect, answeredCount: game.answeredCount)
+    }
+
+    private func tapMargin(isRightSide: Bool) {
+        guard var game, let question = game.question else { return }
+        if game.selectedIndex != nil {
+            advance()
+        } else if game.isPeeking {
+            guard game.grade(isCorrect: isRightSide) else { return }
+            self.game = game
+            audioPlaybackService.stop()
+            HapticFeedbackService.tap()
+            enqueueAnswer(question, isCorrect: isRightSide, answeredCount: game.answeredCount)
+        } else {
+            game.peek()
+            self.game = game
+            HapticFeedbackService.tap()
+        }
+    }
+
+    private func enqueueAnswer(_ question: FiveChoiceGame.Question, isCorrect: Bool, answeredCount: Int) {
         answerQueue.enqueue(
-            cardIndex: game.answeredCount - 1,
+            cardIndex: answeredCount - 1,
             card: question.card,
             isCorrect: isCorrect,
             attempt: AnswerSaveAttempt(isRetry: question.isRetry)
@@ -265,7 +300,7 @@ struct FiveChoiceView: View {
     }
 
     private func advance() {
-        guard var game, game.isRevealed else { return }
+        guard var game, game.selectedIndex != nil else { return }
         audioPlaybackService.stop()
         game.advance()
         self.game = game

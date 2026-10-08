@@ -20,12 +20,14 @@ struct FiveChoiceGame {
     private var nextCardIndex = 0
     private(set) var question: Question?
     private(set) var selectedIndex: Int?
+    /// 選ぶ前に答えだけを見た状態。記録はせず、自己評価（`grade`）を待つ。
+    private(set) var isPeeking = false
     private(set) var answeredCount = 0
     private(set) var correctCount = 0
     private(set) var skippedCount = 0
 
     var isFinished: Bool { question == nil }
-    var isRevealed: Bool { selectedIndex != nil }
+    var isRevealed: Bool { selectedIndex != nil || isPeeking }
     /// 正解した問題の割合。間違えた問題は進めない。
     var progress: Double { questionCount == 0 ? 0 : Double(correctCount) / Double(questionCount) }
 
@@ -63,23 +65,43 @@ struct FiveChoiceGame {
 
     /// 1問につき最初の回答だけを返す。無効な番号や連打では学習記録を増やさない。
     mutating func answer(at index: Int) -> Bool? {
-        guard let question, selectedIndex == nil, question.choices.indices.contains(index) else { return nil }
+        guard let question, !isRevealed, question.choices.indices.contains(index) else { return nil }
         selectedIndex = index
-        answeredCount += 1
         let isCorrect = index == question.correctIndex
-        if isCorrect {
-            correctCount += 1
-        } else {
-            missedCardIds.insert(question.card.id)
-            cards.append(question.card)
-        }
+        record(isCorrect: isCorrect, card: question.card)
         return isCorrect
     }
 
+    /// 選ばずに答えを見る。学習記録はまだ増やさない。
+    mutating func peek() {
+        guard question != nil, !isRevealed else { return }
+        isPeeking = true
+    }
+
+    /// 答えを見た後の自己評価。記録して、そのまま次の問題へ進む。
+    mutating func grade(isCorrect: Bool) -> Bool {
+        guard let question, isPeeking else { return false }
+        record(isCorrect: isCorrect, card: question.card)
+        isPeeking = false
+        prepareQuestion()
+        return true
+    }
+
+    /// 選んで答え合わせした問題だけを進める。見ただけの問題は自己評価を待つ。
     mutating func advance() {
-        guard isRevealed else { return }
+        guard selectedIndex != nil else { return }
         selectedIndex = nil
         prepareQuestion()
+    }
+
+    private mutating func record(isCorrect: Bool, card: WordCard) {
+        answeredCount += 1
+        if isCorrect {
+            correctCount += 1
+        } else {
+            missedCardIds.insert(card.id)
+            cards.append(card)
+        }
     }
 
     private mutating func prepareQuestion() {

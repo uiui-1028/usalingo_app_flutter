@@ -219,6 +219,23 @@ struct StudySessionView: View {
         .padding(.horizontal, 18)
         // カードの影がアクションバーや進捗バーにかからないよう、上下に広めの余白を取る。
         .padding(.vertical, WireMetrics.spacingXL)
+        // カードの外の余白は、画面の中央より右のタップを正解、左を不正解にする（Anki式）。
+        // カードより後ろに敷くので、カード上のタップとスワイプはカードが受け取る。
+        // 戻る操作の保護領域にはしないので、余白から始めた戻るスワイプはそのまま効く。
+        .background {
+            GeometryReader { zone in
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture { location in
+                        answerByMarginTap(
+                            isCorrect: location.x >= zone.size.width / 2,
+                            exitDistance: max(500, zone.size.width)
+                        )
+                    }
+            }
+            // ponytail: 余白タップは補助操作。VoiceOverの詳細対応は後日の一括対応。
+            .accessibilityHidden(true)
+        }
     }
 
     @ViewBuilder
@@ -405,6 +422,21 @@ struct StudySessionView: View {
                 isFlipped.toggle()
             }
         }
+    }
+
+    /// 余白のタップで評価する。回答前の1回目は回答を出すだけにし、見ずに評価させない。
+    /// カードを触っている最中のタップは、離したときのスワイプと二重に評価しないよう無視する。
+    private func answerByMarginTap(isCorrect: Bool, exitDistance: CGFloat) {
+        guard index < cards.count,
+              !isTouchingCard,
+              !isUndoingAnswer,
+              !isWaitingForRepeatedCard else { return }
+        guard showAnswer else {
+            advanceCardFace()
+            return
+        }
+        HapticFeedbackService.swipeThresholdCrossed()
+        submitAnswer(isCorrect: isCorrect, exitDistance: exitDistance)
     }
 
     private func retryAnswer() {
