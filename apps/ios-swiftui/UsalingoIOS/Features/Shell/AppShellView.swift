@@ -13,6 +13,7 @@ struct AppShellView: View {
                     PlayStyleTabBar(selection: $playStyle)
                         // 古いOSのバーの地を、ホームインジケータの下まで伸ばす。
                         .ignoresSafeArea(edges: .bottom)
+                        .background { bottomFade }
                 }
             }
             // 名前の変更などでキーボードが出ても、遊び方のバーを押し上げずにキーボードの裏へ残す。
@@ -34,6 +35,28 @@ struct AppShellView: View {
                 case .profile: ProfileDashboardView()
                 }
             }
+    }
+
+    /// 重なるデッキでバーが見えにくくならないよう、バーの少し上から画面の下端へ、すりガラスと遊び方の地の色を薄く敷く。
+    /// ponytail: すりガラスはぼかしの強さが一定で、見える量だけを下へ増やす。下ほど強くぼかすには
+    /// デッキ一覧へシェーダーが要るが、フォルダの中の ScrollView（UIKit）がシェーダーで描けないので見送った。
+    private var bottomFade: some View {
+        Rectangle()
+            .fill(.ultraThinMaterial)
+            .mask(LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom))
+            .overlay(
+                LinearGradient(
+                    colors: [playStyle.background.opacity(0), playStyle.background.opacity(0.6)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                // 学習画面の下地と同じ速さで色を変える。
+                .animation(.easeOut(duration: 0.2), value: playStyle)
+            )
+            .padding(.top, -WireMetrics.spacingXL)
+            .ignoresSafeArea(edges: .bottom)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 
     private func screenButton(_ screen: ShellScreen) -> some View {
