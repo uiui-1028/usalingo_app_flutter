@@ -30,10 +30,30 @@ struct AppShellView: View {
                 }
             }
             .sheet(item: $openedScreen) { screen in
-                switch screen {
-                case .design: DesignDashboardView()
-                case .profile: ProfileDashboardView()
+                Group {
+                    switch screen {
+                    case .design: DesignDashboardView()
+                    case .profile: ProfileDashboardView()
+                    }
                 }
+                // 下へのスワイプは中の引っぱる操作とぶつかることがあるので、必ず閉じられるボタンも置く。
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    HStack {
+                        Spacer()
+                        Button {
+                            openedScreen = nil
+                        } label: {
+                            Text("閉じる").wireFont(.label)
+                        }
+                        .accessibilityLabel("\(screen.rawValue)を閉じる")
+                    }
+                    .padding(.horizontal, WireMetrics.screenPadding)
+                    .padding(.top, WireMetrics.spacingM)
+                }
+            }
+            // ログアウトや退会で利用者がいなくなったら、シートを閉じて、ログインや退会のお知らせを出せるようにする。
+            .onChange(of: appState.session == nil) { _, isSignedOut in
+                if isSignedOut { openedScreen = nil }
             }
     }
 

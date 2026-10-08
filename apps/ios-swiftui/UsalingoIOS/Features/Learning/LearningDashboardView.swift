@@ -163,6 +163,7 @@ struct LearningDashboardView: View {
             || wordListDeck != nil
             || radioDeck != nil
             || matchingDeck != nil
+            || choiceDeck != nil
     }
 
     /// デッキのカードを上下に回すカルーセル。お知らせがあるときだけ下に足す。
