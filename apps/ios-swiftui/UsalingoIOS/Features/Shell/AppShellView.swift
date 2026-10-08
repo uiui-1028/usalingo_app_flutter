@@ -29,7 +29,7 @@ struct AppShellView: View {
                         .frame(maxWidth: .infinity, alignment: revealedScreen == .design ? .leading : .trailing)
                 }
 
-                learningScreen
+                learningScreen(topInset: proxy.safeAreaInsets.top)
                     .overlay {
                         if openedScreen != nil {
                             // ponytail: VoiceOver は戻るボタンだけ用意し、ずれた学習画面の中身を隠す調整は後でまとめて行う。
@@ -78,8 +78,10 @@ struct AppShellView: View {
         }
     }
 
-    private var learningScreen: some View {
-        LearningDashboardView()
+    private func learningScreen(topInset: CGFloat) -> some View {
+        LearningDashboardView(topControls: AnyView(topControls.padding(.top, topInset)))
+            // 引き出しを開いている間は、残った端を押しても学習画面の中身が反応せず、戻るボタンだけが受ける。
+            .allowsHitTesting(openedScreen == nil)
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if !appState.isShellChromeHidden {
                     PlayStyleTabBar(selection: $playStyle)
@@ -88,16 +90,18 @@ struct AppShellView: View {
                         .background { bottomFade }
                 }
             }
-            .overlay(alignment: .top) {
-                if !appState.isShellChromeHidden {
-                    HStack {
-                        screenButton(.design)
-                        Spacer()
-                        screenButton(.profile)
-                    }
-                    .padding(.horizontal, WireMetrics.screenPadding)
-                }
+    }
+
+    @ViewBuilder
+    private var topControls: some View {
+        if !appState.isShellChromeHidden {
+            HStack {
+                screenButton(.design)
+                Spacer()
+                screenButton(.profile)
             }
+            .padding(.horizontal, WireMetrics.screenPadding)
+        }
     }
 
     @ViewBuilder

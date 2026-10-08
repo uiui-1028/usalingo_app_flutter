@@ -51,6 +51,9 @@ enum DeckPlayStyle: String, CaseIterable, Identifiable {
 /// タップすると、選んだ遊び方でそのデッキを開く。両端の空き枠からデッキを1つずつ足す。
 struct LearningDashboardView: View {
     @EnvironmentObject private var appState: AppState
+    /// 上に重ねる外枠のボタン。外の層に重ねると、下のデッキが先にタップを取ってしまうので、
+    /// デッキと同じ層（NavigationStack の中）に置いて、重なった所ではボタンを優先させる。
+    var topControls = AnyView(EmptyView())
 
     /// 学習タブの並び。フォルダは中のデッキを持つ。
     @State private var tree: [DeckTreeItem] = []
@@ -185,6 +188,8 @@ struct LearningDashboardView: View {
                     .padding(.horizontal, WireMetrics.screenPadding)
                     .padding(.bottom, WireMetrics.spacingM)
             }
+            // 中の空のナビゲーションバーの分だけ下がらないよう、画面の上端から置く（上の余白は外枠が付ける）。
+            .overlay(alignment: .top) { topControls.ignoresSafeArea(edges: .top) }
     }
 
     private var carousel: some View {
