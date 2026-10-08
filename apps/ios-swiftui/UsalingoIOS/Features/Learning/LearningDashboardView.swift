@@ -54,6 +54,10 @@ struct LearningDashboardView: View {
     /// 上に重ねる外枠のボタン。外の層に重ねると、下のデッキが先にタップを取ってしまうので、
     /// デッキと同じ層（NavigationStack の中）に置いて、重なった所ではボタンを優先させる。
     var topControls = AnyView(EmptyView())
+    /// 外枠の引き出しを横になぞって動かしている。その指ではフォルダの中をスクロールしない。
+    var isDrawerDragging = false
+    /// 長押しのメニューを出しているか、デッキを運んでいる。外枠はその指で引き出しを動かさない。
+    var isHoldingDeck: Binding<Bool> = .constant(false)
 
     /// 学習タブの並び。フォルダは中のデッキを持つ。
     @State private var tree: [DeckTreeItem] = []
@@ -147,6 +151,7 @@ struct LearningDashboardView: View {
                 appState.isShellChromeHidden = isPresented || hidesChromeForArranging
             }
         }
+        .onChange(of: menuTarget != nil || isArranging) { _, holding in isHoldingDeck.wrappedValue = holding }
         .onChange(of: hidesChromeForArranging) { _, hides in
             // 一覧を帯に縮める動きとそろえる。
             withAnimation(DeckCarouselView.arrangeAnimation) {
@@ -207,6 +212,7 @@ struct LearningDashboardView: View {
             role: role(of:),
             children: { deck in folder(of: deck).map(childDecks(of:)) ?? [] },
             onToggleFolder: toggleFolder,
+            isDrawerDragging: isDrawerDragging,
             onLongPress: presentMenu(for:cardFrame:anchor:),
             onPressMove: trackMenu(at:),
             onPressEnd: {
