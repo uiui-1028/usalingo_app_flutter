@@ -23,6 +23,8 @@ struct DeckLibraryView: View {
     /// デッキ（サーバーの番号）ごとの収録カード。読めなかったデッキは入らない。
     @State private var cardsByDeck: [Int: [WordCard]] = [:]
     @State private var covers: [OfficialBox.ID: URL] = [:]
+    /// 娘（箱の中のデッキ）ごとの表紙。学習タブと同じ選び方で決める。
+    @State private var deckCovers: [Int: URL] = [:]
     /// 学習タブにある公式デッキ（端末の番号）ごとの、サーバーの単語番号。重なる語数を数えるのに使う。
     @State private var ownedWords: [Int: Set<Int>] = [:]
     @State private var isSheetPresented = false
@@ -127,10 +129,13 @@ struct DeckLibraryView: View {
                 DeckGallerySheet(
                     box: box,
                     cardsByDeck: cardsByDeck,
+                    deckCovers: deckCovers,
                     overlap: overlapCount(for: box),
                     isExpanded: isFocused,
                     onDownload: { download(box) }
                 )
+                // 別の箱に回したら、選んでいる娘を先頭に戻す（要件 X20）。
+                .id(box.id)
             } else {
                 Color.clear
             }
@@ -201,8 +206,8 @@ struct DeckLibraryView: View {
         await loadCards()
     }
 
-    /// デッキごとの収録カードを並行して読み、箱の表紙を決める。
-    /// 表紙は箱で指定した例文の画像。指定が無ければ、学習タブと同じ選び方で収録単語のイラストから選ぶ（要件 X11）。
+    /// デッキごとの収録カードを並行して読み、娘と箱の表紙を決める。
+    /// 箱の表紙は箱で指定した例文の画像。指定が無ければ先頭の娘の表紙にする（要件 X11・X22）。
     /// ponytail: 単語一覧と重なる語数のために、全部の箱のカードを読む。箱が増えて重くなったら、
     /// 中央の箱とその隣だけを読む形にする。
     private func loadCards() async {
@@ -211,21 +216,22 @@ struct DeckLibraryView: View {
             for id in ids {
                 group.addTask { [appState] in (id, try? await appState.fetchOfficialDeckCards(deckId: id)) }
             }
+            let store = DeckCoverStore()
             for await (id, cards) in group {
-                if let cards { cardsByDeck[id] = cards }
+                guard let cards else { continue }
+                cardsByDeck[id] = cards
+                // 端末は公式デッキのカード番号の符号を反転して持つ（`LocalStudyDataSource.makeCachedCard`）。
+                // 学習タブと同じ1枚を選び、覚えた1枚を互いに上書きし合わないよう、同じ番号に直してから選ぶ。
+                let cachedForm = cards.map { $0.withCardId($0.cardId.map { -$0 }) }
+                deckCovers[id] = store.coverURL(deckId: LocalStudyDataSource.cachedDeckId(remoteDeckId: id), cards: cachedForm)
             }
         }
-        let store = DeckCoverStore()
-        for box in boxes where covers[box.id] == nil {
+        for box in boxes {
             if let path = box.coverImagePath, let url = SupabaseConfig.publicStorageURL(for: path) {
                 covers[box.id] = url
-                continue
+            } else {
+                covers[box.id] = deckCovers[box.decks[0].id]
             }
-            // 端末は公式デッキのカード番号の符号を反転して持つ（`LocalStudyDataSource.makeCachedCard`）。
-            // 学習タブと同じ1枚を選び、覚えた1枚を互いに上書きし合わないよう、同じ番号に直してから選ぶ。
-            let cards = box.decks.flatMap { cardsByDeck[$0.id] ?? [] }
-            let cachedForm = cards.map { $0.withCardId($0.cardId.map { -$0 }) }
-            covers[box.id] = store.coverURL(deckId: box.leadLocalDeckId, cards: cachedForm)
         }
     }
 
@@ -540,24 +546,30 @@ private struct DeckGalleryCarousel: View {
 
 // MARK: - シート
 
-/// シートの中身。上に収録語数・容量・レベル、その下にほかの情報と、シート内シートの単語一覧。
-/// 上の数字・重なる語数・品詞の内訳は箱ぜんたいで数え、単語一覧はデッキごとの見出しで区切って
-/// 見出しにそのデッキの数字を出す（要件 X14）。
+/// シートの中身。上に収録語数・容量・レベルを止めておき、その下は丸ごと1つのスクロールにする（要件 X21）。
+/// スクロールの中は「説明・重なる語数・品詞の内訳」→「収録デッキ（娘）」→「選んだ娘の単語一覧」。
+/// 上の数字・重なる語数・品詞の内訳は箱ぜんたいで数え、娘の行にはその娘の数字を出す（要件 X14・X19）。
 /// ダウンロードボタンはタブバーと同じく地を持たずに下へ浮かべ、ボタンの周りは下の一覧が透ける。
 private struct DeckGallerySheet: View {
     let box: OfficialBox
     /// デッキ（サーバーの番号）ごとの収録カード。まだ読めていないデッキは入っていない。
     let cardsByDeck: [Int: [WordCard]]
+    /// 娘（サーバーの番号）ごとの表紙。
+    let deckCovers: [Int: URL]
     let overlap: Int?
     /// 7割まで上がっているか。頭だけのときは3項目だけを見せ、ボタンの周りに下の情報を透かさない。
     let isExpanded: Bool
     let onDownload: () -> Void
+
+    /// 単語一覧に出している娘。最初は先頭（要件 X20）。箱が変わると、呼ぶ側が作り直して先頭に戻す。
+    @State private var selectedDeckId: Int?
 
     /// 浮かべたボタンの下に、一覧の最後の行が隠れないよう空ける量。
     private static let footerClearance: CGFloat = 88
 
     /// 箱ぜんたいの収録カード。まだ読めていないデッキがあれば nil。
     private var words: [WordCard]? { box.cards(in: cardsByDeck) }
+    private var selectedDeck: OfficialDeck { box.decks.first { $0.id == selectedDeckId } ?? box.decks[0] }
 
     var body: some View {
         VStack(spacing: WireMetrics.spacingL) {
@@ -567,10 +579,17 @@ private struct DeckGallerySheet: View {
             // 残りの高さだけを使う。頭だけのときは高さが足りず、はみ出した分はシートの外に隠れる。
             // GeometryReader に入れないと、はみ出した中身にシート全体が押し上げられて3項目まで隠れる。
             GeometryReader { _ in
-                VStack(spacing: WireMetrics.spacingL) {
-                    details.padding(.horizontal, WireMetrics.screenPadding)
-                    wordSheet
+                ScrollView {
+                    VStack(spacing: WireMetrics.spacingL) {
+                        details.padding(.horizontal, WireMetrics.screenPadding)
+                        if box.decks.count > 1 {
+                            deckList.padding(.horizontal, WireMetrics.screenPadding)
+                        }
+                        wordList
+                    }
                 }
+                .contentMargins(.bottom, Self.footerClearance, for: .scrollContent)
+                .scrollIndicators(.hidden)
             }
             .opacity(isExpanded ? 1 : 0)
             .animation(.easeOut(duration: 0.2), value: isExpanded)
@@ -626,41 +645,45 @@ private struct DeckGallerySheet: View {
         .accessibilityElement(children: .combine)
     }
 
-    /// 単語一覧。上端だけ角を丸めたシート内シートに入れ、この中だけでスクロールする（旧デッキ詳細と同じ形）。
-    /// 赤シートは付けない（要件 R10）。行は単語一覧と同じ見た目にする。
-    /// 箱にデッキが2つ以上あれば、デッキごとの見出しで区切る。見出しはスクロールしても上に残る。
-    private var wordSheet: some View {
+    /// 箱の中のデッキ（娘）。押すと、その娘の単語を下の一覧に出す。1つずつのダウンロードはしない（要件 X18）。
+    private var deckList: some View {
+        VStack(alignment: .leading, spacing: WireMetrics.spacingS) {
+            Text("収録デッキ").wireFont(.caption)
+            VStack(spacing: DeckCarouselView.Metrics.tileSpacing) {
+                ForEach(box.decks) { deck in
+                    GalleryDeckRow(deck: deck, coverURL: deckCovers[deck.id],
+                                   wordCount: cardsByDeck[deck.id]?.count,
+                                   isSelected: deck.id == selectedDeck.id) {
+                        selectedDeckId = deck.id
+                    }
+                }
+            }
+        }
+    }
+
+    /// 選んだ娘の単語一覧。上端だけ角を丸めた面に入れる。赤シートは付けない（要件 R10）。
+    /// 行は単語一覧と同じ見た目にする。
+    private var wordList: some View {
         let shape = UnevenRoundedRectangle(topLeadingRadius: WireMetrics.radiusLarge,
                                            topTrailingRadius: WireMetrics.radiusLarge, style: .continuous)
         return Group {
-            if words != nil {
-                ScrollView {
-                    LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
-                        ForEach(box.decks) { deck in
-                            let deckWords = cardsByDeck[deck.id] ?? []
-                            Section {
-                                ForEach(deckWords) { word in
-                                    WordRow(word: word)
-                                }
-                            } header: {
-                                if box.decks.count > 1 {
-                                    DeckSectionHeader(deck: deck, wordCount: deckWords.count)
-                                }
-                            }
-                        }
+            if let deckWords = cardsByDeck[selectedDeck.id] {
+                LazyVStack(spacing: 0) {
+                    ForEach(deckWords) { word in
+                        WordRow(word: word)
                     }
                 }
-                .contentMargins(.bottom, Self.footerClearance, for: .scrollContent)
-                .scrollIndicators(.hidden)
             } else {
-                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                ProgressView()
+                    .frame(maxWidth: .infinity)
+                    .padding(WireMetrics.spacingXL)
             }
         }
+        .padding(.top, WireMetrics.spacingS)
+        .background { shape.fill(WireColor.surface) }
         .clipShape(shape)
-        .background { shape.fill(WireColor.surface).ignoresSafeArea(edges: .bottom) }
         .overlay {
             shape.strokeBorder(WireColor.ink, lineWidth: WireMetrics.strokeBase)
-                .ignoresSafeArea(edges: .bottom)
                 .allowsHitTesting(false)
         }
     }
@@ -686,30 +709,52 @@ private struct DeckGallerySheet: View {
     }
 }
 
-/// 箱の単語一覧で、デッキの区切りに置く見出し。デッキの名前と、そのデッキの語数・容量・レベル（要件 X14）。
-private struct DeckSectionHeader: View {
+/// 収録デッキの1行。学習タブの開いたフォルダの行と同じ形（左半分に表紙、右に名前）で、名前の下に
+/// そのデッキの語数・容量・★を出す。ふだんは白い地、選んでいる行だけ黒ベタに白い文字（要件 X19）。
+private struct GalleryDeckRow: View {
     let deck: OfficialDeck
-    let wordCount: Int
+    let coverURL: URL?
+    /// まだ収録カードを読めていなければ nil。
+    let wordCount: Int?
+    let isSelected: Bool
+    let onSelect: () -> Void
+
+    /// 学習タブの行と同じ高さ。文字を大きくしたときは、名前と数字が切れないよう一緒に伸ばす。
+    @ScaledMetric(relativeTo: .body) private var rowHeight = DeckCarouselView.Metrics.tileHeight
 
     var body: some View {
-        HStack(spacing: WireMetrics.spacingS) {
-            Text(deck.deck.deckName)
-                .wireFont(.label)
-                .lineLimit(1)
-            Spacer(minLength: WireMetrics.spacingS)
-            Text("\(wordCount)語・\(DeckGalleryFacts.sizeText(deck.mediaBytes))")
-                .wireFont(.caption)
-            if let difficulty = deck.difficulty {
-                StarRating(filled: difficulty.level, label: difficulty.title, font: .caption)
+        let shape = RoundedRectangle(cornerRadius: WireMetrics.radiusControl, style: .continuous)
+        let textColor = isSelected ? WireColor.surface : WireColor.ink
+        Button(action: onSelect) {
+            HStack(spacing: 0) {
+                DeckCoverImage(url: coverURL,
+                               symbol: DeckCoverSymbol.forDeck(id: LocalStudyDataSource.cachedDeckId(remoteDeckId: deck.id)))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                VStack(alignment: .leading, spacing: WireMetrics.spacingXS) {
+                    Text(deck.deck.deckName)
+                        .wireFont(.label, color: textColor)
+                        .lineLimit(2)
+                    HStack(spacing: WireMetrics.spacingXS) {
+                        Text("\(wordCount.map { "\($0)語" } ?? "—")・\(DeckGalleryFacts.sizeText(deck.mediaBytes))")
+                            .wireFont(.caption, color: textColor)
+                        if let difficulty = deck.difficulty {
+                            StarRating(filled: difficulty.level, label: difficulty.title, font: .caption, color: textColor)
+                        }
+                    }
+                }
+                .padding(.horizontal, WireMetrics.spacingS)
+                .padding(.vertical, WireMetrics.spacingXS)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             }
+            .frame(height: rowHeight)
+            .background(isSelected ? WireColor.ink : WireColor.surface)
+            .clipShape(shape)
+            .overlay(shape.strokeBorder(WireColor.ink, lineWidth: WireMetrics.strokeBase))
+            .contentShape(shape)
         }
-        .padding(.horizontal, WireMetrics.screenPadding)
-        .padding(.vertical, WireMetrics.spacingS)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(WireColor.surface)
-        .overlay(alignment: .bottom) { Divider() }
+        .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isHeader)
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
 }
 
@@ -746,6 +791,7 @@ struct StarRating: View {
     let filled: Int
     let label: String
     var font: Font = .headline
+    var color: Color = WireColor.ink
 
     var body: some View {
         HStack(spacing: 2) {
@@ -754,7 +800,7 @@ struct StarRating: View {
             }
         }
         .font(font)
-        .foregroundStyle(WireColor.ink)
+        .foregroundStyle(color)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(label)
     }
