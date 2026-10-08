@@ -1,7 +1,7 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// デッキを開くときの遊び方。タブバー上の切り替えバーで選び、端末に覚えておく。
+/// デッキを開くときの遊び方。画面下の遊び方のタブバーで選び、端末に覚えておく。
 enum DeckPlayStyle: String, CaseIterable, Identifiable {
     // バーには宣言順に左から並ぶ。
     case card
@@ -24,7 +24,7 @@ enum DeckPlayStyle: String, CaseIterable, Identifiable {
         }
     }
 
-    /// バーに並べるアイコン。5つを1行に収めるため、名前は選んだものだけ出す。
+    /// 遊び方のタブバーに並べるアイコン。
     var symbol: String {
         switch self {
         case .card: return "rectangle.on.rectangle"
@@ -32,6 +32,17 @@ enum DeckPlayStyle: String, CaseIterable, Identifiable {
         case .list: return "list.bullet"
         case .audio: return "waveform"
         case .match: return "square.grid.3x2"
+        }
+    }
+
+    /// 学習画面の下地。遊び方ごとに淡い色を変え、いまの遊び方がひと目で分かるようにする。
+    var background: Color {
+        switch self {
+        case .card: return Color(red: 243.0 / 255.0, green: 240.0 / 255.0, blue: 1)
+        case .choice: return Color(red: 238.0 / 255.0, green: 246.0 / 255.0, blue: 1)
+        case .match: return Color(red: 1, green: 244.0 / 255.0, blue: 232.0 / 255.0)
+        case .list: return Color(red: 238.0 / 255.0, green: 248.0 / 255.0, blue: 241.0 / 255.0)
+        case .audio: return Color(red: 1, green: 240.0 / 255.0, blue: 244.0 / 255.0)
         }
     }
 }
@@ -45,7 +56,7 @@ struct LearningDashboardView: View {
     @State private var tree: [DeckTreeItem] = []
     /// 「＋」で開いているフォルダ。一度に1つだけ開く。
     @State private var openFolderId: Int?
-    /// 長押しでデッキを運んでいる最中。タブバーと遊び方のバーを隠して、並べ替えに集中させる。
+    /// 長押しでデッキを運んでいる最中。遊び方のタブバーと上のボタンを隠して、並べ替えに集中させる。
     @State private var isArranging = false
     @State private var renamingDeck: Deck?
     @State private var renameText = ""
@@ -141,7 +152,7 @@ struct LearningDashboardView: View {
         }
     }
 
-    /// 並べ替えの間、タブバーと遊び方のバーを隠すか。長押しメニューが薄く消え終わってから隠す。
+    /// 並べ替えの間、遊び方のタブバーと上のボタンを隠すか。長押しメニューが薄く消え終わってから隠す。
     /// 全画面のメニューを出したままタブバーを隠すと、メニューが薄くならずに一度で消えてしまうため。
     private var hidesChromeForArranging: Bool { isArranging && menuTarget == nil }
 
@@ -155,7 +166,7 @@ struct LearningDashboardView: View {
     }
 
     /// デッキのカードを上下に回すカルーセル。お知らせがあるときだけ下に足す。
-    /// カルーセルは画面全体を使い、常に画面の真ん中を中心にする。タブバーや遊び方のバーはその上に重なる層なので、
+    /// カルーセルは画面全体を使い、常に画面の真ん中を中心にする。遊び方のタブバーや上のボタンはその上に重なる層なので、
     /// 出し入れしてもカルーセルの大きさと位置は変えない（並べ替えでバーを隠したときに跳ねないように）。
     private var content: some View {
         carousel
@@ -163,7 +174,8 @@ struct LearningDashboardView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .ignoresSafeArea(edges: .vertical)
             .background {
-                Color.clear
+                playStyle.background
+                    .animation(.easeOut(duration: 0.2), value: playStyle)
                     .ignoresSafeArea()
                     .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { screenFrame = $0 }
             }
