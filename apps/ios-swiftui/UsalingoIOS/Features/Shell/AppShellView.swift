@@ -16,6 +16,8 @@ struct AppShellView: View {
     /// なぞり始めの向きで、横（引き出し）か縦（デッキを回す）かを一度だけ決める。
     @State private var isHorizontalDrag: Bool?
     @GestureState private var isTouching = false
+    /// 遊び方のバーの位置。ここから始まった指は、バーの選択枠を滑らせる操作なので引き出しを動かさない。
+    @State private var tabBarFrame = CGRect.null
     @AppStorage(DeckPlayStyle.storageKey) private var playStyle: DeckPlayStyle = .card
 
     var body: some View {
@@ -94,6 +96,7 @@ struct AppShellView: View {
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if !appState.isShellChromeHidden {
                     PlayStyleTabBar(selection: $playStyle)
+                        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { tabBarFrame = $0 }
                         // 古いOSのバーの地を、ホームインジケータの下まで伸ばす。
                         .ignoresSafeArea(edges: .bottom)
                         .background { bottomFade }
@@ -124,13 +127,14 @@ struct AppShellView: View {
     // MARK: - 引き出しを動かす
 
     private func drawerDrag(panelWidth: CGFloat) -> some Gesture {
-        DragGesture(minimumDistance: 12)
+        DragGesture(minimumDistance: 12, coordinateSpace: .global)
             .updating($isTouching) { _, state, _ in
                 state = true
             }
             .onChanged { value in
                 if isHorizontalDrag == nil {
-                    isHorizontalDrag = abs(value.translation.width) > abs(value.translation.height)
+                    isHorizontalDrag = !tabBarFrame.contains(value.startLocation)
+                        && abs(value.translation.width) > abs(value.translation.height)
                 }
                 guard isHorizontalDrag == true else { return }
                 dragWidth = value.translation.width
@@ -170,20 +174,23 @@ struct AppShellView: View {
 
     private func setOpenedScreen(_ screen: ShellScreen?) {
         if let screen { reveal(screen) }
-        let hidePanel = {
+        let isChanging = screen != openedScreen
+        // 開ききったとき・閉じきったときに、カルーセルと同じ軽い手ごたえを返す。元の位置へ戻るだけなら鳴らさない。
+        let didSettle = {
+            if isChanging { HapticFeedbackService.detent() }
             if openedScreen == nil, dragWidth == nil { revealedScreen = nil }
         }
         guard !reduceMotion else {
             openedScreen = screen
             dragWidth = nil
-            hidePanel()
+            didSettle()
             return
         }
         withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
             openedScreen = screen
             dragWidth = nil
         } completion: {
-            hidePanel()
+            didSettle()
         }
     }
 
