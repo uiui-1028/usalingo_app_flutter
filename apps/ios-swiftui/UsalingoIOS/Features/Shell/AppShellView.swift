@@ -92,7 +92,7 @@ struct AppShellView: View {
     }
 
     private func learningScreen(topInset: CGFloat) -> some View {
-        LearningDashboardView(topControls: AnyView(topControls.padding(.top, topInset)),
+        LearningDashboardView(topControls: AnyView(topControls(topInset: topInset)),
                               isDrawerDragging: isHorizontalDrag == true,
                               isHoldingDeck: $isHoldingDeck)
             // 引き出しを開いている間は、残った端を押しても学習画面の中身が反応せず、戻るボタンだけが受ける。
@@ -103,13 +103,13 @@ struct AppShellView: View {
                         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { tabBarFrame = $0 }
                         // 古いOSのバーの地を、ホームインジケータの下まで伸ばす。
                         .ignoresSafeArea(edges: .bottom)
-                        .background { bottomFade }
+                        .background { edgeFade(.bottom) }
                 }
             }
     }
 
     @ViewBuilder
-    private var topControls: some View {
+    private func topControls(topInset: CGFloat) -> some View {
         if !appState.isShellChromeHidden {
             HStack {
                 screenButton(.design)
@@ -117,6 +117,8 @@ struct AppShellView: View {
                 screenButton(.profile)
             }
             .padding(.horizontal, WireMetrics.screenPadding)
+            .padding(.top, topInset)
+            .background { edgeFade(.top) }
         }
     }
 
@@ -200,24 +202,25 @@ struct AppShellView: View {
         }
     }
 
-    /// 重なるデッキでバーが見えにくくならないよう、バーの少し上から画面の下端へ、すりガラスと遊び方の地の色を薄く敷く。
-    /// ponytail: すりガラスはぼかしの強さが一定で、見える量だけを下へ増やす。下ほど強くぼかすには
+    /// 重なるデッキでバーやボタンが見えにくくならないよう、それらの少し内側から画面の端へ、すりガラスと遊び方の地の色を薄く敷く。
+    /// ponytail: すりガラスはぼかしの強さが一定で、見える量だけを端へ増やす。端ほど強くぼかすには
     /// デッキ一覧へシェーダーが要るが、フォルダの中の ScrollView（UIKit）がシェーダーで描けないので見送った。
-    private var bottomFade: some View {
-        Rectangle()
+    private func edgeFade(_ edge: Edge) -> some View {
+        let (inner, outer): (UnitPoint, UnitPoint) = edge == .bottom ? (.top, .bottom) : (.bottom, .top)
+        return Rectangle()
             .fill(.ultraThinMaterial)
-            .mask(LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom))
+            .mask(LinearGradient(colors: [.clear, .black], startPoint: inner, endPoint: outer))
             .overlay(
                 LinearGradient(
                     colors: [playStyle.background.opacity(0), playStyle.background.opacity(0.6)],
-                    startPoint: .top,
-                    endPoint: .bottom
+                    startPoint: inner,
+                    endPoint: outer
                 )
                 // 学習画面の下地と同じ速さで色を変える。
                 .animation(.easeOut(duration: 0.2), value: playStyle)
             )
-            .padding(.top, -WireMetrics.spacingXL)
-            .ignoresSafeArea(edges: .bottom)
+            .padding(edge == .bottom ? .top : .bottom, -WireMetrics.spacingXL)
+            .ignoresSafeArea(edges: Edge.Set(edge))
             .allowsHitTesting(false)
             .accessibilityHidden(true)
     }
