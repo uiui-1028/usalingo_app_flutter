@@ -44,7 +44,8 @@ final class DeckCarouselLayoutTests: XCTestCase {
     func testAddingDecksSitInsideTheChosenEmptySlot() {
         let decks = [makeDeck(1)]
         func pending(_ id: Int, atTop: Bool) -> PendingDeckAdd {
-            PendingDeckAdd(official: OfficialDeck(deck: makeDeck(id), isAdded: false), coverURL: nil, atTop: atTop)
+            let box = OfficialBox.grouping([OfficialDeck(deck: makeDeck(id), isAdded: false)])[0]
+            return PendingDeckAdd(box: box, coverURL: nil, atTop: atTop)
         }
         let first = pending(10, atTop: true)
         let second = pending(11, atTop: true)
@@ -55,6 +56,10 @@ final class DeckCarouselLayoutTests: XCTestCase {
         XCTAssertEqual(DeckSlot.slots(for: [], adding: [below]), [.empty(.top), .adding(below), .empty(.bottom)])
         // 学習タブに入ったあとと同じ番号で中央に置くので、入っても中央から動かない。
         XCTAssertEqual(DeckSlot.adding(below).centerKey, LocalStudyDataSource.cachedDeckId(remoteDeckId: 12))
+        // 箱は、押した時点で取っておいたフォルダの番号で中央に置く。
+        var folder = pending(13, atTop: false)
+        folder.folderId = 4
+        XCTAssertEqual(DeckSlot.adding(folder).centerKey, LocalStudyDataSource.folderDeckId(folderId: 4))
     }
 }
 
@@ -437,18 +442,70 @@ final class DeckGalleryFactsTests: XCTestCase {
         ])
     }
 
-    /// 学習タブのほかのデッキと同じ単語だけを1回ずつ数え、追加済みのそのデッキ自身は数えない。
+    /// 学習タブのほかのデッキと同じ単語だけを1回ずつ数え、追加済みのその箱のデッキ自身は数えない。
     func testOverlapCountsWordsInOtherOwnedDecksOnce() {
         let words = [1, 2, 3, 4].map { word($0, partOfSpeech: "noun") }
-        let owned: [Int: Set<Int>] = [-2: [1, 2, 3, 4], -3: [2, 3], 5: [3, 9]]
+        let owned: [Int: Set<Int>] = [-2: [1, 2, 3, 4], -3: [2, 3], -4: [4], 5: [3, 9]]
 
-        XCTAssertEqual(DeckGalleryFacts.overlapCount(words: words, ownedWords: owned, excludingDeckId: -2), 2)
+        XCTAssertEqual(DeckGalleryFacts.overlapCount(words: words, ownedWords: owned, excludingDeckIds: [-2]), 3)
+        XCTAssertEqual(DeckGalleryFacts.overlapCount(words: words, ownedWords: owned, excludingDeckIds: [-2, -4]), 2)
     }
 
     /// 同期がまだ値を入れていない容量は「—」にする。
     func testSizeTextShowsDashUntilTheSyncFillsIt() {
         XCTAssertEqual(DeckGalleryFacts.sizeText(nil), "—")
         XCTAssertTrue(DeckGalleryFacts.sizeText(11_480_246).contains("11.5"))
+    }
+
+    private func official(_ id: Int, added: Bool, bytes: Int64? = 100, box: DeckBoxRecord? = nil) -> OfficialDeck {
+        OfficialDeck(deck: Deck(id: id, deckName: "デッキ\(id)", description: nil), isAdded: added,
+                     mediaBytes: bytes, box: box)
+    }
+
+    private func boxRecord(_ id: Int, order: Int, genre: String = "exam") -> DeckBoxRecord {
+        DeckBoxRecord(id: id, boxName: "箱\(id)", description: nil, genre: genre, sortOrder: order,
+                      mediaBytes: 500, difficulty: .medium, cover: nil)
+    }
+
+    /// 箱は箱の並び順（シリーズ順）、中のデッキは番号の順。箱に入っていないデッキは最後に1つずつ並べる（X1・X17）。
+    func testGroupingOrdersBoxesBySeriesAndKeepsLooseDecksAlone() {
+        let seriesA = boxRecord(7, order: 0)
+        let seriesB = boxRecord(3, order: 1, genre: "toeic")
+        let boxes = OfficialBox.grouping([
+            official(5, added: false, box: seriesB), official(2, added: true, box: seriesA),
+            official(9, added: false), official(1, added: true, box: seriesA),
+        ])
+
+        XCTAssertEqual(boxes.map(\.id), ["box-7", "box-3", "deck-9"])
+        XCTAssertEqual(boxes[0].decks.map(\.id), [1, 2])
+        XCTAssertEqual(boxes.map(\.genre), [.exam, .toeic, .exam])
+        XCTAssertEqual(boxes.map(\.makesFolder), [true, true, false])
+        XCTAssertEqual(boxes[2].name, "デッキ9")
+    }
+
+    /// 中のデッキが全部学習タブにあれば追加済み。足りなければ、足りないデッキだけを入れる（X7）。
+    func testBoxIsAddedOnlyWhenEveryDeckIsOnTheStudyTab() {
+        let record = boxRecord(1, order: 0)
+        let partial = OfficialBox.grouping([official(1, added: true, box: record), official(2, added: false, box: record),
+                                            official(3, added: false, bytes: 40, box: record)])[0]
+
+        XCTAssertFalse(partial.isAdded)
+        XCTAssertEqual(partial.missingDecks.map(\.id), [2, 3])
+        XCTAssertEqual(partial.missingBytes, 140)
+
+        let unknownSize = OfficialBox.grouping([official(1, added: false, bytes: nil, box: record)])[0]
+        XCTAssertEqual(unknownSize.missingBytes, 500, "デッキの容量が無ければ箱の容量")
+
+        let full = OfficialBox.grouping([official(1, added: true, box: record), official(2, added: true, box: record)])[0]
+        XCTAssertTrue(full.isAdded)
+    }
+
+    /// フォルダは中のデッキの状態をまとめる。終わったデッキは100%として、ならした％を出す（X16）。
+    func testFolderDownloadStateCombinesItsDecks() {
+        XCTAssertNil(DeckDownloadState.combined([nil, nil]))
+        XCTAssertNil(DeckDownloadState.combined([]))
+        XCTAssertEqual(DeckDownloadState.combined([.downloading(0.5), nil]), .downloading(0.75))
+        XCTAssertEqual(DeckDownloadState.combined([.downloading(0.2), .failed, nil]), .failed)
     }
 
     func testDifficultyShowsThreeSteps() {

@@ -611,6 +611,36 @@ final class LocalStudyDataSourceTests: XCTestCase {
         XCTAssertEqual(queue.count, 5)
     }
 
+    /// 箱を追加すると、箱のデッキのうちどのフォルダにも入っていないものを1つのフォルダにまとめ、
+    /// 選んだ端へ置く。利用者が自分でフォルダに入れたデッキは動かさない（X6・X8）。
+    func testBoxFolderGathersLooseDecksAndLeavesUserFoldersAlone() async throws {
+        let source = makeDataSource()
+        let first = try source.importDeck(from: sampleDeckData(cardCount: 1, deckId: "first"))
+        let second = try source.importDeck(from: sampleDeckData(cardCount: 1, deckId: "second"))
+        let third = try source.importDeck(from: sampleDeckData(cardCount: 1, deckId: "third"))
+        let other = try source.importDeck(from: sampleDeckData(cardCount: 1, deckId: "other"))
+        let decks = try await source.fetchDecks()
+        _ = try source.arrangedDeckTree(for: decks)
+        let userFolder = try source.createFolder(named: "自分の", containing: third.id)
+
+        let boxFolderId = try source.reserveFolderId()
+        try source.placeBoxFolder(id: boxFolderId, named: "シリーズA",
+                                  deckIds: [first.id, second.id, third.id], atTop: true)
+
+        let tree = try source.arrangedDeckTree(for: decks)
+        guard case .folder(let box, let children)? = tree.first else { return XCTFail("箱のフォルダが先頭に来る") }
+        XCTAssertEqual(box.id, boxFolderId)
+        XCTAssertEqual(box.name, "シリーズA")
+        XCTAssertEqual(children.map(\.id), [first.id, second.id])
+        XCTAssertTrue(tree.contains { $0.layoutEntry == .folder(userFolder.id) })
+        XCTAssertTrue(tree.contains { $0.layoutEntry == .deck(other.id) })
+        XCTAssertNotEqual(try source.reserveFolderId(), boxFolderId, "取っておいた番号は使い回さない")
+
+        // 入れるデッキが無ければ、フォルダは作らない。
+        try source.placeBoxFolder(id: 99, named: "空", deckIds: [third.id], atTop: false)
+        XCTAssertFalse(source.deckFolders.contains { $0.id == 99 })
+    }
+
     func testRemovingFromFolderAndDeletingFolderKeepTheDecks() async throws {
         let source = makeDataSource()
         let first = try source.importDeck(from: sampleDeckData(cardCount: 1, deckId: "first"))

@@ -90,9 +90,9 @@ struct LearningDashboardView: View {
                     StudySessionView(deck: launch.deck, studyMode: launch.mode)
                 }
                 .navigationDestination(isPresented: $isShowingLibrary) {
-                    DeckLibraryView { official, coverURL in
+                    DeckLibraryView { box, coverURL in
                         // 追加と画像・音声のダウンロードは裏で進め、すぐ学習タブへ戻る（要件 R4・R5）。
-                        appState.beginAddingDeck(official, coverURL: coverURL, atTop: addEdge == .top)
+                        appState.beginAddingBox(box, coverURL: coverURL, atTop: addEdge == .top)
                         isShowingLibrary = false
                     }
                 }
@@ -554,7 +554,8 @@ struct LearningDashboardView: View {
             // 並びを初めて作るときだけ、以前この端末に覚えていた並び順から始める。
             let seed = dataSource.hasDeckLayout ? [] : order.arranged(fetched).map(\.id)
             tree = try dataSource.arrangedDeckTree(for: fetched, seed: seed)
-            appState.clearPlacedAdds(presentDeckIds: Set(fetched.map(\.id)))
+            // 箱はフォルダとして並ぶので、フォルダの番号も「出ている」に数える。
+            appState.clearPlacedAdds(presentDeckIds: Set(fetched.map(\.id)).union(decks.map(\.id)))
             errorMessage = nil
             let folderDecks = dataSource.deckFolders.map(dataSource.folderDeck)
             await loadDeckDetails(for: fetched + folderDecks, from: dataSource)

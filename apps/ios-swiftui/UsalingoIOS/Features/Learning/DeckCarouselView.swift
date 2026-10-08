@@ -3,7 +3,7 @@ import SwiftUI
 /// 学習タブの並びの1枠。デッキか、追加の途中のデッキか、両端に置く空き枠。
 enum DeckSlot: Hashable, Identifiable {
     case deck(Deck)
-    /// ギャラリーで押してから学習タブに入るまでのデッキ。選んだ空き枠の内側に置く（要件 R5）。
+    /// ギャラリーで押してから学習タブに入るまでの箱。選んだ空き枠の内側に置く（要件 R5）。
     case adding(PendingDeckAdd)
     case empty(DeckSlotEdge)
 
@@ -343,13 +343,14 @@ struct DeckCarouselView: View {
             case .deck(let deck):
                 let merging = drag.map { $0.target == .row(index - rowOffset, .onto) } ?? false
                 Group {
-                    if case .folder(let isOpen) = role(deck) {
+                    // ダウンロード中はフォルダでも同じ枠で見せ、開けなくする（要件 T1・X16）。
+                    if let state = downloadState(deck) {
+                        downloadCard(name: deck.deckName, coverURL: coverURL(deck), deckId: deck.id, state: state,
+                                     expansion: expansion, width: cardWidth, height: height) { onRetryDownload(deck) }
+                    } else if case .folder(let isOpen) = role(deck) {
                         folderCard(deck, slotIndex: index, isOpen: isOpen && !isBandMode,
                                    keepsGrid: drag?.source == .child(folderSlot: index), expansion: expansion,
                                    width: cardWidth, height: height)
-                    } else if let state = downloadState(deck) {
-                        downloadCard(name: deck.deckName, coverURL: coverURL(deck), deckId: deck.id, state: state,
-                                     expansion: expansion, width: cardWidth, height: height) { onRetryDownload(deck) }
                     } else {
                         deckCard(deck, expansion: expansion, width: cardWidth, height: height)
                     }
@@ -369,7 +370,7 @@ struct DeckCarouselView: View {
                 .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: merging)
             case .adding(let pending):
                 // 学習タブに入るまでは運べない。運んでいる間は隠す。
-                downloadCard(name: pending.official.deck.deckName, coverURL: pending.coverURL, deckId: pending.localDeckId,
+                downloadCard(name: pending.name, coverURL: pending.coverURL, deckId: pending.localDeckId,
                              state: pending.isFailed ? .failed : .downloading(0),
                              expansion: expansion, width: cardWidth, height: height) { onRetryAdding(pending) }
                     .contentShape(Rectangle())
