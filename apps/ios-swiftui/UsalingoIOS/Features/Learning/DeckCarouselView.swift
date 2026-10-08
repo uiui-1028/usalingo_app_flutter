@@ -1102,6 +1102,8 @@ struct DeckCarouselView: View {
         DragGesture(minimumDistance: 12)
             .onChanged { value in
                 guard slots.count > 1 else { return }
+                // 横になぞる指は外枠の Design / Profile を開く操作なので、回し始めない。
+                guard motion.isDragging || abs(value.translation.height) >= abs(value.translation.width) else { return }
                 if !motion.isDragging {
                     motion.beginDrag(at: value.time.timeIntervalSinceReferenceDate)
                 }

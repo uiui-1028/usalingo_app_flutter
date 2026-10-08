@@ -1,13 +1,87 @@
 import SwiftUI
 
-/// 学習画面を土台にした外枠。下の純正タブバーで遊び方を選び、Design と Profile は上の左右のボタンからシートで開く。
+/// 学習画面を土台にした外枠。下の純正タブバーで遊び方を選ぶ。
+/// 学習画面を横になぞるか、上の左右のボタンを押すと、学習画面が横へずれて、左から Design、右から Profile が出てくる。
 struct AppShellView: View {
     @EnvironmentObject private var appState: AppState
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// 開き終えている引き出し。
     @State private var openedScreen: ShellScreen?
+    /// 学習画面の裏に置いている引き出し。閉じる動きが終わるまで残す。
+    @State private var revealedScreen: ShellScreen?
+    /// 横になぞっている間の指の移動量。
+    @State private var dragWidth: CGFloat?
+    /// なぞり始めの向きで、横（引き出し）か縦（デッキを回す）かを一度だけ決める。
+    @State private var isHorizontalDrag: Bool?
+    @GestureState private var isTouching = false
     @AppStorage(DeckPlayStyle.storageKey) private var playStyle: DeckPlayStyle = .card
 
     var body: some View {
-        LearningDashboardView()
+        GeometryReader { proxy in
+            // 学習画面の端を少し残し、そこを押せば戻れるようにする。
+            let panelWidth = proxy.size.width * 0.85
+            let offset = contentOffset(translation: dragWidth ?? 0, panelWidth: panelWidth)
+
+            ZStack {
+                if let revealedScreen {
+                    panel(revealedScreen)
+                        .frame(width: panelWidth)
+                        .frame(maxWidth: .infinity, alignment: revealedScreen == .design ? .leading : .trailing)
+                }
+
+                learningScreen(topInset: proxy.safeAreaInsets.top)
+                    .overlay {
+                        if openedScreen != nil {
+                            // ponytail: VoiceOver は戻るボタンだけ用意し、ずれた学習画面の中身を隠す調整は後でまとめて行う。
+                            Button {
+                                setOpenedScreen(nil)
+                            } label: {
+                                Color.clear.contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("学習画面に戻る")
+                        }
+                    }
+                    // ずれた量に応じて、端末の角に合わせて丸め、影を付ける。
+                    // 影は学習画面ごと描き直さずに済むよう、裏に敷いた形だけに付ける。
+                    .mask {
+                        RoundedRectangle(cornerRadius: min(abs(offset) / 3, 40), style: .continuous)
+                            .ignoresSafeArea()
+                    }
+                    .background {
+                        RoundedRectangle(cornerRadius: 40, style: .continuous)
+                            .fill(WireColor.background)
+                            .shadow(color: .black.opacity(0.18), radius: 24)
+                            .opacity(offset == 0 ? 0 : 1)
+                            .ignoresSafeArea()
+                    }
+                    .offset(x: offset)
+                    // 子画面を開いている間（バーを隠している間）は、横になぞっても開かない。
+                    .simultaneousGesture(drawerDrag(panelWidth: panelWidth),
+                                         including: appState.isShellChromeHidden ? .subviews : .all)
+            }
+        }
+        // 名前の変更などでキーボードが出ても、遊び方のバーを押し上げずにキーボードの裏へ残す。
+        // 子画面を開いている間（バーを隠している間）は、入力欄がキーボードをよけられるよう効かせない。
+        .ignoresSafeArea(.keyboard, edges: appState.isShellChromeHidden ? [] : .bottom)
+        .background(WireColor.background.ignoresSafeArea())
+        .onChange(of: isTouching) { _, touching in
+            // システムによるジェスチャー中断では onEnded が呼ばれないので、いまの開き具合へ戻す。
+            if !touching, isHorizontalDrag != nil {
+                isHorizontalDrag = nil
+                if dragWidth != nil { setOpenedScreen(openedScreen) }
+            }
+        }
+        // ログアウトや退会で利用者がいなくなったら、引き出しを閉じて、ログインや退会のお知らせを出せるようにする。
+        .onChange(of: appState.session == nil) { _, isSignedOut in
+            if isSignedOut { setOpenedScreen(nil) }
+        }
+    }
+
+    private func learningScreen(topInset: CGFloat) -> some View {
+        LearningDashboardView(topControls: AnyView(topControls.padding(.top, topInset)))
+            // 引き出しを開いている間は、残った端を押しても学習画面の中身が反応せず、戻るボタンだけが受ける。
+            .allowsHitTesting(openedScreen == nil)
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if !appState.isShellChromeHidden {
                     PlayStyleTabBar(selection: $playStyle)
@@ -16,45 +90,87 @@ struct AppShellView: View {
                         .background { bottomFade }
                 }
             }
-            // 名前の変更などでキーボードが出ても、遊び方のバーを押し上げずにキーボードの裏へ残す。
-            // 子画面を開いている間（バーを隠している間）は、入力欄がキーボードをよけられるよう効かせない。
-            .ignoresSafeArea(.keyboard, edges: appState.isShellChromeHidden ? [] : .bottom)
-            .overlay(alignment: .top) {
-                if !appState.isShellChromeHidden {
-                    HStack {
-                        screenButton(.design)
-                        Spacer()
-                        screenButton(.profile)
-                    }
-                    .padding(.horizontal, WireMetrics.screenPadding)
-                }
+    }
+
+    @ViewBuilder
+    private var topControls: some View {
+        if !appState.isShellChromeHidden {
+            HStack {
+                screenButton(.design)
+                Spacer()
+                screenButton(.profile)
             }
-            .sheet(item: $openedScreen) { screen in
-                Group {
-                    switch screen {
-                    case .design: DesignDashboardView()
-                    case .profile: ProfileDashboardView()
-                    }
-                }
-                // 下へのスワイプは中の引っぱる操作とぶつかることがあるので、必ず閉じられるボタンも置く。
-                .safeAreaInset(edge: .top, spacing: 0) {
-                    HStack {
-                        Spacer()
-                        Button {
-                            openedScreen = nil
-                        } label: {
-                            Text("閉じる").wireFont(.label)
-                        }
-                        .accessibilityLabel("\(screen.rawValue)を閉じる")
-                    }
-                    .padding(.horizontal, WireMetrics.screenPadding)
-                    .padding(.top, WireMetrics.spacingM)
-                }
+            .padding(.horizontal, WireMetrics.screenPadding)
+        }
+    }
+
+    @ViewBuilder
+    private func panel(_ screen: ShellScreen) -> some View {
+        switch screen {
+        case .design: DesignDashboardView()
+        case .profile: ProfileDashboardView()
+        }
+    }
+
+    // MARK: - 引き出しを動かす
+
+    private func drawerDrag(panelWidth: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 12)
+            .updating($isTouching) { _, state, _ in
+                state = true
             }
-            // ログアウトや退会で利用者がいなくなったら、シートを閉じて、ログインや退会のお知らせを出せるようにする。
-            .onChange(of: appState.session == nil) { _, isSignedOut in
-                if isSignedOut { openedScreen = nil }
+            .onChanged { value in
+                if isHorizontalDrag == nil {
+                    isHorizontalDrag = abs(value.translation.width) > abs(value.translation.height)
+                }
+                guard isHorizontalDrag == true else { return }
+                dragWidth = value.translation.width
+                let offset = contentOffset(translation: value.translation.width, panelWidth: panelWidth)
+                if offset != 0 { revealedScreen = offset > 0 ? .design : .profile }
             }
+            .onEnded { value in
+                defer { isHorizontalDrag = nil }
+                guard isHorizontalDrag == true else { return }
+                let offset = contentOffset(translation: value.predictedEndTranslation.width, panelWidth: panelWidth)
+                setOpenedScreen(restingScreen(at: offset, panelWidth: panelWidth))
+            }
+    }
+
+    /// 学習画面をずらす量。左の Design を出すときは右へ、右の Profile を出すときは左へずらす。
+    /// 開いている側からは、反対側の引き出しへ一度に飛び越えない。
+    private func contentOffset(translation: CGFloat, panelWidth: CGFloat) -> CGFloat {
+        let base = (openedScreen?.direction ?? 0) * panelWidth
+        let lower: CGFloat = openedScreen == .design ? 0 : -panelWidth
+        let upper: CGFloat = openedScreen == .profile ? 0 : panelWidth
+        return min(max(base + translation, lower), upper)
+    }
+
+    /// 指を離したあとに落ち着く先。開くのも閉じるのも、引き出しの幅の3分の1を超えて動かせば切り替える。
+    private func restingScreen(at offset: CGFloat, panelWidth: CGFloat) -> ShellScreen? {
+        if let openedScreen {
+            return abs(offset) > panelWidth * 2 / 3 ? openedScreen : nil
+        }
+        guard abs(offset) > panelWidth / 3 else { return nil }
+        return offset > 0 ? .design : .profile
+    }
+
+    private func setOpenedScreen(_ screen: ShellScreen?) {
+        if let screen { revealedScreen = screen }
+        let hidePanel = {
+            if openedScreen == nil, dragWidth == nil { revealedScreen = nil }
+        }
+        guard !reduceMotion else {
+            openedScreen = screen
+            dragWidth = nil
+            hidePanel()
+            return
+        }
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
+            openedScreen = screen
+            dragWidth = nil
+        } completion: {
+            hidePanel()
+        }
     }
 
     /// 重なるデッキでバーが見えにくくならないよう、バーの少し上から画面の下端へ、すりガラスと遊び方の地の色を薄く敷く。
@@ -81,7 +197,7 @@ struct AppShellView: View {
 
     private func screenButton(_ screen: ShellScreen) -> some View {
         Button {
-            openedScreen = screen
+            setOpenedScreen(openedScreen == screen ? nil : screen)
         } label: {
             Image(systemName: screen.symbol)
                 .font(.system(size: 20))
@@ -94,18 +210,21 @@ struct AppShellView: View {
     }
 }
 
-/// 学習画面の上から開く画面。
-enum ShellScreen: String, Identifiable {
+/// 学習画面の左右から出す引き出し。
+enum ShellScreen: String {
     case design = "Design"
     case profile = "Profile"
-
-    var id: Self { self }
 
     var symbol: String {
         switch self {
         case .design: return "paintpalette"
         case .profile: return "person.crop.circle"
         }
+    }
+
+    /// 引き出しを出すときに学習画面をずらす向き。
+    var direction: CGFloat {
+        self == .design ? 1 : -1
     }
 }
 
