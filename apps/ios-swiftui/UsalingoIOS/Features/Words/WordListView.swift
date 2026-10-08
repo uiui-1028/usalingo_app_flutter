@@ -459,7 +459,8 @@ struct WordListView: View {
             return max(0, redSheetTop(in: viewportHeight) - headerClearance)
         }
         guard !isRedSheetEnabled && !sheetOnly else { return 0 }
-        return max(0, RedSheetPosition.top(availableHeight: viewportHeight, ratio: Self.initialRedSheetTopRatio) - headerClearance)
+        // 通常のリストは、赤シート初期位置までの空白（約5行）の 2/5（約2行）にとどめる。
+        return max(0, RedSheetPosition.top(availableHeight: viewportHeight, ratio: Self.initialRedSheetTopRatio) - headerClearance) * 2 / 5
     }
 
     private func alignCurrentWord(reader: ScrollViewProxy, viewportHeight: CGFloat) {
