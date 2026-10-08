@@ -327,7 +327,7 @@ struct StudySessionView: View {
         case .reviewOnly:
             return "復習期限のカードはありません。"
         case .all:
-            return "このデッキにはカードがありません。"
+            return "今日の学習は完了です。"
         case .weakOnly:
             return "苦手カードはまだありません。"
         }
@@ -372,7 +372,12 @@ struct StudySessionView: View {
                 repeatedPresentationID: !isCorrect && cardOrder.remaining.count == 1 ? nextPresentationID : nil
             )
         )
-        answerQueue.enqueue(cardIndex: index, card: answeredCard, isCorrect: isCorrect)
+        answerQueue.enqueue(
+            cardIndex: index,
+            card: answeredCard,
+            isCorrect: isCorrect,
+            attempt: AnswerSaveAttempt(isRetry: cardOrder.isRetry)
+        )
 
         audioPlaybackService.stop()
         cardOrder.answer(isCorrect: isCorrect)

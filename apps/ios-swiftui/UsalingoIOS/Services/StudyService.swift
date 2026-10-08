@@ -175,7 +175,7 @@ enum StudyMode: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .newOnly: return "まだ学習していないカードを10枚まで"
         case .reviewOnly: return "期限が来たカードを20枚まで"
-        case .all: return "復習、新規、その他を少しずつ"
+        case .all: return "期限が来た復習と新規カード"
         case .weakOnly: return "不正解が多いカードを20枚まで"
         }
     }
@@ -403,7 +403,11 @@ final class StudyService: RemoteStudyImporting {
         } else {
             let previous = try await fetchLearningProgress(cardId: cardId, session: session)
             let current = previous ?? LearningProgress.initial(userId: session.user.id, cardId: cardId)
-            prepared = SavedAnswer(progress: current.marking(isCorrect: isCorrect), previousProgress: previous)
+            let isRetry = attempt?.isRetry == true && previous != nil
+            prepared = SavedAnswer(
+                progress: isRetry ? current : current.marking(isCorrect: isCorrect),
+                previousProgress: previous
+            )
             attempt?.prepared = prepared
         }
 
@@ -472,10 +476,7 @@ final class StudyService: RemoteStudyImporting {
         )
 
         let now = Date()
-        let dueCount = rows.filter { row in
-            guard let dueDate = StudyQueueRules.parseDate(row.nextReviewDate) else { return false }
-            return dueDate <= now
-        }.count
+        let dueCount = rows.filter { StudyQueueRules.isDue($0.nextReviewDate, now: now) }.count
         let masteredCount = rows.filter { $0.status == "mastered" }.count
         let reviewedDates = rows.compactMap { row -> Date? in
             guard let value = row.lastReviewedAt else { return nil }
@@ -610,7 +611,7 @@ final class StudyService: RemoteStudyImporting {
                 value: deckId == -1 ? SelectColumns.progress : "\(SelectColumns.progress),cards!inner(deck_id)"
             ),
             URLQueryItem(name: "user_id", value: "eq.\(session.user.id)"),
-            URLQueryItem(name: "next_review_date", value: "lte.\(formatter.string(from: Date()))"),
+            URLQueryItem(name: "next_review_date", value: "lt.\(formatter.string(from: StudyQueueRules.startOfTomorrow(Date())))"),
             URLQueryItem(name: "order", value: "next_review_date.asc"),
             URLQueryItem(name: "limit", value: "\(limit)")
         ]

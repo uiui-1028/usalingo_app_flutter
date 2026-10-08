@@ -54,6 +54,13 @@ final class AnswerSaveAttempt {
     var prepared: SavedAnswer?
     /// ローカル保存の直前に控えを永続化し、再起動後の再送も同じ判定として扱う。
     var didPrepare: (@MainActor () throws -> Void)?
+    /// 同じ回で不正解のカードをもう一度解いた答え。Ankiの再学習と同じく、罰は最初の
+    /// 不正解の1回だけにし、そこで決まった記録（翌日に出す）をそのまま残す。
+    let isRetry: Bool
+
+    init(isRetry: Bool = false) {
+        self.isRetry = isRetry
+    }
 }
 
 extension StudyDataSource {
@@ -81,10 +88,7 @@ final class RemoteStudyDataSource: StudyDataSource {
         let now = Date()
         return StudyDeckCounts(
             newCount: cards.filter { $0.learning == nil }.count,
-            dueCount: cards.filter { card in
-                guard let value = card.learning?.nextReviewDate else { return false }
-                return StudyQueueRules.parseDate(value).map { $0 <= now } ?? false
-            }.count
+            dueCount: cards.filter { StudyQueueRules.isDue($0, now: now) }.count
         )
     }
 

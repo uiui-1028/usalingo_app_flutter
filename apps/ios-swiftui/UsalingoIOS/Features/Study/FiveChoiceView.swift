@@ -66,6 +66,13 @@ struct FiveChoiceView: View {
             } else {
                 questionScroll(question, game: game)
             }
+        } else if game?.questionCount == 0 {
+            StudyStatusView(
+                symbol: "rectangle.stack.badge.minus",
+                title: "今日の学習は完了です",
+                message: "別の学習モードを選ぶか、デッキに戻ってください。",
+                actionTitle: "デッキに戻る"
+            ) { dismiss() }
         } else if game?.answeredCount == 0 {
             StudyStatusView(
                 symbol: "rectangle.stack.badge.minus",
@@ -244,11 +251,16 @@ struct FiveChoiceView: View {
     }
 
     private func answer(at index: Int) {
-        guard var game, let card = game.question?.card,
+        guard var game, let question = game.question,
               let isCorrect = game.answer(at: index) else { return }
         self.game = game
         HapticFeedbackService.tap()
-        answerQueue.enqueue(cardIndex: game.answeredCount - 1, card: card, isCorrect: isCorrect)
+        answerQueue.enqueue(
+            cardIndex: game.answeredCount - 1,
+            card: question.card,
+            isCorrect: isCorrect,
+            attempt: AnswerSaveAttempt(isRetry: question.isRetry)
+        )
         if saveErrorMessage == nil { drainAnswers() }
     }
 
