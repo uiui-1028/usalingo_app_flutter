@@ -278,7 +278,7 @@ struct WordListView: View {
                         .strokeBorder(WireColor.ink, lineWidth: WireMetrics.strokeBase)
                 }
             }
-            // 左のバーに絞り込み・並べ替え・検索・表示切り替え、右のバーに赤シートを収める。
+            // 左に絞り込み・並べ替え・検索、中央に表示切り替え、右に赤シートを収める。
             // 赤シート中は左のバーの中身を赤シート専用の操作に入れ替える。
             // 横に触ることが多いので、ここから始めたスワイプでは戻さない。
             .overlay(alignment: .bottom) {

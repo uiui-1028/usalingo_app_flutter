@@ -47,8 +47,8 @@ struct WordListRedSheetBar: View {
     }
 }
 
-/// 画面下端に浮かべる2本のバー。左が絞り込み・並べ替え・検索・表示切り替え、右が赤シート。
-/// 検索を開いている間は、左のバーが横いっぱいに広がるので右のバーは引っ込める。
+/// 画面下端の3本のバー。左が絞り込み・並べ替え・検索、中央が表示切り替え、右が赤シート。
+/// 検索中は中央・右を隠し、赤シート中は中央を隠す。
 /// 赤シート中は、左のバーの中身を赤シート専用の操作に入れ替える。右のバーはそのまま。
 struct WordListBottomBars<RedSheetActions: View>: View {
     let tags: [String]
@@ -71,11 +71,17 @@ struct WordListBottomBars<RedSheetActions: View>: View {
             HStack(spacing: WireMetrics.spacingS) {
                 actionBar
                 Spacer(minLength: 0)
+                displayModeBar
+                Spacer(minLength: 0)
                 trailingBar
             }
             VStack(alignment: .leading, spacing: WireMetrics.spacingS) {
-                trailingBar
-                    .frame(maxWidth: .infinity, alignment: .trailing)
+                HStack(spacing: WireMetrics.spacingS) {
+                    Spacer(minLength: 0)
+                    displayModeBar
+                    Spacer(minLength: 0)
+                    trailingBar
+                }
                 actionBar
             }
         }
@@ -97,10 +103,16 @@ struct WordListBottomBars<RedSheetActions: View>: View {
                 selectedDueFilter: $selectedDueFilter,
                 selectedSort: $selectedSort,
                 searchText: $searchText,
-                isSearchExpanded: $isSearchExpanded,
-                selectedDisplayMode: $selectedDisplayMode
+                isSearchExpanded: $isSearchExpanded
             )
             .transition(.opacity)
+        }
+    }
+
+    @ViewBuilder private var displayModeBar: some View {
+        if !isSearchExpanded && !isRedSheetEnabled {
+            WordListDisplayModeToggle(selectedMode: $selectedDisplayMode)
+                .wordListBarChrome()
         }
     }
 
@@ -120,7 +132,7 @@ struct WordListBottomBars<RedSheetActions: View>: View {
 
 }
 
-/// 絞り込み・並べ替え・検索・表示切り替えをひとまとめにした、画面下端の浮動バー。
+/// 絞り込み・並べ替え・検索をひとまとめにした、画面下端の浮動バー。
 /// シェルのタブバーと同じ形・同じ位置に置き、検索は押した時だけバーの中を広げる。
 struct WordListActionBar: View {
     let tags: [String]
@@ -130,7 +142,6 @@ struct WordListActionBar: View {
     @Binding var selectedSort: WordSortOption
     @Binding var searchText: String
     @Binding var isSearchExpanded: Bool
-    @Binding var selectedDisplayMode: WordListDisplayMode
 
     @FocusState private var isSearchFocused: Bool
 
@@ -148,10 +159,6 @@ struct WordListActionBar: View {
             }
 
             searchControl
-
-            if !isSearchExpanded {
-                WordListDisplayModeToggle(selectedMode: $selectedDisplayMode)
-            }
         }
         .wordListBarChrome()
     }
