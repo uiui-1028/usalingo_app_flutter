@@ -63,9 +63,30 @@ struct WordListBottomBars<RedSheetActions: View>: View {
     @ViewBuilder let redSheetActions: RedSheetActions
 
     @State private var isSearchExpanded = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var barsWidth: CGFloat = 0
 
     var body: some View {
+        connectedBars
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { barsWidth = $0 }
+            .padding(.horizontal, WireMetrics.screenPadding)
+            .padding(.bottom, WireMetrics.spacingXL)
+            .animation(.spring(response: 0.28, dampingFraction: 0.86), value: isSearchExpanded)
+    }
+
+    @ViewBuilder private var connectedBars: some View {
+        #if compiler(>=6.2)
+        if #available(iOS 26.0, *), !isSearchExpanded && !isRedSheetEnabled {
+            // 配置を保ったまま、画面幅で広がる左右の隙間にもガラスの融合を届かせる。
+            GlassEffectContainer(spacing: max(WireMetrics.spacingXL, (barsWidth - (5 * 48 + 2 * WireMetrics.spacingS + 6 * WireMetrics.spacingM)) / 2 + WireMetrics.spacingXL)) { segments }
+        } else {
+            segments
+        }
+        #else
+        segments
+        #endif
+    }
+
+    private var segments: some View {
         // 左のバーは左端、右のバーは右端に留める。中身が変わっても、真ん中へ寄せ直さない。
         ViewThatFits(in: .horizontal) {
             HStack(spacing: WireMetrics.spacingS) {
@@ -86,9 +107,6 @@ struct WordListBottomBars<RedSheetActions: View>: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, WireMetrics.screenPadding)
-        .padding(.bottom, WireMetrics.spacingXL)
-        .animation(.spring(response: 0.28, dampingFraction: 0.86), value: isSearchExpanded)
     }
 
     @ViewBuilder private var actionBar: some View {
@@ -118,16 +136,24 @@ struct WordListBottomBars<RedSheetActions: View>: View {
 
     @ViewBuilder private var trailingBar: some View {
         if !isSearchExpanded {
-            WordListRedSheetBar(
-                isRedSheetEnabled: $isRedSheetEnabled,
-                selectedDisplayMode: $selectedDisplayMode,
-                canToggleRedSheet: canToggleRedSheet
-            )
-            .opacity(selectedDisplayMode == .list ? 1 : 0)
-            .allowsHitTesting(selectedDisplayMode == .list)
-            .accessibilityHidden(selectedDisplayMode != .list)
-            .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: selectedDisplayMode)
+            if selectedDisplayMode == .list {
+                redSheetBar
+            } else {
+                // 非表示の赤シート側は場所だけを残し、ガラスの融合には参加させない。
+                Color.clear
+                    .frame(width: 48 + 2 * WireMetrics.spacingM, height: 48 + 2 * WireMetrics.spacingM)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
         }
+    }
+
+    private var redSheetBar: some View {
+        WordListRedSheetBar(
+            isRedSheetEnabled: $isRedSheetEnabled,
+            selectedDisplayMode: $selectedDisplayMode,
+            canToggleRedSheet: canToggleRedSheet
+        )
     }
 
 }
