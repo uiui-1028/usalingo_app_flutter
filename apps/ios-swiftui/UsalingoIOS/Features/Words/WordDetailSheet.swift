@@ -473,6 +473,8 @@ private struct InteractiveWordCard: View {
     /// カードが回っている最中か。裏面のスクロールを開けてよいかの判定に使う。
     @State private var isTurning = false
     @GestureState private var touch: CGPoint?
+    /// 縦になぞると決まった指は、裏面のスクロールに任せてめくらない。
+    @State private var axisLock = DragAxisLock()
 
     /// この距離までは傾きだけ。越えた分からめくりが始まる。
     private let deadZone: CGFloat = 26
@@ -503,10 +505,18 @@ private struct InteractiveWordCard: View {
                 DragGesture(minimumDistance: 3, coordinateSpace: .named("wordCardTouch"))
                     .updating($touch) { value, state, _ in state = value.location }
                     .onChanged { value in
+                        if axisLock.axis(start: value.startLocation, translation: value.translation) == .vertical {
+                            flipDrag = 0
+                            return
+                        }
                         if !isTurning, abs(value.translation.width) > deadZone { isTurning = true }
                         flipDrag = value.translation.width
                     }
-                    .onEnded { value in settle(value, width: width) }
+                    .onEnded { value in
+                        let isVertical = axisLock.axis(start: value.startLocation, translation: value.translation) == .vertical
+                        axisLock.reset()
+                        if !isVertical { settle(value, width: width) }
+                    }
             )
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(showsBack ? "\(word.text) の裏面" : word.text)

@@ -609,19 +609,6 @@ private enum SwipeThreshold {
     static let commit: CGFloat = 100
 }
 
-/// ドラッグの向き。動き出しの成分が大きいほうへ倒し、その操作だけを通す。
-private enum DragAxis {
-    case horizontal
-    case vertical
-
-    /// 動き出しの数ポイントは指のぶれで向きが定まらないので、
-    /// 一定距離を超えるまで判定を保留する。
-    init?(translation: CGSize) {
-        guard hypot(translation.width, translation.height) >= 8 else { return nil }
-        self = abs(translation.width) >= abs(translation.height) ? .horizontal : .vertical
-    }
-}
-
 /// 見送ったカードを飛ばすためだけの控え。トップカードとは別の層に置くので、
 /// この演出が終わるのを待たずに次のカードを操作できる。
 private struct FlyawayCard: Identifiable {

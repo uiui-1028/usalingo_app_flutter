@@ -35,6 +35,42 @@ struct AudioCarouselProjection: GeometryEffect {
     }
 }
 
+/// ドラッグの向き。動き出しの成分が大きいほうへ倒し、その操作だけを通す。
+enum DragAxis {
+    case horizontal
+    case vertical
+
+    /// 動き出しの数ポイントは指のぶれで向きが定まらないので、
+    /// 一定距離を超えるまで判定を保留する。
+    init?(translation: CGSize) {
+        guard hypot(translation.width, translation.height) >= 8 else { return nil }
+        self = abs(translation.width) >= abs(translation.height) ? .horizontal : .vertical
+    }
+}
+
+/// 1本の指の向きを、なぞり始めに一度だけ決めて覚える。指を離すまで決め直さないので、
+/// 途中で斜めにずれても、もう一方の向きの操作（戻る・めくり・スクロールなど）を同時に動かさない。
+struct DragAxisLock: Equatable {
+    private var start: CGPoint?
+    private var decided: DragAxis?
+
+    /// いまの指の向き。決まるまでは nil。始まりの場所が変われば新しい指として決め直すので、
+    /// システムに指を取り上げられて離した知らせが来なくても、前の指の向きを持ち越さない。
+    mutating func axis(start: CGPoint, translation: CGSize) -> DragAxis? {
+        if start != self.start {
+            self.start = start
+            decided = nil
+        }
+        if decided == nil { decided = DragAxis(translation: translation) }
+        return decided
+    }
+
+    /// 指を離した。
+    mutating func reset() {
+        self = DragAxisLock()
+    }
+}
+
 /// フレームごとに座標そのものを更新する。SwiftUIの暗黙アニメーションで札を再移動しない。
 ///
 /// 手ざわりは Final Cut Pro のマグネティックタイムラインのように、枠へはっきり吸い付かせる。

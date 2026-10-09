@@ -265,6 +265,25 @@ final class AudioCarouselMotionTests: XCTestCase {
         player.stop()
     }
 
+    func testDragAxisLockKeepsFirstDirectionUntilReleased() {
+        var lock = DragAxisLock()
+        let start = CGPoint(x: 100, y: 200)
+        // 指のぶれの範囲では決めない。
+        XCTAssertNil(lock.axis(start: start, translation: CGSize(width: 3, height: 4)))
+        XCTAssertEqual(lock.axis(start: start, translation: CGSize(width: 2, height: 12)), .vertical)
+        // 同じ指が途中で横へずれても、縦のまま。
+        XCTAssertEqual(lock.axis(start: start, translation: CGSize(width: 80, height: 14)), .vertical)
+        lock.reset()
+        XCTAssertEqual(lock.axis(start: start, translation: CGSize(width: 12, height: 2)), .horizontal)
+    }
+
+    func testDragAxisLockDecidesAgainForNewFinger() {
+        var lock = DragAxisLock()
+        XCTAssertEqual(lock.axis(start: .zero, translation: CGSize(width: 12, height: 0)), .horizontal)
+        // 離した知らせが来ないまま次の指が触れても、前の向きを持ち越さない。
+        XCTAssertEqual(lock.axis(start: CGPoint(x: 5, y: 5), translation: CGSize(width: 0, height: 12)), .vertical)
+    }
+
     private func makeMotion(count: Int, index: Int = 0) -> AudioCarouselMotion {
         let motion = AudioCarouselMotion()
         motion.configure(stride: 174, count: count, index: index)

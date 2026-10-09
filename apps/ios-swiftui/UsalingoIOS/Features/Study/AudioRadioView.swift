@@ -379,6 +379,8 @@ private struct AudioCoverflowCarousel<CardContent: View>: View {
     @Environment(\.scenePhase) private var scenePhase
     @ObservedObject var player: RadioPlayer
     @StateObject private var motion = AudioCarouselMotion()
+    /// 縦になぞると決まった指だけで回す。横と決まった指は、途中で縦へずれても回さない。
+    @State private var axisLock = DragAxisLock()
     @State private var pendingAutomaticAdvance = false
     @State private var showsNextLap = false
     @State private var synchronizedCardID: WordCard.ID?
@@ -469,8 +471,8 @@ private struct AudioCoverflowCarousel<CardContent: View>: View {
     private var dragGesture: some Gesture {
         DragGesture(minimumDistance: 12)
             .onChanged { value in
-                guard player.playableCardCount > 1 else { return }
-                guard abs(value.translation.height) > abs(value.translation.width) else { return }
+                guard player.playableCardCount > 1,
+                      axisLock.axis(start: value.startLocation, translation: value.translation) == .vertical else { return }
                 if !motion.isDragging {
                     motion.beginDrag(at: value.time.timeIntervalSinceReferenceDate)
                     showsNextLap = false
@@ -478,6 +480,7 @@ private struct AudioCoverflowCarousel<CardContent: View>: View {
                 motion.drag(translation: value.translation.height, at: value.time.timeIntervalSinceReferenceDate)
             }
             .onEnded { value in
+                axisLock.reset()
                 guard motion.isDragging else { return }
                 motion.endDrag(at: value.time.timeIntervalSinceReferenceDate,
                                animated: !reduceMotion, completion: complete)
