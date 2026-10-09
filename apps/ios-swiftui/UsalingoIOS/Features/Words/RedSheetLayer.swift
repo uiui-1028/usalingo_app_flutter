@@ -2,7 +2,7 @@ import SwiftUI
 
 /// 単語一覧の上に1枚だけ重ねる赤シート。一覧のスクロールとは独立していて、答えを出しても動かない。
 /// 右端の列を覆う不透明な板で、上のつまみは連続値で動き、空レコードも同じ量だけ動く。
-/// 3列のときは左端にもつまみを出し、横幅を列の境目ごとに切り替える（途中では止めない）。
+/// 3列のときは左端のつまみが指に追従し、離すと近い列の境目へ吸着する。
 /// 紙の赤シートのように、隠す行より少し下・区切り線より少し左へずらして重ねる。
 struct RedSheetLayer: View {
     /// 隠す行の上端から下げる量。
@@ -21,7 +21,14 @@ struct RedSheetLayer: View {
     let columnWidth: CGFloat
     let onHeightChangeEnded: () -> Void
     @State private var dragStartTop: CGFloat?
-    @State private var dragStartColumns: Int?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @GestureState private var widthTranslation: CGFloat?
+
+    private var sheetWidth: CGFloat {
+        let columns = CGFloat(min(coveredColumns, maximumCoveredColumns))
+        let width = columns * columnWidth - (widthTranslation ?? 0)
+        return min(CGFloat(maximumCoveredColumns) * columnWidth, max(columnWidth, width)) + Self.leadingOverlap
+    }
 
     private var restingTop: CGFloat {
         RedSheetPosition.top(
@@ -84,12 +91,15 @@ struct RedSheetLayer: View {
                 widthHandle
             }
         }
+        .frame(width: sheetWidth)
+        .animation(widthTranslation == nil && !reduceMotion ? .spring(response: 0.3, dampingFraction: 0.86) : nil, value: sheetWidth)
+        .frame(maxWidth: .infinity, alignment: .trailing)
         .clipped()
     }
 }
 
 extension RedSheetLayer {
-    /// 左端の縦のつまみ。横に引くと、半列を越えたところで隣の境目へ切り替わる。
+    /// 左端の縦のつまみ。ドラッグ中は連続的に動き、離したときだけ覆う列数を確定する。
     private var widthHandle: some View {
         Capsule()
             .fill(.white)
@@ -98,19 +108,17 @@ extension RedSheetLayer {
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0, coordinateSpace: .named("wordListViewport"))
-                    .onChanged { value in
-                        if dragStartColumns == nil { dragStartColumns = coveredColumns }
-                        guard let dragStartColumns else { return }
-                        let next = RedSheetPosition.coveredColumns(
-                            start: dragStartColumns,
+                    .updating($widthTranslation) { value, translation, transaction in
+                        transaction.animation = nil
+                        translation = value.translation.width
+                    }
+                    .onEnded { value in
+                        coveredColumns = RedSheetPosition.coveredColumns(
+                            start: coveredColumns,
                             translation: value.translation.width,
                             columnWidth: columnWidth,
                             maximum: maximumCoveredColumns
                         )
-                        if next != coveredColumns { coveredColumns = next }
-                    }
-                    .onEnded { _ in
-                        dragStartColumns = nil
                     }
             )
             .accessibilityLabel("赤シートの幅")
