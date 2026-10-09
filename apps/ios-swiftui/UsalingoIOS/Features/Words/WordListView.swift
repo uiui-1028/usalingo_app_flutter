@@ -222,7 +222,7 @@ struct WordListView: View {
                 if isRedSheetEnabled && selectedDisplayMode == .list
                     && !displayedWords.isEmpty && !viewModel.isLoading && !check.isComplete {
                     let columnWidth = proxy.size.width / CGFloat(columns.count)
-                    let sheetWidth = columnWidth * CGFloat(effectiveRedSheetColumns) + RedSheetLayer.leadingOverlap
+                    let isSheetRetreated = openedRowID != nil || menuTarget != nil
                     RedSheetLayer(
                         topRatio: $check.sheetTopRatio,
                         availableHeight: proxy.size.height,
@@ -233,33 +233,11 @@ struct WordListView: View {
                         columnWidth: columnWidth,
                         onHeightChangeEnded: check.rememberSheetPosition
                     )
-                    .frame(
-                        width: sheetWidth,
-                        height: proxy.size.height
-                    )
-                    .mask {
-                        Rectangle()
-                            .overlay {
-                                // 長押しも横操作も、対象の行全体を赤シートの手前に見せる。
-                                // 行を閉じたら切り抜きが消え、元どおり答えを隠す。
-                                let origin = proxy.frame(in: .global).origin
-                                let focusedFrame = menuTarget.map {
-                                    $0.cardFrame.offsetBy(dx: -origin.x, dy: -origin.y)
-                                } ?? openedRowID.flatMap { rowFrames[$0] }
-                                if let frame = focusedFrame {
-                                    Rectangle()
-                                        .frame(width: frame.width, height: frame.height)
-                                        .position(
-                                            x: frame.midX - (proxy.size.width - sheetWidth),
-                                            y: frame.midY
-                                        )
-                                        .blendMode(.destinationOut)
-                                }
-                            }
-                            .compositingGroup()
-                    }
-                    .allowsHitTesting(openedRowID == nil && menuTarget == nil)
-                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: effectiveRedSheetColumns)
+                    .frame(width: proxy.size.width, height: proxy.size.height, alignment: .trailing)
+                    // 横操作・長押し中は紙全体を右へ退避し、操作を閉じると元の位置へ戻す。
+                    .offset(x: isSheetRetreated ? proxy.size.width + RedSheetLayer.leadingOverlap : 0)
+                    .allowsHitTesting(!isSheetRetreated)
+                    .animation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.9), value: isSheetRetreated)
                     .zIndex(1)
                 }
 
