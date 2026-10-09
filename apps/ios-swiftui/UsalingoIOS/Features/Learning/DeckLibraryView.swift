@@ -266,7 +266,15 @@ struct DeckLibraryView: View {
                 return
             }
             pagingDirection = step > 0 ? .forward : .reverse
-            finishGenreChange(genre(offsetBy: step, from: genre))
+            let next = genre(offsetBy: step, from: genre)
+            guard isSheetPresented else {
+                finishGenreChange(next)
+                return
+            }
+            // 単語詳細と同じく、払っている印（backgroundPaging）を残したままシートを動きなしでめくり、
+            // めくり終えた知らせ（onSelected）でカルーセルをそろえる。先に印を消すと、シートがめくる動きを
+            // 一からやり直し、その進み具合でカルーセルが前のジャンルへ戻ってから、もう一度隣へ動いてしまう。
+            genre = next
         }
     }
 
