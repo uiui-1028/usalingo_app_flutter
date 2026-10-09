@@ -2,7 +2,7 @@ import SwiftUI
 
 /// 学習タブの空き枠から開く、公式デッキの箱を1つ選んで追加する画面。
 ///
-/// 上にジャンルのセグメント、真ん中に学習タブと同じ縦のカルーセル、下に標準のシートを置く。
+/// 上にジャンルのセグメント、真ん中に学習タブと同じ縦のカルーセル、下にシートを置く。
 /// シートは頭（収録語数・容量・レベル）と約7割（詳しい情報と単語一覧）の2段で、中身はカルーセルの
 /// 中央の箱に合わせて変わる。要件は docs/plans/deck-gallery-redesign-requirements.md と
 /// docs/plans/deck-box-requirements.md。
@@ -27,12 +27,11 @@ struct DeckLibraryView: View {
     @State private var deckCovers: [Int: URL] = [:]
     /// 学習タブにある公式デッキ（端末の番号）ごとの、サーバーの単語番号。重なる語数を数えるのに使う。
     @State private var ownedWords: [Int: Set<Int>] = [:]
-    @State private var isSheetPresented = false
     @State private var detent = GallerySheetDetent.peek
+    /// シートの上端を指で引いている量。上が負。
+    @State private var sheetDrag: CGFloat = 0
     /// モバイル回線で押したときに、確認を出している箱（要件 D7）。
     @State private var boxAwaitingCellularConsent: OfficialBox?
-    /// シートを閉じ切ってから行うこと。シートを出したまま戻ると、画面だけが先に消えてしまう。
-    @State private var afterSheetDismiss: (() -> Void)?
 
     private var genreBoxes: [OfficialBox] { boxes.filter { $0.genre == genre } }
     private var selectedBox: OfficialBox? { genreBoxes.first { $0.id == selectedId } }
@@ -55,6 +54,9 @@ struct DeckLibraryView: View {
                         .padding(.horizontal, WireMetrics.screenPadding)
                         .transition(.opacity)
                 }
+                if !isLoading, let box = selectedBox {
+                    sheet(box, in: proxy)
+                }
             }
             .animation(reduceMotion ? nil : .spring(response: 0.36, dampingFraction: 0.88), value: isFocused)
         }
@@ -63,17 +65,22 @@ struct DeckLibraryView: View {
         .background {
             // ヘッダーを隠すと戻るスワイプも止まるので、ほかの画面と同じ仕組みで戻す。
             // カルーセルのドラッグが画面全体を覆うので、音声モードと同じく戻るを先に判定させる。
-            // シートはこの画面と一緒に動かないので、戻り始めたら下ろし、戻るのをやめたら出し直す。
-            BackSwipeEnabler(takesPriorityOverContent: true,
-                             canBegin: { !isFocused },
-                             onPopBegan: { isSheetPresented = false },
-                             onPopCancelled: updateSheetPresence)
+            BackSwipeEnabler(takesPriorityOverContent: true, canBegin: { !isFocused })
         }
-        .sheet(isPresented: $isSheetPresented, onDismiss: runAfterSheetDismiss) { sheet }
+        .alert("モバイル回線でダウンロードしますか？", isPresented: Binding(
+            get: { boxAwaitingCellularConsent != nil },
+            set: { if !$0 { boxAwaitingCellularConsent = nil } }
+        ), presenting: boxAwaitingCellularConsent) { box in
+            Button("やめる", role: .cancel) {}
+            Button("ダウンロード") { onAdded(box, covers[box.id]) }
+        } message: { box in
+            Text(box.missingBytes.map {
+                "約\(ByteCountFormatter.string(fromByteCount: $0, countStyle: .file))を使います。"
+            } ?? "画像と音声をダウンロードします。")
+        }
         .task { await reload() }
         .onChange(of: genre) { _, _ in selectFirstDeckIfNeeded() }
-        .onChange(of: selectedBox?.id) { _, _ in updateSheetPresence() }
-        .onDisappear { isSheetPresented = false }
+        .onChange(of: selectedBox == nil) { _, isEmpty in if isEmpty { detent = GallerySheetDetent.peek } }
     }
 
     // MARK: - 画面
@@ -106,7 +113,9 @@ struct DeckLibraryView: View {
     /// 左に戻るアイコン、右にジャンルのセグメント。どちらもカルーセルの上に浮かぶガラスの板。
     private var topBar: some View {
         HStack(spacing: WireMetrics.spacingS) {
-            Button(action: leave) {
+            Button {
+                dismiss()
+            } label: {
                 Image(systemName: "chevron.left")
                     .font(.body.weight(.semibold))
                     .foregroundStyle(WireColor.ink)
@@ -131,66 +140,79 @@ struct DeckLibraryView: View {
         .padding(.top, WireMetrics.spacingXS)
     }
 
-    @ViewBuilder
-    private var sheet: some View {
-        Group {
-            if let box = selectedBox {
-                DeckGallerySheet(
-                    box: box,
-                    cardsByDeck: cardsByDeck,
-                    deckCovers: deckCovers,
-                    overlap: overlapCount(for: box),
-                    isExpanded: isFocused,
-                    onDownload: { download(box) }
-                )
-                // 別の箱に回したら、選んでいる娘を先頭に戻す（要件 X20）。
-                .id(box.id)
-            } else {
-                Color.clear
-            }
+    /// 下に重ねる詳細のシート。iOS 標準のシートは画面とは別に出るので、横になぞって戻るときに画面と一緒に動かず、
+    /// 出ている間は戻るスワイプも始められない。そこでページの一部として描き、戻るときは画面と一緒に動かす。
+    /// 止まる高さは標準のシートと同じ2段（頭だけ／約7割）。上の取っ手と3項目の所を上下に引くか押して切り替える。
+    /// 7割でも後ろを暗くせず、上に出したカードを明るいまま見せる。カルーセルは7割の間は止めてある。
+    /// ponytail: 標準のシートにある「一覧を上端まで戻してから下へ引くと頭へ戻る」動きは無い。
+    /// 取っ手の所を引くか、シートの外を押して頭へ戻す。要るなら一覧のスクロール位置を見て引き継ぐ。
+    private func sheet(_ box: OfficialBox, in proxy: GeometryProxy) -> some View {
+        let peekTop = proxy.size.height - GallerySheetDetent.peekHeight
+        let expandedTop = GallerySheetDetent.expandedTop(in: proxy)
+        let top = min(max((isFocused ? expandedTop : peekTop) + sheetDrag, expandedTop), peekTop)
+        let bottom = proxy.safeAreaInsets.bottom
+        let shape = UnevenRoundedRectangle(topLeadingRadius: Self.sheetRadius,
+                                           topTrailingRadius: Self.sheetRadius, style: .continuous)
+        return DeckGallerySheet(
+            box: box,
+            cardsByDeck: cardsByDeck,
+            deckCovers: deckCovers,
+            overlap: overlapCount(for: box),
+            isExpanded: isFocused,
+            onDownload: { download(box) }
+        )
+        // 別の箱に回したら、選んでいる娘を先頭に戻す（要件 X20）。
+        .id(box.id)
+        // 面は画面の下端まで伸ばし、中身は下の安全域の上に収める（標準のシートと同じ）。
+        .padding(.bottom, bottom)
+        .frame(maxWidth: .infinity)
+        .frame(height: proxy.size.height - top + bottom)
+        .clipShape(shape)
+        .overlay(alignment: .top) { sheetHandle(peekTop: peekTop, expandedTop: expandedTop) }
+        .background {
+            shape.fill(.regularMaterial)
+                .shadow(color: .black.opacity(0.12), radius: 16, y: -2)
         }
-        // シートが出ている間は、確認もシートの上に出す。
-        .alert("モバイル回線でダウンロードしますか？", isPresented: Binding(
-            get: { boxAwaitingCellularConsent != nil },
-            set: { if !$0 { boxAwaitingCellularConsent = nil } }
-        ), presenting: boxAwaitingCellularConsent) { box in
-            Button("やめる", role: .cancel) {}
-            Button("ダウンロード") { startAdding(box) }
-        } message: { box in
-            Text(box.missingBytes.map {
-                "約\(ByteCountFormatter.string(fromByteCount: $0, countStyle: .file))を使います。"
-            } ?? "画像と音声をダウンロードします。")
+        .frame(maxHeight: .infinity, alignment: .bottom)
+        .ignoresSafeArea(edges: .bottom)
+    }
+
+    private static let sheetRadius: CGFloat = 32
+    /// 取っ手として引ける高さ。取っ手と3項目まで。頭だけのときもダウンロードボタンにかからない。
+    private static let handleHeight: CGFloat = 100
+
+    /// 取っ手と3項目の所。上下に引いて止まる高さを切り替え、押すと反対の高さへ動かす。
+    private func sheetHandle(peekTop: CGFloat, expandedTop: CGFloat) -> some View {
+        Capsule()
+            .fill(WireColor.ink.opacity(0.25))
+            .frame(width: 36, height: 5)
+            .padding(.top, WireMetrics.spacingS)
+            .frame(maxWidth: .infinity, minHeight: Self.handleHeight, alignment: .top)
+            .contentShape(Rectangle())
+            .onTapGesture { setSheetExpanded(!isFocused) }
+            .gesture(
+                DragGesture(minimumDistance: 4, coordinateSpace: .global)
+                    .onChanged { sheetDrag = $0.translation.height }
+                    .onEnded { value in
+                        let resting = isFocused ? expandedTop : peekTop
+                        let predicted = resting + value.predictedEndTranslation.height
+                        setSheetExpanded(abs(predicted - expandedTop) < abs(predicted - peekTop))
+                    }
+            )
+            // ponytail: VoiceOver は押して切り替えるだけの最低限。作り込みは後でまとめて行う。
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(isFocused ? "詳細を閉じる" : "詳細を開く")
+            .accessibilityAddTraits(.isButton)
+    }
+
+    private func setSheetExpanded(_ expanded: Bool) {
+        withAnimation(reduceMotion ? nil : .spring(response: 0.36, dampingFraction: 0.88)) {
+            detent = expanded ? GallerySheetDetent.expanded : GallerySheetDetent.peek
+            sheetDrag = 0
         }
-        .presentationDetents([GallerySheetDetent.peek, GallerySheetDetent.expanded], selection: $detent)
-        // 7割でも後ろを暗くしない。上に出したカードを明るいまま見せる。カルーセルは7割の間は止めてある。
-        .presentationBackgroundInteraction(.enabled)
-        .presentationDragIndicator(.visible)
-        .interactiveDismissDisabled()
     }
 
     // MARK: - 動き
-
-    private func leave() {
-        afterSheetDismiss = { dismiss() }
-        if isSheetPresented {
-            isSheetPresented = false
-        } else {
-            runAfterSheetDismiss()
-        }
-    }
-
-    private func runAfterSheetDismiss() {
-        let action = afterSheetDismiss
-        afterSheetDismiss = nil
-        action?()
-    }
-
-    /// 選べる箱があるときだけシートを出す。無いときは看板だけを見せる。
-    private func updateSheetPresence() {
-        let shouldPresent = selectedBox != nil && afterSheetDismiss == nil
-        if !shouldPresent { detent = GallerySheetDetent.peek }
-        if isSheetPresented != shouldPresent { isSheetPresented = shouldPresent }
-    }
 
     private func selectFirstDeckIfNeeded() {
         detent = GallerySheetDetent.peek
@@ -202,7 +224,6 @@ struct DeckLibraryView: View {
         defer {
             isLoading = false
             selectFirstDeckIfNeeded()
-            updateSheetPresence()
         }
         do {
             boxes = try await appState.fetchOfficialBoxes()
@@ -273,13 +294,8 @@ struct DeckLibraryView: View {
         if appState.mediaDownloader?.isExpensiveNetwork == true {
             boxAwaitingCellularConsent = box
         } else {
-            startAdding(box)
+            onAdded(box, covers[box.id])
         }
-    }
-
-    private func startAdding(_ box: OfficialBox) {
-        afterSheetDismiss = { onAdded(box, covers[box.id]) }
-        isSheetPresented = false
     }
 }
 
@@ -376,6 +392,13 @@ enum GallerySheetDetent {
     /// 上に出すカードの下端とシートの上端をなるべく近づけるため、7割より少し高く止める。
     static let expandedFraction: CGFloat = 0.72
     static let expanded = PresentationDetent.fraction(expandedFraction)
+
+    /// 7割のときのシートの上端（安全域の内側の座標）。割合で止めるシートの高さは、画面の上の安全域を除いた高さに対する割合。
+    static func expandedTop(in proxy: GeometryProxy) -> CGFloat {
+        let top = proxy.safeAreaInsets.top
+        let screenHeight = proxy.size.height + top + proxy.safeAreaInsets.bottom
+        return screenHeight - (screenHeight - top) * expandedFraction - top
+    }
 }
 
 /// シートが上がったとき、中央のカードをシートの上の空きへ縮めて寄せる。隣の帯はカルーセルが隠す。
@@ -385,10 +408,7 @@ private struct FocusedCardPlacement: ViewModifier {
     let proxy: GeometryProxy
 
     func body(content: Content) -> some View {
-        let top = proxy.safeAreaInsets.top
-        let screenHeight = proxy.size.height + top + proxy.safeAreaInsets.bottom
-        // 割合で止めるシートの高さは、画面の上の安全域を除いた高さに対する割合になる。
-        let sheetTop = screenHeight - (screenHeight - top) * GallerySheetDetent.expandedFraction - top
+        let sheetTop = GallerySheetDetent.expandedTop(in: proxy)
         let regionTop = WireMetrics.spacingS
         let regionBottom = sheetTop - WireMetrics.spacingS
         let scale = min(1, max(0.3, (regionBottom - regionTop) / DeckCarouselView.Metrics.expandedHeight))
@@ -605,6 +625,8 @@ private struct DeckGallerySheet: View {
                 .scrollIndicators(.hidden)
             }
             .opacity(isExpanded ? 1 : 0)
+            // 頭だけのときは見えない一覧に指を取られないようにする。
+            .allowsHitTesting(isExpanded)
             .animation(.easeOut(duration: 0.2), value: isExpanded)
         }
         .frame(maxHeight: .infinity, alignment: .top)

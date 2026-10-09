@@ -35,10 +35,6 @@ struct BackSwipeEnabler: UIViewRepresentable {
     var takesPriorityOverContent = false
     /// 保存待ちなど、画面が離脱を保留する場合だけ false を返す。
     var canBegin: (() -> Bool)?
-    /// 戻るスワイプで前の画面へ戻り始めた。シートなど、画面と一緒に動かない物を下ろすのに使う。
-    var onPopBegan: (() -> Void)?
-    /// 戻るスワイプを途中でやめて、この画面に留まった。
-    var onPopCancelled: (() -> Void)?
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -57,8 +53,6 @@ struct BackSwipeEnabler: UIViewRepresentable {
     func updateUIView(_ uiView: BackSwipeHostView, context: Context) {
         context.coordinator.takesPriorityOverContent = takesPriorityOverContent
         context.coordinator.canBegin = canBegin
-        context.coordinator.onPopBegan = onPopBegan
-        context.coordinator.onPopCancelled = onPopCancelled
         context.coordinator.attach(from: uiView)
     }
 
@@ -73,8 +67,6 @@ struct BackSwipeEnabler: UIViewRepresentable {
         private var originalIsEnabled = true
         var takesPriorityOverContent = false
         var canBegin: (() -> Bool)?
-        var onPopBegan: (() -> Void)?
-        var onPopCancelled: (() -> Void)?
 
         func attach(from view: BackSwipeHostView?) {
             guard let view,
@@ -88,7 +80,6 @@ struct BackSwipeEnabler: UIViewRepresentable {
                 gesture = target
                 originalDelegate = target.delegate
                 originalIsEnabled = target.isEnabled
-                target.addTarget(self, action: #selector(popGestureChanged(_:)))
             }
             hostView = view
 
@@ -108,23 +99,11 @@ struct BackSwipeEnabler: UIViewRepresentable {
         }
 
         private func restore(_ gesture: UIGestureRecognizer) {
-            gesture.removeTarget(self, action: #selector(popGestureChanged(_:)))
             if gesture.delegate === self {
                 gesture.delegate = originalDelegate
             }
             gesture.isEnabled = originalIsEnabled
             originalDelegate = nil
-        }
-
-        /// 戻り始めたことと、途中でやめたことを画面へ伝える。UIKit の戻る処理はこれより先に登録されているので、
-        /// 戻り始めた時点で画面遷移の進み具合（transitionCoordinator）が取れる。
-        @objc private func popGestureChanged(_ gesture: UIGestureRecognizer) {
-            guard gesture.state == .began, onPopBegan != nil || onPopCancelled != nil,
-                  let navigationController = hostView?.owningNavigationController else { return }
-            onPopBegan?()
-            navigationController.transitionCoordinator?.animate(alongsideTransition: nil) { [weak self] context in
-                if context.isCancelled { self?.onPopCancelled?() }
-            }
         }
 
         /// marker を敷いたところから始まったタッチだけ、標準の戻るへ渡さない。
