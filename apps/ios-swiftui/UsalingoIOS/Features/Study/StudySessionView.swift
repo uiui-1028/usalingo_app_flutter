@@ -269,15 +269,9 @@ struct StudySessionView: View {
     private func toolbar(spacing: CGFloat) -> some View {
         HStack(spacing: spacing) {
             toolbarButton("tag", label: "タグ", action: tagCurrentCard)
-            audioButton(
-                urls: [currentCard?.wordAudioURL, currentCard?.audioURL],
-                symbol: "speaker.wave.2",
-                label: "単語と例文の音声を再生"
-            )
-            audioButton(
-                urls: [currentCard?.audioURL],
-                symbol: "text.bubble",
-                label: "例文の音声を再生"
+            StudyAudioButton(
+                service: audioPlaybackService,
+                urls: [currentCard?.wordAudioURL, currentCard?.audioURL]
             )
             toolbarButton(
                 "arrow.uturn.backward",
@@ -515,12 +509,6 @@ struct StudySessionView: View {
         audioPlaybackService.playSequence(
             urls: [currentCard.wordAudioURL, currentCard.audioURL].compactMap { $0 }
         )
-    }
-
-    /// 渡した順に続けて鳴らす。押し始めの1本が鳴っている間だけ停止の見た目にし、
-    /// もう一度押すと途中でも止める。鳴らせる音声が1本も無いカードでは押せない。
-    private func audioButton(urls: [URL?], symbol: String, label: String) -> some View {
-        StudyAudioButton(service: audioPlaybackService, urls: urls, symbol: symbol, label: label)
     }
 
     /// 現在のカードから数枚先までを温める。1枚消費するたびに窓が1つ先へずれるので、
@@ -850,16 +838,15 @@ private extension View {
     }
 }
 
-/// 押すと順に鳴らし、鳴っている間にもう一度押すと止める音声ボタン。カード学習と5択で使う。
+/// 単語と例文の音声を続けて鳴らすボタン。カード学習と5択で使う。
+/// 最後の1本が鳴り終わるまで停止の見た目にし、途中で押すと止める。鳴らせる音声が1本も無いカードでは押せない。
 struct StudyAudioButton: View {
     @ObservedObject var service: AudioPlaybackService
     let urls: [URL?]
-    let symbol: String
-    let label: String
 
     var body: some View {
         let queue = urls.compactMap { $0 }
-        let isPlayingThis = service.playingURL != nil && service.playingURL == queue.first
+        let isPlayingThis = service.playingURL.map { queue.contains($0) } ?? false
         Button {
             guard !queue.isEmpty else { return }
             if isPlayingThis {
@@ -869,12 +856,12 @@ struct StudyAudioButton: View {
             }
         } label: {
             WordListActionBarIcon(
-                symbol: isPlayingThis ? "speaker.slash" : symbol,
+                symbol: isPlayingThis ? "speaker.slash" : "speaker.wave.2",
                 isActive: false
             )
         }
         .buttonStyle(.plain)
         .disabled(queue.isEmpty)
-        .accessibilityLabel(label)
+        .accessibilityLabel("単語と例文の音声を再生")
     }
 }

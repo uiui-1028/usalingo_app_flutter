@@ -229,18 +229,12 @@ struct FiveChoiceView: View {
         .outlineSurface(radius: WireMetrics.radiusPill, shadow: nil)
     }
 
-    /// 下端の道具の帯。カード学習と同じガラスの帯に、音声2つだけを置く。
+    /// 下端の道具の帯。カード学習と同じガラスの帯に、音声ボタンだけを置く。
     private var footer: some View {
         HStack(spacing: WireMetrics.spacingS) {
-            audioButton(
-                urls: [game?.question?.card.wordAudioURL, game?.question?.card.audioURL],
-                symbol: "speaker.wave.2",
-                label: "単語と例文の音声を再生"
-            )
-            audioButton(
-                urls: [game?.question?.card.audioURL],
-                symbol: "text.bubble",
-                label: "例文の音声を再生"
+            StudyAudioButton(
+                service: audioPlaybackService,
+                urls: [game?.question?.card.wordAudioURL, game?.question?.card.audioURL]
             )
             if answerQueue.isDraining { ProgressView().accessibilityLabel("回答を保存中") }
         }
@@ -254,10 +248,6 @@ struct FiveChoiceView: View {
                 Color.clear.contentShape(Rectangle()).onTapGesture { advance() }
             }
         }
-    }
-
-    private func audioButton(urls: [URL?], symbol: String, label: String) -> some View {
-        StudyAudioButton(service: audioPlaybackService, urls: urls, symbol: symbol, label: label)
     }
 
     @ViewBuilder
