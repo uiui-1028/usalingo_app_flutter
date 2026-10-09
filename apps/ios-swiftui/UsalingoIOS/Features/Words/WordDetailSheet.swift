@@ -75,23 +75,25 @@ struct WordDetailSheet: View {
     }
 
     private var sheet: some View {
-        WordDetailPager(
-            words: selection.words,
+        SheetPager(
+            ids: selection.words.map(\.id),
             selectedID: word.id,
-            isExpanded: isExpanded,
             direction: pagingDirection,
             reduceMotion: reduceMotion || backgroundPaging,
-            onProgress: { if !backgroundPaging { pagingProgress = $0 } }
-        ) { id in
-            var transaction = Transaction()
-            transaction.disablesAnimations = true
-            withTransaction(transaction) {
-                selection.select(id: id)
-                cardID = id
-                pagingProgress = 0
-                backgroundPaging = false
-                backgroundSettling = false
+            onProgress: { if !backgroundPaging { pagingProgress = $0 } },
+            onSelected: { id in
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    selection.select(id: id)
+                    cardID = id
+                    pagingProgress = 0
+                    backgroundPaging = false
+                    backgroundSettling = false
+                }
             }
+        ) { id in
+            WordDetailPage(word: selection.words.first { $0.id == id } ?? word, isExpanded: isExpanded)
         }
         // 中身をシートの下端まで流す。下の安全域で切ると、バーの下に切れ目が見える。
         .ignoresSafeArea(edges: .bottom)
@@ -164,7 +166,7 @@ struct WordDetailSheet: View {
                     .contentShape(RoundedRectangle(cornerRadius: WireMetrics.radiusCard))
                     .onTapGesture { isExpanded = true }
                     .accessibilityAction(named: "詳細を表示") { isExpanded = true }
-                    .modifier(WordCardArc(position: position, travel: width))
+                    .modifier(PageArc(position: position, travel: width))
                     .allowsHitTesting(offset == 0 && pagingProgress == 0)
                     .accessibilityHidden(offset != 0)
             }
@@ -211,7 +213,7 @@ struct WordDetailSheet: View {
 
 /// A shallow arc toward the viewer: the inner edge comes forward as a card
 /// leaves the center. The background and the sheet keep their own geometry.
-private struct WordCardArc: AnimatableModifier {
+struct PageArc: AnimatableModifier {
     var position: CGFloat
     let travel: CGFloat
     var animatableData: CGFloat {
@@ -270,15 +272,16 @@ struct WordDetailSelection {
 }
 
 /// Native horizontal paging arbitrates with each page's vertical ScrollView.
-/// Only this region receives the paging gesture; the 3D card is a sibling.
-private struct WordDetailPager: UIViewControllerRepresentable {
-    let words: [WordCard]
-    let selectedID: WordCard.ID
-    let isExpanded: Bool
+/// シートの中身を横にめくる。端まで行ったら反対の端へ回る。単語詳細とデッキ追加画面で使う。
+/// めくっている途中の進み具合（-1〜1）を `onProgress` で返し、シートの外のカードも同じだけ動かせるようにする。
+struct SheetPager<ID: Hashable, Content: View>: UIViewControllerRepresentable {
+    let ids: [ID]
+    let selectedID: ID
     let direction: UIPageViewController.NavigationDirection
     let reduceMotion: Bool
     let onProgress: (CGFloat) -> Void
-    let onSelected: (WordCard.ID) -> Void
+    let onSelected: (ID) -> Void
+    @ViewBuilder let content: (ID) -> Content
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -286,7 +289,7 @@ private struct WordDetailPager: UIViewControllerRepresentable {
         let controller = UIPageViewController(transitionStyle: .scroll, navigationOrientation: .horizontal)
         controller.view.backgroundColor = .clear
         controller.delegate = context.coordinator
-        controller.dataSource = words.count > 1 ? context.coordinator : nil
+        controller.dataSource = ids.count > 1 ? context.coordinator : nil
         controller.setViewControllers([context.coordinator.page(id: selectedID)], direction: .forward, animated: false)
         if let scrollView = controller.view.subviews.compactMap({ $0 as? UIScrollView }).first {
             context.coordinator.observe(scrollView)
@@ -298,14 +301,9 @@ private struct WordDetailPager: UIViewControllerRepresentable {
         context.coordinator.parent = self
         guard !context.coordinator.isTransitioning else { return }
         guard let current = controller.viewControllers?.first as? Page else { return }
-        if current.wordID == selectedID {
+        if current.id == selectedID {
             // Saving an edit or moving the sheet refreshes the page without resetting the presenter.
-            if let updated = words.first(where: { $0.id == selectedID }),
-               current.word != updated || current.isExpanded != isExpanded {
-                current.word = updated
-                current.isExpanded = isExpanded
-                current.rootView = WordDetailPage(word: updated, isExpanded: isExpanded)
-            }
+            current.rootView = content(selectedID)
         } else {
             let coordinator = context.coordinator
             coordinator.isTransitioning = true
@@ -319,15 +317,12 @@ private struct WordDetailPager: UIViewControllerRepresentable {
         }
     }
 
-    final class Page: UIHostingController<WordDetailPage> {
-        var word: WordCard
-        var isExpanded: Bool
-        var wordID: WordCard.ID { word.id }
+    final class Page: UIHostingController<Content> {
+        let id: ID
 
-        init(word: WordCard, isExpanded: Bool) {
-            self.word = word
-            self.isExpanded = isExpanded
-            super.init(rootView: WordDetailPage(word: word, isExpanded: isExpanded))
+        init(id: ID, content: Content) {
+            self.id = id
+            super.init(rootView: content)
             view.backgroundColor = .clear
         }
 
@@ -336,10 +331,10 @@ private struct WordDetailPager: UIViewControllerRepresentable {
     }
 
     final class Coordinator: NSObject, UIPageViewControllerDataSource, UIPageViewControllerDelegate {
-        var parent: WordDetailPager
+        var parent: SheetPager
         var isTransitioning = false
         private var offsetObservation: NSKeyValueObservation?
-        init(_ parent: WordDetailPager) { self.parent = parent }
+        init(_ parent: SheetPager) { self.parent = parent }
 
         func observe(_ scrollView: UIScrollView) {
             // Observe without replacing UIPageViewController's private scroll delegate.
@@ -354,15 +349,14 @@ private struct WordDetailPager: UIViewControllerRepresentable {
             }
         }
 
-        func page(id: WordCard.ID) -> Page {
-            Page(word: parent.words.first(where: { $0.id == id }) ?? parent.words[0], isExpanded: parent.isExpanded)
+        func page(id: ID) -> Page {
+            Page(id: id, content: parent.content(id))
         }
 
         private func neighbor(of controller: UIViewController, step: Int) -> UIViewController? {
-            guard parent.words.count > 1, let current = controller as? Page,
-                  let index = parent.words.firstIndex(where: { $0.id == current.wordID }) else { return nil }
-            let next = WordDetailSelection.wrappedIndex(index + step, count: parent.words.count)
-            return Page(word: parent.words[next], isExpanded: parent.isExpanded)
+            guard parent.ids.count > 1, let current = controller as? Page,
+                  let index = parent.ids.firstIndex(of: current.id) else { return nil }
+            return page(id: parent.ids[WordDetailSelection.wrappedIndex(index + step, count: parent.ids.count)])
         }
 
         func pageViewController(_ pageViewController: UIPageViewController, viewControllerBefore viewController: UIViewController) -> UIViewController? {
@@ -381,7 +375,7 @@ private struct WordDetailPager: UIViewControllerRepresentable {
                                 previousViewControllers: [UIViewController], transitionCompleted completed: Bool) {
             isTransitioning = false
             guard let page = pageViewController.viewControllers?.first as? Page else { return }
-            parent.onSelected(page.wordID)
+            parent.onSelected(page.id)
         }
     }
 }

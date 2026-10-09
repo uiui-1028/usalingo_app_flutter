@@ -1,13 +1,16 @@
 import SwiftUI
+import UIKit
 
 /// 学習タブの空き枠から開く、公式デッキの箱を1つ選んで追加する画面。
 ///
-/// 上にジャンルのセグメント、真ん中に学習タブと同じ縦のカルーセル、下にシートを置く。
+/// 上にジャンルのセグメント、真ん中に学習タブと同じ縦のカルーセル、下に標準のシートを置く。
 /// シートは頭（収録語数・容量・レベル）と約7割（詳しい情報と単語一覧）の2段で、中身はカルーセルの
 /// 中央の箱に合わせて変わる。要件は docs/plans/deck-gallery-redesign-requirements.md と
 /// docs/plans/deck-box-requirements.md。
 /// ダウンロードを押したら、すぐ `onAdded` に箱と表紙を渡す。追加と画像・音声のダウンロードは呼び出し側が裏で進め、
 /// 進み具合は学習タブの枠に出す（要件 R4・R5）。戻るのも呼び出し側が決める。
+/// 横に払うとジャンルを切り替える。単語詳細の単語の切り替えと同じく、カルーセルとシートの中身が指に付いて動く。
+/// 横の指はジャンルに使うので、横になぞって戻る操作は無い（戻るのは左上のアイコンだけ）。
 struct DeckLibraryView: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.dismiss) private var dismiss
@@ -15,11 +18,22 @@ struct DeckLibraryView: View {
     let onAdded: (OfficialBox, URL?) -> Void
 
     @State private var genre = GalleryGenre.exam
+    /// カルーセルに出しているジャンル。払い終えてシートのめくりと同じ瞬間に `genre` へ追いつく。
+    @State private var displayedGenre = GalleryGenre.exam
+    /// 横に払っている途中の進み具合（-1〜1）。正は次のジャンルへ進む向き。
+    @State private var genreProgress: CGFloat = 0
+    @State private var pagingDirection: UIPageViewController.NavigationDirection = .forward
+    /// シートの外を横に払っている。シートのめくりは動かさず、払い終えたら入れ替える。
+    @State private var backgroundPaging = false
+    @State private var backgroundSettling = false
+    @State private var genreSwipeLock = DragAxisLock()
+    /// ジャンルのバーの場所。ここから始めた指は、バーの選択枠を滑らせる操作なので払わない。
+    @State private var genreBarFrame = CGRect.null
     @State private var boxes: [OfficialBox] = []
     @State private var isLoading = true
     @State private var loadFailed = false
-    /// カルーセルの中央にいる箱。
-    @State private var selectedId: OfficialBox.ID?
+    /// ジャンルごとの、カルーセルの中央にいる箱。切り替えて戻ってきたら、前に見ていた箱から見せる。
+    @State private var selectedIds: [GalleryGenre: OfficialBox.ID] = [:]
     /// デッキ（サーバーの番号）ごとの収録カード。読めなかったデッキは入らない。
     @State private var cardsByDeck: [Int: [WordCard]] = [:]
     @State private var covers: [OfficialBox.ID: URL] = [:]
@@ -27,21 +41,21 @@ struct DeckLibraryView: View {
     @State private var deckCovers: [Int: URL] = [:]
     /// 学習タブにある公式デッキ（端末の番号）ごとの、サーバーの単語番号。重なる語数を数えるのに使う。
     @State private var ownedWords: [Int: Set<Int>] = [:]
+    @State private var isSheetPresented = false
     @State private var detent = GallerySheetDetent.peek
-    /// シートの上端を指で引いている量。上が負。
-    @State private var sheetDrag: CGFloat = 0
     /// モバイル回線で押したときに、確認を出している箱（要件 D7）。
     @State private var boxAwaitingCellularConsent: OfficialBox?
+    /// シートを閉じ切ってから行うこと。シートを出したまま戻ると、画面だけが先に消えてしまう。
+    @State private var afterSheetDismiss: (() -> Void)?
 
-    private var genreBoxes: [OfficialBox] { boxes.filter { $0.genre == genre } }
-    private var selectedBox: OfficialBox? { genreBoxes.first { $0.id == selectedId } }
+    private var selectedBox: OfficialBox? { selectedBox(in: genre) }
     /// シートが7割まで上がっている。カードを1枚だけ上に出し、回せなくする。
     private var isFocused: Bool { detent == GallerySheetDetent.expanded }
 
     var body: some View {
         GeometryReader { proxy in
             ZStack(alignment: .top) {
-                content(in: proxy)
+                genrePages(in: proxy)
                 if isFocused {
                     // シートの外（上のカードと背景）をタップしたら、シートを頭に戻して一覧へ帰る。
                     Color.clear
@@ -54,54 +68,61 @@ struct DeckLibraryView: View {
                         .padding(.horizontal, WireMetrics.screenPadding)
                         .transition(.opacity)
                 }
-                if !isLoading, let box = selectedBox {
-                    sheet(box, in: proxy)
-                }
             }
             .animation(reduceMotion ? nil : .spring(response: 0.36, dampingFraction: 0.88), value: isFocused)
+            .simultaneousGesture(genreSwipe(width: proxy.size.width))
         }
         .background(WireColor.background)
+        // ヘッダーを隠すと、UIKit の横になぞって戻る操作も止まる。横の指はジャンルの切り替えに使う。
         .toolbar(.hidden, for: .navigationBar)
-        .background {
-            // ヘッダーを隠すと戻るスワイプも止まるので、ほかの画面と同じ仕組みで戻す。
-            // カルーセルのドラッグが画面全体を覆うので、音声モードと同じく戻るを先に判定させる。
-            BackSwipeEnabler(takesPriorityOverContent: true, canBegin: { !isFocused })
-        }
-        .alert("モバイル回線でダウンロードしますか？", isPresented: Binding(
-            get: { boxAwaitingCellularConsent != nil },
-            set: { if !$0 { boxAwaitingCellularConsent = nil } }
-        ), presenting: boxAwaitingCellularConsent) { box in
-            Button("やめる", role: .cancel) {}
-            Button("ダウンロード") { onAdded(box, covers[box.id]) }
-        } message: { box in
-            Text(box.missingBytes.map {
-                "約\(ByteCountFormatter.string(fromByteCount: $0, countStyle: .file))を使います。"
-            } ?? "画像と音声をダウンロードします。")
-        }
+        .sheet(isPresented: $isSheetPresented, onDismiss: runAfterSheetDismiss) { sheet }
         .task { await reload() }
-        .onChange(of: genre) { _, _ in selectFirstDeckIfNeeded() }
-        .onChange(of: selectedBox == nil) { _, isEmpty in if isEmpty { detent = GallerySheetDetent.peek } }
+        .onChange(of: selectedBox?.id) { _, _ in updateSheetPresence() }
+        .onDisappear { isSheetPresented = false }
     }
 
     // MARK: - 画面
 
+    /// 今のジャンルと左右のジャンルのカルーセルを並べ、払っている間は単語詳細のカードと同じ弧で動かす。
     @ViewBuilder
-    private func content(in proxy: GeometryProxy) -> some View {
+    private func genrePages(in proxy: GeometryProxy) -> some View {
         if isLoading {
             ProgressView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if loadFailed || genreBoxes.isEmpty {
-            GalleryUnavailableBoard { Task { await reload() } }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            let peekCover = max(0, GallerySheetDetent.peekHeight - proxy.safeAreaInsets.bottom)
-            let areaHeight = proxy.size.height - peekCover
+            ZStack {
+                ForEach(reduceMotion ? [0] : [-1, 0, 1], id: \.self) { offset in
+                    let shown = genre(offsetBy: offset, from: displayedGenre)
+                    content(for: shown, in: proxy)
+                        .id(shown)
+                        .modifier(PageArc(position: CGFloat(offset) - (reduceMotion ? 0 : genreProgress),
+                                          travel: proxy.size.width))
+                        .allowsHitTesting(offset == 0 && genreProgress == 0)
+                        .accessibilityHidden(offset != 0)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func content(for genre: GalleryGenre, in proxy: GeometryProxy) -> some View {
+        let genreBoxes = boxes(in: genre)
+        let peekCover = max(0, GallerySheetDetent.peekHeight - proxy.safeAreaInsets.bottom)
+        let areaHeight = proxy.size.height - peekCover
+        if loadFailed || genreBoxes.isEmpty {
+            // 中央のカードと同じ大きさの仮のデッキを置く。シートを上げたときも、ふつうのカードと同じく上へ寄せる。
+            GalleryPlaceholderCard(isLoadFailed: loadFailed, onTap: tapPlaceholder)
+                .frame(height: DeckCarouselView.Metrics.expandedHeight)
+                .padding(.horizontal, WireMetrics.screenPadding)
+                .frame(height: areaHeight)
+                .modifier(FocusedCardPlacement(isFocused: isFocused, areaHeight: areaHeight, proxy: proxy))
+        } else {
             DeckGalleryCarousel(
                 boxes: genreBoxes,
-                selectedId: selectedId,
+                selectedId: selectedBox(in: genre)?.id,
                 covers: covers,
                 isLocked: isFocused,
-                onSelect: { selectedId = $0.id },
+                onSelect: { selectedIds[genre] = $0.id },
                 onOpen: { detent = GallerySheetDetent.expanded }
             )
             .padding(.horizontal, WireMetrics.screenPadding)
@@ -113,9 +134,7 @@ struct DeckLibraryView: View {
     /// 左に戻るアイコン、右にジャンルのセグメント。どちらもカルーセルの上に浮かぶガラスの板。
     private var topBar: some View {
         HStack(spacing: WireMetrics.spacingS) {
-            Button {
-                dismiss()
-            } label: {
+            Button(action: leave) {
                 Image(systemName: "chevron.left")
                     .font(.body.weight(.semibold))
                     .foregroundStyle(WireColor.ink)
@@ -126,104 +145,184 @@ struct DeckLibraryView: View {
             .glassBarSurface(in: Circle())
             .accessibilityLabel("戻る")
 
-            SegmentSlider(items: GalleryGenre.allCases, selection: $genre, title: \.rawValue) { genre in
+            SegmentSlider(items: GalleryGenre.allCases, selection: Binding(get: { genre }, set: selectGenre),
+                          title: \.rawValue) { genre in
                 Text(genre.rawValue).wireFont(.label)
             }
             .frame(height: 48)
             .padding(WireMetrics.spacingXS)
             .glassBarSurface(in: Capsule())
-            // ジャンルを横に滑らせても戻らないようにする。
-            .backSwipeProtectedRegion()
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { genreBarFrame = $0 }
             .accessibilityElement(children: .contain)
             .accessibilityLabel("ジャンル")
         }
         .padding(.top, WireMetrics.spacingXS)
     }
 
-    /// 下に重ねる詳細のシート。iOS 標準のシートは画面とは別に出るので、横になぞって戻るときに画面と一緒に動かず、
-    /// 出ている間は戻るスワイプも始められない。そこでページの一部として描き、戻るときは画面と一緒に動かす。
-    /// 止まる高さは標準のシートと同じ2段（頭だけ／約7割）。上の取っ手と3項目の所を上下に引くか押して切り替える。
-    /// 7割でも後ろを暗くせず、上に出したカードを明るいまま見せる。カルーセルは7割の間は止めてある。
-    /// ponytail: 標準のシートにある「一覧を上端まで戻してから下へ引くと頭へ戻る」動きは無い。
-    /// 取っ手の所を引くか、シートの外を押して頭へ戻す。要るなら一覧のスクロール位置を見て引き継ぐ。
-    private func sheet(_ box: OfficialBox, in proxy: GeometryProxy) -> some View {
-        let peekTop = proxy.size.height - GallerySheetDetent.peekHeight
-        let expandedTop = GallerySheetDetent.expandedTop(in: proxy)
-        let top = min(max((isFocused ? expandedTop : peekTop) + sheetDrag, expandedTop), peekTop)
-        let bottom = proxy.safeAreaInsets.bottom
-        let shape = UnevenRoundedRectangle(topLeadingRadius: Self.sheetRadius,
-                                           topTrailingRadius: Self.sheetRadius, style: .continuous)
-        return DeckGallerySheet(
-            box: box,
-            cardsByDeck: cardsByDeck,
-            deckCovers: deckCovers,
-            overlap: overlapCount(for: box),
-            isExpanded: isFocused,
-            onDownload: { download(box) }
-        )
-        // 別の箱に回したら、選んでいる娘を先頭に戻す（要件 X20）。
-        .id(box.id)
-        // 面は画面の下端まで伸ばし、中身は下の安全域の上に収める（標準のシートと同じ）。
-        .padding(.bottom, bottom)
-        .frame(maxWidth: .infinity)
-        .frame(height: proxy.size.height - top + bottom)
-        .clipShape(shape)
-        .overlay(alignment: .top) { sheetHandle(peekTop: peekTop, expandedTop: expandedTop) }
-        .background {
-            shape.fill(.regularMaterial)
-                .shadow(color: .black.opacity(0.12), radius: 16, y: -2)
+    /// シートの中身は単語詳細と同じくジャンルごとのページにし、横に払うとめくる。
+    private var sheet: some View {
+        SheetPager(
+            ids: GalleryGenre.allCases,
+            selectedID: genre,
+            direction: pagingDirection,
+            reduceMotion: reduceMotion || backgroundPaging,
+            onProgress: { if !backgroundPaging { genreProgress = $0 } },
+            onSelected: finishGenreChange
+        ) { genre in
+            sheetPage(for: genre)
         }
-        .frame(maxHeight: .infinity, alignment: .bottom)
-        .ignoresSafeArea(edges: .bottom)
+        // シートが出ている間は、確認もシートの上に出す。
+        .alert("モバイル回線でダウンロードしますか？", isPresented: Binding(
+            get: { boxAwaitingCellularConsent != nil },
+            set: { if !$0 { boxAwaitingCellularConsent = nil } }
+        ), presenting: boxAwaitingCellularConsent) { box in
+            Button("やめる", role: .cancel) {}
+            Button("ダウンロード") { startAdding(box) }
+        } message: { box in
+            Text(box.missingBytes.map {
+                "約\(ByteCountFormatter.string(fromByteCount: $0, countStyle: .file))を使います。"
+            } ?? "画像と音声をダウンロードします。")
+        }
+        .presentationDetents([GallerySheetDetent.peek, GallerySheetDetent.expanded], selection: $detent)
+        // 7割でも後ろを暗くしない。上に出したカードを明るいまま見せる。カルーセルは7割の間は止めてある。
+        .presentationBackgroundInteraction(.enabled)
+        .presentationDragIndicator(.visible)
+        .interactiveDismissDisabled()
     }
 
-    private static let sheetRadius: CGFloat = 32
-    /// 取っ手として引ける高さ。取っ手と3項目まで。頭だけのときもダウンロードボタンにかからない。
-    private static let handleHeight: CGFloat = 100
-
-    /// 取っ手と3項目の所。上下に引いて止まる高さを切り替え、押すと反対の高さへ動かす。
-    private func sheetHandle(peekTop: CGFloat, expandedTop: CGFloat) -> some View {
-        Capsule()
-            .fill(WireColor.ink.opacity(0.25))
-            .frame(width: 36, height: 5)
-            .padding(.top, WireMetrics.spacingS)
-            .frame(maxWidth: .infinity, minHeight: Self.handleHeight, alignment: .top)
-            .contentShape(Rectangle())
-            .onTapGesture { setSheetExpanded(!isFocused) }
-            .gesture(
-                DragGesture(minimumDistance: 4, coordinateSpace: .global)
-                    .onChanged { sheetDrag = $0.translation.height }
-                    .onEnded { value in
-                        let resting = isFocused ? expandedTop : peekTop
-                        let predicted = resting + value.predictedEndTranslation.height
-                        setSheetExpanded(abs(predicted - expandedTop) < abs(predicted - peekTop))
-                    }
+    @ViewBuilder
+    private func sheetPage(for genre: GalleryGenre) -> some View {
+        if let box = selectedBox(in: genre) {
+            DeckGallerySheet(
+                box: box,
+                cardsByDeck: cardsByDeck,
+                deckCovers: deckCovers,
+                overlap: overlapCount(for: box),
+                isExpanded: isFocused,
+                onDownload: { download(box) }
             )
-            // ponytail: VoiceOver は押して切り替えるだけの最低限。作り込みは後でまとめて行う。
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(isFocused ? "詳細を閉じる" : "詳細を開く")
-            .accessibilityAddTraits(.isButton)
+            // 別の箱に回したら、選んでいる娘を先頭に戻す（要件 X20）。
+            .id(box.id)
+        } else {
+            GalleryPlaceholderSheet()
+        }
     }
 
-    private func setSheetExpanded(_ expanded: Bool) {
-        withAnimation(reduceMotion ? nil : .spring(response: 0.36, dampingFraction: 0.88)) {
-            detent = expanded ? GallerySheetDetent.expanded : GallerySheetDetent.peek
-            sheetDrag = 0
+    /// 仮のデッキを押した。読み込めなかったときは読み込み直し、デッキが無いときはふつうと同じくシートを上げる。
+    private func tapPlaceholder() {
+        if loadFailed {
+            Task { await reload() }
+        } else {
+            detent = GallerySheetDetent.expanded
+        }
+    }
+
+    // MARK: - ジャンル
+
+    private func boxes(in genre: GalleryGenre) -> [OfficialBox] {
+        self.boxes.filter { $0.genre == genre }
+    }
+
+    /// そのジャンルで最後に中央にいた箱。まだ見ていなければ先頭の箱。
+    private func selectedBox(in genre: GalleryGenre) -> OfficialBox? {
+        let genreBoxes = boxes(in: genre)
+        return genreBoxes.first { $0.id == selectedIds[genre] } ?? genreBoxes.first
+    }
+
+    /// 並びの端まで行ったら、反対の端へ回る。
+    private func genre(offsetBy step: Int, from genre: GalleryGenre) -> GalleryGenre {
+        let all = GalleryGenre.allCases
+        let index = all.firstIndex(of: genre) ?? 0
+        return all[WordDetailSelection.wrappedIndex(index + step, count: all.count)]
+    }
+
+    /// シートの外を横に払う。向きはなぞり始めに一度だけ決め、縦と決まった指はカルーセルに任せる。
+    private func genreSwipe(width: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 12, coordinateSpace: .global)
+            .onChanged { value in
+                guard !isLoading, !backgroundSettling, !genreBarFrame.contains(value.startLocation),
+                      genreSwipeLock.axis(start: value.startLocation, translation: value.translation) == .horizontal
+                else { return }
+                backgroundPaging = true
+                genreProgress = min(1, max(-1, -value.translation.width / max(1, width)))
+            }
+            .onEnded { value in
+                genreSwipeLock.reset()
+                if backgroundPaging { settleGenre(translation: value.translation.width) }
+            }
+    }
+
+    /// 単語詳細と同じく、45pt を超えて払ったら隣のジャンルへ進み、届かなければ元へ戻す。
+    private func settleGenre(translation: CGFloat) {
+        guard !backgroundSettling else { return }
+        backgroundSettling = true
+        let step = abs(translation) > 45 ? (translation < 0 ? 1 : -1) : 0
+        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.24)) {
+            genreProgress = CGFloat(step)
+        } completion: {
+            guard step != 0 else {
+                backgroundPaging = false
+                backgroundSettling = false
+                return
+            }
+            pagingDirection = step > 0 ? .forward : .reverse
+            finishGenreChange(genre(offsetBy: step, from: genre))
+        }
+    }
+
+    /// ジャンルのバーで選んだ。シートが出ていればシートをめくり、カルーセルもその進み具合に合わせて動かす。
+    private func selectGenre(_ selected: GalleryGenre) {
+        let all = GalleryGenre.allCases
+        pagingDirection = (all.firstIndex(of: selected) ?? 0) >= (all.firstIndex(of: genre) ?? 0) ? .forward : .reverse
+        if isSheetPresented {
+            genre = selected
+        } else {
+            finishGenreChange(selected)
+        }
+    }
+
+    /// ジャンルを入れ替え終えた。カルーセルとシートを同じ瞬間にそろえる。
+    private func finishGenreChange(_ selected: GalleryGenre) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            genre = selected
+            displayedGenre = selected
+            genreProgress = 0
+            backgroundPaging = false
+            backgroundSettling = false
         }
     }
 
     // MARK: - 動き
 
-    private func selectFirstDeckIfNeeded() {
-        detent = GallerySheetDetent.peek
-        if selectedBox == nil { selectedId = genreBoxes.first?.id }
+    private func leave() {
+        afterSheetDismiss = { dismiss() }
+        if isSheetPresented {
+            isSheetPresented = false
+        } else {
+            runAfterSheetDismiss()
+        }
+    }
+
+    private func runAfterSheetDismiss() {
+        let action = afterSheetDismiss
+        afterSheetDismiss = nil
+        action?()
+    }
+
+    /// シートはいつも出す。選べる箱が無いときは、仮のデッキのシートを出す。
+    private func updateSheetPresence() {
+        let shouldPresent = afterSheetDismiss == nil
+        if !shouldPresent { detent = GallerySheetDetent.peek }
+        if isSheetPresented != shouldPresent { isSheetPresented = shouldPresent }
     }
 
     private func reload() async {
         isLoading = boxes.isEmpty
         defer {
             isLoading = false
-            selectFirstDeckIfNeeded()
+            updateSheetPresence()
         }
         do {
             boxes = try await appState.fetchOfficialBoxes()
@@ -294,8 +393,13 @@ struct DeckLibraryView: View {
         if appState.mediaDownloader?.isExpensiveNetwork == true {
             boxAwaitingCellularConsent = box
         } else {
-            onAdded(box, covers[box.id])
+            startAdding(box)
         }
+    }
+
+    private func startAdding(_ box: OfficialBox) {
+        afterSheetDismiss = { onAdded(box, covers[box.id]) }
+        isSheetPresented = false
     }
 }
 
@@ -392,13 +496,6 @@ enum GallerySheetDetent {
     /// 上に出すカードの下端とシートの上端をなるべく近づけるため、7割より少し高く止める。
     static let expandedFraction: CGFloat = 0.72
     static let expanded = PresentationDetent.fraction(expandedFraction)
-
-    /// 7割のときのシートの上端（安全域の内側の座標）。割合で止めるシートの高さは、画面の上の安全域を除いた高さに対する割合。
-    static func expandedTop(in proxy: GeometryProxy) -> CGFloat {
-        let top = proxy.safeAreaInsets.top
-        let screenHeight = proxy.size.height + top + proxy.safeAreaInsets.bottom
-        return screenHeight - (screenHeight - top) * expandedFraction - top
-    }
 }
 
 /// シートが上がったとき、中央のカードをシートの上の空きへ縮めて寄せる。隣の帯はカルーセルが隠す。
@@ -408,7 +505,10 @@ private struct FocusedCardPlacement: ViewModifier {
     let proxy: GeometryProxy
 
     func body(content: Content) -> some View {
-        let sheetTop = GallerySheetDetent.expandedTop(in: proxy)
+        let top = proxy.safeAreaInsets.top
+        let screenHeight = proxy.size.height + top + proxy.safeAreaInsets.bottom
+        // 割合で止めるシートの高さは、画面の上の安全域を除いた高さに対する割合になる。
+        let sheetTop = screenHeight - (screenHeight - top) * GallerySheetDetent.expandedFraction - top
         let regionTop = WireMetrics.spacingS
         let regionBottom = sheetTop - WireMetrics.spacingS
         let scale = min(1, max(0.3, (regionBottom - regionTop) / DeckCarouselView.Metrics.expandedHeight))
@@ -419,22 +519,34 @@ private struct FocusedCardPlacement: ViewModifier {
     }
 }
 
-/// デッキが無いジャンルと、読み込めなかったときに出す看板（要件 G10）。
-private struct GalleryUnavailableBoard: View {
-    let onRetry: () -> Void
+/// デッキが無いジャンルと、読み込めなかったときにカルーセルの中央に置く仮のデッキ（要件 G10）。
+/// 中身の情報は持たない。灰色の面に点線の枠と鳥の記号を置き、「開発中」か「読み込めません」と出す。
+private struct GalleryPlaceholderCard: View {
+    let isLoadFailed: Bool
+    let onTap: () -> Void
 
     var body: some View {
-        VStack(spacing: WireMetrics.spacingM) {
-            Image(systemName: "exclamationmark.triangle")
+        let shape = RoundedRectangle(cornerRadius: WireMetrics.radiusCard, style: .continuous)
+        VStack(spacing: WireMetrics.spacingS) {
+            Image(systemName: "bird")
                 .font(.largeTitle)
+                .imageScale(.large)
                 .foregroundStyle(WireColor.ink)
                 .accessibilityHidden(true)
-            Text("読み込めません").wireFont(.titleS)
-            Button("もう一度読み込む", action: onRetry)
-                .buttonStyle(.bordered)
-                .tint(WireColor.ink)
+            Text(isLoadFailed ? "読み込めません" : "開発中").wireFont(.titleL)
+            if isLoadFailed {
+                Text("押すと読み込み直します").wireFont(.caption)
+            }
         }
-        .padding(WireMetrics.spacingXL)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(shape.fill(BentoTone.l3.fill))
+        .overlay(
+            shape.strokeBorder(WireColor.ink, style: StrokeStyle(lineWidth: WireMetrics.strokeHair, dash: [5, 4]))
+        )
+        .contentShape(shape)
+        .onTapGesture(perform: onTap)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
         .accessibilityIdentifier("galleryLoadMessage")
     }
 }
@@ -625,8 +737,6 @@ private struct DeckGallerySheet: View {
                 .scrollIndicators(.hidden)
             }
             .opacity(isExpanded ? 1 : 0)
-            // 頭だけのときは見えない一覧に指を取られないようにする。
-            .allowsHitTesting(isExpanded)
             .animation(.easeOut(duration: 0.2), value: isExpanded)
         }
         .frame(maxHeight: .infinity, alignment: .top)
@@ -724,8 +834,20 @@ private struct DeckGallerySheet: View {
     }
 
     private var downloadArea: some View {
-        Button(action: onDownload) {
-            Text(box.isAdded ? "追加済み" : "ダウンロード")
+        GalleryDownloadButton(title: box.isAdded ? "追加済み" : "ダウンロード", isEnabled: !box.isAdded,
+                              action: onDownload)
+    }
+}
+
+/// シートの下に浮かべるダウンロードボタン。押せないときは色を抜く。
+private struct GalleryDownloadButton: View {
+    let title: String
+    let isEnabled: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
                 .font(.headline)
                 // 白い文字は #FF5D97 の上では基準のコントラストに届かない。利用者の判断で今はこのまま（要件 G5）。
                 .foregroundStyle(.white)
@@ -734,13 +856,33 @@ private struct DeckGallerySheet: View {
         }
         .buttonStyle(.plain)
         .pinkGlassSurface(in: Capsule())
-        .disabled(box.isAdded)
-        // 追加済みは透かさずに色を抜いて示す。薄くすると、後ろの一覧がボタン越しに透けて読みにくい。
-        .saturation(box.isAdded ? 0 : 1)
+        .disabled(!isEnabled)
+        // 押せないときは透かさずに色を抜いて示す。薄くすると、後ろの一覧がボタン越しに透けて読みにくい。
+        .saturation(isEnabled ? 1 : 0)
         .padding(.horizontal, WireMetrics.screenPadding)
         .padding(.bottom, WireMetrics.spacingS)
         // 利用者の希望で、ふつうの置き場所より10pt下げる。
         .offset(y: 10)
+    }
+}
+
+/// デッキが無いジャンルと読み込めなかったときのシート。情報は持たず、数字を0にして、
+/// ダウンロードボタンは「準備中」で押せなくする（要件 G10）。
+private struct GalleryPlaceholderSheet: View {
+    var body: some View {
+        SheetMetricsRow {
+            SheetMetric(title: "収録語数") { Text("0語").wireFont(.titleS) }
+            Divider()
+            SheetMetric(title: "容量") { Text("0MB").wireFont(.titleS) }
+            Divider()
+            SheetMetric(title: "レベル") { Text("—").wireFont(.titleS) }
+        }
+        .padding(.horizontal, WireMetrics.screenPadding)
+        .padding(.top, WireMetrics.spacingXL)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .overlay(alignment: .bottom) {
+            GalleryDownloadButton(title: "準備中", isEnabled: false) {}
+        }
     }
 }
 
