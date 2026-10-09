@@ -107,12 +107,16 @@ struct DeckLibraryView: View {
     @ViewBuilder
     private func content(for genre: GalleryGenre, in proxy: GeometryProxy) -> some View {
         let genreBoxes = boxes(in: genre)
+        let peekCover = max(0, GallerySheetDetent.peekHeight - proxy.safeAreaInsets.bottom)
+        let areaHeight = proxy.size.height - peekCover
         if loadFailed || genreBoxes.isEmpty {
-            GalleryUnavailableBoard { Task { await reload() } }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // 中央のカードと同じ大きさの仮のデッキを置く。シートを上げたときも、ふつうのカードと同じく上へ寄せる。
+            GalleryPlaceholderCard(isLoadFailed: loadFailed, onTap: tapPlaceholder)
+                .frame(height: DeckCarouselView.Metrics.expandedHeight)
+                .padding(.horizontal, WireMetrics.screenPadding)
+                .frame(height: areaHeight)
+                .modifier(FocusedCardPlacement(isFocused: isFocused, areaHeight: areaHeight, proxy: proxy))
         } else {
-            let peekCover = max(0, GallerySheetDetent.peekHeight - proxy.safeAreaInsets.bottom)
-            let areaHeight = proxy.size.height - peekCover
             DeckGalleryCarousel(
                 boxes: genreBoxes,
                 selectedId: selectedBox(in: genre)?.id,
@@ -200,7 +204,16 @@ struct DeckLibraryView: View {
             // 別の箱に回したら、選んでいる娘を先頭に戻す（要件 X20）。
             .id(box.id)
         } else {
-            Color.clear
+            GalleryPlaceholderSheet()
+        }
+    }
+
+    /// 仮のデッキを押した。読み込めなかったときは読み込み直し、デッキが無いときはふつうと同じくシートを上げる。
+    private func tapPlaceholder() {
+        if loadFailed {
+            Task { await reload() }
+        } else {
+            detent = GallerySheetDetent.expanded
         }
     }
 
@@ -261,7 +274,7 @@ struct DeckLibraryView: View {
     private func selectGenre(_ selected: GalleryGenre) {
         let all = GalleryGenre.allCases
         pagingDirection = (all.firstIndex(of: selected) ?? 0) >= (all.firstIndex(of: genre) ?? 0) ? .forward : .reverse
-        if isSheetPresented, selectedBox(in: selected) != nil {
+        if isSheetPresented {
             genre = selected
         } else {
             finishGenreChange(selected)
@@ -298,9 +311,9 @@ struct DeckLibraryView: View {
         action?()
     }
 
-    /// 選べる箱があるときだけシートを出す。無いときは看板だけを見せる。
+    /// シートはいつも出す。選べる箱が無いときは、仮のデッキのシートを出す。
     private func updateSheetPresence() {
-        let shouldPresent = selectedBox != nil && afterSheetDismiss == nil
+        let shouldPresent = afterSheetDismiss == nil
         if !shouldPresent { detent = GallerySheetDetent.peek }
         if isSheetPresented != shouldPresent { isSheetPresented = shouldPresent }
     }
@@ -506,22 +519,34 @@ private struct FocusedCardPlacement: ViewModifier {
     }
 }
 
-/// デッキが無いジャンルと、読み込めなかったときに出す看板（要件 G10）。
-private struct GalleryUnavailableBoard: View {
-    let onRetry: () -> Void
+/// デッキが無いジャンルと、読み込めなかったときにカルーセルの中央に置く仮のデッキ（要件 G10）。
+/// 中身の情報は持たない。灰色の面に点線の枠と鳥の記号を置き、「開発中」か「読み込めません」と出す。
+private struct GalleryPlaceholderCard: View {
+    let isLoadFailed: Bool
+    let onTap: () -> Void
 
     var body: some View {
-        VStack(spacing: WireMetrics.spacingM) {
-            Image(systemName: "exclamationmark.triangle")
+        let shape = RoundedRectangle(cornerRadius: WireMetrics.radiusCard, style: .continuous)
+        VStack(spacing: WireMetrics.spacingS) {
+            Image(systemName: "bird")
                 .font(.largeTitle)
+                .imageScale(.large)
                 .foregroundStyle(WireColor.ink)
                 .accessibilityHidden(true)
-            Text("読み込めません").wireFont(.titleS)
-            Button("もう一度読み込む", action: onRetry)
-                .buttonStyle(.bordered)
-                .tint(WireColor.ink)
+            Text(isLoadFailed ? "読み込めません" : "開発中").wireFont(.titleL)
+            if isLoadFailed {
+                Text("押すと読み込み直します").wireFont(.caption)
+            }
         }
-        .padding(WireMetrics.spacingXL)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(shape.fill(BentoTone.l3.fill))
+        .overlay(
+            shape.strokeBorder(WireColor.ink, style: StrokeStyle(lineWidth: WireMetrics.strokeHair, dash: [5, 4]))
+        )
+        .contentShape(shape)
+        .onTapGesture(perform: onTap)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
         .accessibilityIdentifier("galleryLoadMessage")
     }
 }
@@ -809,8 +834,20 @@ private struct DeckGallerySheet: View {
     }
 
     private var downloadArea: some View {
-        Button(action: onDownload) {
-            Text(box.isAdded ? "追加済み" : "ダウンロード")
+        GalleryDownloadButton(title: box.isAdded ? "追加済み" : "ダウンロード", isEnabled: !box.isAdded,
+                              action: onDownload)
+    }
+}
+
+/// シートの下に浮かべるダウンロードボタン。押せないときは色を抜く。
+private struct GalleryDownloadButton: View {
+    let title: String
+    let isEnabled: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
                 .font(.headline)
                 // 白い文字は #FF5D97 の上では基準のコントラストに届かない。利用者の判断で今はこのまま（要件 G5）。
                 .foregroundStyle(.white)
@@ -819,13 +856,33 @@ private struct DeckGallerySheet: View {
         }
         .buttonStyle(.plain)
         .pinkGlassSurface(in: Capsule())
-        .disabled(box.isAdded)
-        // 追加済みは透かさずに色を抜いて示す。薄くすると、後ろの一覧がボタン越しに透けて読みにくい。
-        .saturation(box.isAdded ? 0 : 1)
+        .disabled(!isEnabled)
+        // 押せないときは透かさずに色を抜いて示す。薄くすると、後ろの一覧がボタン越しに透けて読みにくい。
+        .saturation(isEnabled ? 1 : 0)
         .padding(.horizontal, WireMetrics.screenPadding)
         .padding(.bottom, WireMetrics.spacingS)
         // 利用者の希望で、ふつうの置き場所より10pt下げる。
         .offset(y: 10)
+    }
+}
+
+/// デッキが無いジャンルと読み込めなかったときのシート。情報は持たず、数字を0にして、
+/// ダウンロードボタンは「準備中」で押せなくする（要件 G10）。
+private struct GalleryPlaceholderSheet: View {
+    var body: some View {
+        SheetMetricsRow {
+            SheetMetric(title: "収録語数") { Text("0語").wireFont(.titleS) }
+            Divider()
+            SheetMetric(title: "容量") { Text("0MB").wireFont(.titleS) }
+            Divider()
+            SheetMetric(title: "レベル") { Text("—").wireFont(.titleS) }
+        }
+        .padding(.horizontal, WireMetrics.screenPadding)
+        .padding(.top, WireMetrics.spacingXL)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .overlay(alignment: .bottom) {
+            GalleryDownloadButton(title: "準備中", isEnabled: false) {}
+        }
     }
 }
 
