@@ -116,6 +116,8 @@ struct DeckLibraryView: View {
             .frame(height: 48)
             .padding(WireMetrics.spacingXS)
             .glassBarSurface(in: Capsule())
+            // ジャンルを横に滑らせても戻らないようにする。
+            .backSwipeProtectedRegion()
             .accessibilityElement(children: .contain)
             .accessibilityLabel("ジャンル")
         }
@@ -433,6 +435,8 @@ private struct DeckGalleryCarousel: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @StateObject private var motion = AudioCarouselMotion()
+    /// 縦になぞると決まった指だけで回す。横と決まった指（戻るスワイプ）は、途中で縦へずれても回さない。
+    @State private var axisLock = DragAxisLock()
     @State private var centerIndex = 0
 
     var body: some View {
@@ -513,13 +517,15 @@ private struct DeckGalleryCarousel: View {
     private var dragGesture: some Gesture {
         DragGesture(minimumDistance: 12)
             .onChanged { value in
-                guard boxes.count > 1 else { return }
+                guard boxes.count > 1,
+                      axisLock.axis(start: value.startLocation, translation: value.translation) == .vertical else { return }
                 if !motion.isDragging {
                     motion.beginDrag(at: value.time.timeIntervalSinceReferenceDate)
                 }
                 motion.drag(translation: value.translation.height, at: value.time.timeIntervalSinceReferenceDate)
             }
             .onEnded { value in
+                axisLock.reset()
                 guard motion.isDragging else { return }
                 motion.endDrag(at: value.time.timeIntervalSinceReferenceDate,
                                animated: !reduceMotion, completion: complete)
