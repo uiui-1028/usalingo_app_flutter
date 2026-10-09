@@ -33,6 +33,13 @@ struct DeckLibraryView: View {
     @State private var boxAwaitingCellularConsent: OfficialBox?
     /// シートを閉じ切ってから行うこと。シートを出したまま戻ると、画面だけが先に消えてしまう。
     @State private var afterSheetDismiss: (() -> Void)?
+    /// 横になぞって戻るときに、画面を指に付いて右へずらす量。
+    @State private var backDragWidth: CGFloat = 0
+    /// 戻る指の向き。学習画面の引き出しと同じく、なぞり始めに横と決まった指だけで戻る。
+    @State private var backSwipeLock = DragAxisLock()
+    @GestureState private var isBackSwipeTouching = false
+    /// ジャンルのバーの場所。ここから始まった指は、バーの選択枠を滑らせる操作なので戻らない。
+    @State private var genreBarFrame = CGRect.null
 
     private var genreBoxes: [OfficialBox] { boxes.filter { $0.genre == genre } }
     private var selectedBox: OfficialBox? { genreBoxes.first { $0.id == selectedId } }
@@ -57,11 +64,19 @@ struct DeckLibraryView: View {
                 }
             }
             .animation(reduceMotion ? nil : .spring(response: 0.36, dampingFraction: 0.88), value: isFocused)
+            .offset(x: backDragWidth)
+            .simultaneousGesture(backSwipe(width: proxy.size.width))
         }
         .background(WireColor.background)
+        // ヘッダーを隠すと UIKit の戻るスワイプも止まる。この画面はシートを閉じてから戻る必要があるので、
+        // UIKit の戻るスワイプは使わず、`backSwipe` で戻る。
         .toolbar(.hidden, for: .navigationBar)
-        // ヘッダーを隠すと戻るスワイプも止まるので、ほかの画面と同じ仕組みで戻す。
-        .background { BackSwipeEnabler(canBegin: { !isFocused }) }
+        .onChange(of: isBackSwipeTouching) { _, touching in
+            // システムに指を取り上げられたときは onEnded が来ないので、ずらした画面を元へ戻す。
+            guard !touching, backSwipeLock != DragAxisLock() else { return }
+            backSwipeLock.reset()
+            withAnimation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.86)) { backDragWidth = 0 }
+        }
         .sheet(isPresented: $isSheetPresented, onDismiss: runAfterSheetDismiss) { sheet }
         .task { await reload() }
         .onChange(of: genre) { _, _ in selectFirstDeckIfNeeded() }
@@ -116,8 +131,7 @@ struct DeckLibraryView: View {
             .frame(height: 48)
             .padding(WireMetrics.spacingXS)
             .glassBarSurface(in: Capsule())
-            // ジャンルを横に滑らせても戻らないようにする。
-            .backSwipeProtectedRegion()
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { genreBarFrame = $0 }
             .accessibilityElement(children: .contain)
             .accessibilityLabel("ジャンル")
         }
@@ -162,6 +176,30 @@ struct DeckLibraryView: View {
     }
 
     // MARK: - 動き
+
+    /// 横になぞって前の画面へ戻る。学習画面の引き出しと同じく、向きはなぞり始めに一度だけ決め、
+    /// 横と決まった指は画面を右へずらすだけでカルーセルを回さない。縦と決まった指はカルーセルに任せる。
+    /// 幅の3分の1を超える勢いで離したら、シートを閉じてから戻る。
+    private func backSwipe(width: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 12, coordinateSpace: .global)
+            .updating($isBackSwipeTouching) { _, state, _ in state = true }
+            .onChanged { value in
+                guard !isFocused, !genreBarFrame.contains(value.startLocation),
+                      backSwipeLock.axis(start: value.startLocation, translation: value.translation) == .horizontal
+                else { return }
+                backDragWidth = max(0, value.translation.width)
+            }
+            .onEnded { value in
+                backSwipeLock.reset()
+                guard backDragWidth > 0 else { return }
+                if value.predictedEndTranslation.width > width / 3 {
+                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { backDragWidth = width }
+                    leave()
+                } else {
+                    withAnimation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.86)) { backDragWidth = 0 }
+                }
+            }
+    }
 
     private func leave() {
         afterSheetDismiss = { dismiss() }
