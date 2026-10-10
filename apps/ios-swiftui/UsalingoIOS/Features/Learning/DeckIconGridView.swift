@@ -142,6 +142,8 @@ struct DeckIconGridView: View {
     /// なぞり始めの向きで、縦（スクロール）かどうかを一度だけ決める。
     @State private var isVerticalDrag: Bool?
     @GestureState private var isScrollTouching = false
+    /// 指を離したあと、勢いで一覧をすべらせている動き。触れたらその場で止める。
+    @State private var glideTask: Task<Void, Never>?
     @GestureState private var isPressing = false
     @GestureState(resetTransaction: Transaction(animation: .spring(response: 0.25, dampingFraction: 0.7)))
     private var holdingDeckId: Int?
@@ -288,6 +290,7 @@ struct DeckIconGridView: View {
             // マスのタップと長押しと同時に受ける。ふつうの `gesture` だと、マスの操作に指を取られてスクロールできない。
             // 長押しが決まる前（0.35秒）に指が動けば長押しは外れてスクロールになり、決まったあとの指はスクロールに使わない。
             .simultaneousGesture(scrollGesture)
+            .simultaneousGesture(touchGesture)
             .coordinateSpace(name: Self.coordinateSpace)
             .overlay { floatingCard(grid) }
             .overlay { if isFloating { floatSurface } }
@@ -311,6 +314,7 @@ struct DeckIconGridView: View {
             guard !touching, scrollStart != nil else { return }
             isVerticalDrag = nil
             scrollStart = nil
+            releaseTapSuppression()
             settleScroll(to: scrollOffset)
         }
         // フォルダを閉じたりデッキを消したりして並びが短くなったら、空いた所を見せたままにしない。
@@ -357,8 +361,8 @@ struct DeckIconGridView: View {
                         && abs(value.translation.height) >= abs(value.translation.width)
                 }
                 guard isVerticalDrag == true else { return }
-                // ponytail: 慣性で動いている途中に触ると、止まる先へ一度で移ってから指に付く。
-                // 途中の位置で止めるには、カルーセルのように自前で毎フレーム動かす必要がある。
+                // スクロールした指を離しても、マスのタップ（学習を始める）にしない。
+                frames.isTapSuppressed = true
                 let start = scrollStart ?? scrollOffset
                 scrollStart = start
                 scrollOffset = rubberBand(start - value.translation.height)
@@ -380,12 +384,49 @@ struct DeckIconGridView: View {
         return offset > maximum ? maximum + (offset - maximum) * 0.3 : offset
     }
 
-    /// 端の内側へ収めて、勢いを残しながら止める。
+    /// 端の内側へ収めて、勢いを残しながら止める。毎フレーム位置を書き換えて動かすので、
+    /// すべっている途中に触れたら、その場の位置で止められる。
     private func settleScroll(to offset: CGFloat) {
+        glideTask?.cancel()
+        glideTask = nil
         let target = min(max(offset, 0), maxScrollOffset)
-        withAnimation(reduceMotion ? .easeOut(duration: 0.2) : .spring(response: 0.5, dampingFraction: 1)) {
+        let start = scrollOffset
+        guard target != start else { return }
+        guard !reduceMotion else {
             scrollOffset = target
+            return
         }
+        glideTask = Task { @MainActor in
+            let began = Date()
+            let duration = 0.5
+            while !Task.isCancelled {
+                let t = min(Date().timeIntervalSince(began) / duration, 1)
+                scrollOffset = start + (target - start) * (1 - pow(1 - t, 3))
+                if t >= 1 {
+                    glideTask = nil
+                    return
+                }
+                try? await Task.sleep(for: .milliseconds(8))
+            }
+        }
+    }
+
+    /// 指が触れた瞬間を受ける。すべっている途中なら一覧をその場で止め、その指ではマスを開かない（iPhone の標準のスクロールと同じ）。
+    private var touchGesture: some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { _ in
+                guard let glideTask else { return }
+                glideTask.cancel()
+                self.glideTask = nil
+                frames.isTapSuppressed = true
+            }
+            .onEnded { _ in releaseTapSuppression() }
+    }
+
+    /// 指を離したときのタップを除き終えてから、次の指のために目印を外す。
+    private func releaseTapSuppression() {
+        let frames = frames
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { frames.isTapSuppressed = false }
     }
 
     /// 最後に選んだデッキの行が真ん中に来るようにスクロールする。フォルダの中のデッキなら、そのフォルダ。
@@ -877,9 +918,7 @@ struct DeckIconGridView: View {
         isFloating = false
         floatStart = nil
         autoScrollDirection = 0
-        // 指を離したときのタップを除き終えてから、次の指のために目印を外す。
-        let frames = frames
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { frames.isTapSuppressed = false }
+        releaseTapSuppression()
     }
 
     private func endDrag() {
