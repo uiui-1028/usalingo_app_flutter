@@ -285,7 +285,9 @@ struct DeckIconGridView: View {
             }
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
             .contentShape(Rectangle())
-            .gesture(scrollGesture)
+            // マスのタップと長押しと同時に受ける。ふつうの `gesture` だと、マスの操作に指を取られてスクロールできない。
+            // 長押しが決まる前（0.35秒）に指が動けば長押しは外れてスクロールになり、決まったあとの指はスクロールに使わない。
+            .simultaneousGesture(scrollGesture)
             .coordinateSpace(name: Self.coordinateSpace)
             .overlay { floatingCard(grid) }
             .overlay { if isFloating { floatSurface } }
