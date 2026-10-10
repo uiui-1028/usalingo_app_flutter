@@ -20,7 +20,10 @@ struct AppShellView: View {
     @GestureState private var isTouching = false
     /// 遊び方のバーの位置。ここから始まった指は、バーの選択枠を滑らせる操作なので引き出しを動かさない。
     @State private var tabBarFrame = CGRect.null
+    /// 上のデッキ一覧の見せ方の切り替えの位置。ここから始まった指は、選択枠を滑らせる操作なので引き出しを動かさない。
+    @State private var listStyleBarFrame = CGRect.null
     @AppStorage(DeckPlayStyle.storageKey) private var playStyle: DeckPlayStyle = .card
+    @AppStorage(DeckListStyle.storageKey) private var listStyle: DeckListStyle = .carousel
 
     var body: some View {
         GeometryReader { proxy in
@@ -114,6 +117,8 @@ struct AppShellView: View {
             HStack {
                 screenButton(.design)
                 Spacer()
+                listStyleBar
+                Spacer()
                 screenButton(.profile)
             }
             .padding(.horizontal, WireMetrics.screenPadding)
@@ -141,6 +146,7 @@ struct AppShellView: View {
                 if isHorizontalDrag == nil {
                     // 遊び方のバーから始まった指と、長押しでデッキのメニューや並べ替えに入った指は、横へ動いても引き出しに使わない。
                     isHorizontalDrag = !tabBarFrame.contains(value.startLocation)
+                        && !listStyleBarFrame.contains(value.startLocation)
                         && !isHoldingDeck
                         && abs(value.translation.width) > abs(value.translation.height)
                 }
@@ -223,6 +229,21 @@ struct AppShellView: View {
             .ignoresSafeArea(edges: Edge.Set(edge))
             .allowsHitTesting(false)
             .accessibilityHidden(true)
+    }
+
+    /// デッキ一覧の見せ方（カルーセル・アイコン）の切り替え。デッキ追加画面のジャンルと同じ、指の下へ滑るセグメント。
+    private var listStyleBar: some View {
+        SegmentSlider(items: DeckListStyle.allCases, selection: $listStyle, title: \.title) { style in
+            Image(systemName: style.symbol)
+                .font(.system(size: 17))
+                .foregroundStyle(WireColor.ink)
+        }
+        .frame(width: 96, height: 36)
+        .padding(WireMetrics.spacingXS)
+        .glassBarSurface(in: Capsule())
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { listStyleBarFrame = $0 }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("デッキの見せ方")
     }
 
     private func screenButton(_ screen: ShellScreen) -> some View {

@@ -100,7 +100,11 @@ struct LearningDashboardView: View {
     @State private var choiceDeck: Deck?
     @State private var progressDeck: Deck?
     @AppStorage(DeckPlayStyle.storageKey) private var playStyle: DeckPlayStyle = .card
+    @AppStorage(DeckListStyle.storageKey) private var listStyle: DeckListStyle = .carousel
     @State private var errorMessage: String?
+    /// 上に重ねたボタンの下端（画面の座標）。アイコンビューはその下から並べる。
+    /// 並べ替えでボタンを隠している間も、最後に見えていた場所を使い続ける。
+    @State private var topControlsBottom: CGFloat = 0
 
     var body: some View {
         NavigationStack {
@@ -187,7 +191,8 @@ struct LearningDashboardView: View {
         carousel
             .padding(.horizontal, WireMetrics.screenPadding)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .ignoresSafeArea(edges: .vertical)
+            // アイコンビューは上下にスクロールする一覧なので、上下の安全域の内側から並べる。
+            .ignoresSafeArea(edges: listStyle == .carousel ? .vertical : [])
             .background {
                 playStyle.background
                     .animation(.easeOut(duration: 0.2), value: playStyle)
@@ -200,52 +205,17 @@ struct LearningDashboardView: View {
                     .padding(.bottom, WireMetrics.spacingM)
             }
             // 中の空のナビゲーションバーの分だけ下がらないよう、画面の上端から置く（上の余白は外枠が付ける）。
-            .overlay(alignment: .top) { topControls.ignoresSafeArea(edges: .top) }
+            .overlay(alignment: .top) {
+                topControls
+                    .ignoresSafeArea(edges: .top)
+                    .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).maxY } action: { bottom in
+                        if bottom > 1 { topControlsBottom = bottom }
+                    }
+            }
     }
 
     private var carousel: some View {
-        DeckCarouselView(
-            decks: decks,
-            centeredDeckId: deckOrder.selectedDeckId,
-            coverURL: { covers[$0.id] },
-            summary: summary(for:),
-            onOpen: open,
-            onSelect: select,
-            onAdd: { edge in
-                addEdge = edge
-                isShowingLibrary = true
-            },
-            role: role(of:),
-            children: { deck in folder(of: deck).map(childDecks(of:)) ?? [] },
-            onToggleFolder: toggleFolder,
-            isDrawerDragging: isDrawerDragging,
-            onLongPress: presentMenu(for:cardFrame:anchor:),
-            onPressMove: trackMenu(at:),
-            onPressEnd: {
-                dwellTask?.cancel()
-                guard menuTarget != nil, !isMenuConfirmed else { return }
-                let release = DeckMenuRelease.lifted(highlighted: menuHighlight)
-                if case .choose = release { HapticFeedbackService.success() }
-                menuRelease = release
-            },
-            liftDeckId: liftDeckId,
-            onDragStart: { _ in
-                dwellTask?.cancel()
-                liftDeckId = nil
-                // 長押しのまま動かし始めたら、メニューを薄く消して並べ替えに移る。
-                pendingMenuAction = nil
-                if menuTarget != nil { menuRelease = .dismiss }
-                isArranging = true
-            },
-            onDragEnd: { isArranging = false },
-            onDrop: drop(from:target:),
-            onReorderInFolder: reorderInFolder(deckId:folderDeckId:index:),
-            // 読み直しでデッキが並びに出たら、同じデッキの追加の途中の枠は出さない。
-            adding: appState.addingDecks.filter { pending in !decks.contains { $0.id == pending.localDeckId } },
-            downloadState: { appState.downloadState(forDeckId: $0.id) },
-            onRetryAdding: appState.retryAdding,
-            onRetryDownload: { appState.retryDownload(deckId: $0.id) }
-        )
+        deckList
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         // 長押しメニューはタブバーまで覆うよう全画面に重ねる。下から出てくる動きは消し、中で薄く出す。
         .fullScreenCover(item: $menuTarget, onDismiss: runPendingMenuAction) { target in
@@ -310,6 +280,93 @@ struct LearningDashboardView: View {
                 "モバイル回線で約\(ByteCountFormatter.string(fromByteCount: $0, countStyle: .file))を使います。"
             } ?? "モバイル回線を使います。")
         }
+    }
+
+    /// デッキ一覧。カルーセルか、縦2列のアイコンか。長押しメニューと並べ替えは同じ受け口を使う。
+    @ViewBuilder
+    private var deckList: some View {
+        switch listStyle {
+        case .carousel:
+            DeckCarouselView(
+                decks: decks,
+                centeredDeckId: deckOrder.selectedDeckId,
+                coverURL: { covers[$0.id] },
+                summary: summary(for:),
+                onOpen: open,
+                onSelect: select,
+                onAdd: { edge in
+                    addEdge = edge
+                    isShowingLibrary = true
+                },
+                role: role(of:),
+                children: { deck in folder(of: deck).map(childDecks(of:)) ?? [] },
+                onToggleFolder: toggleFolder,
+                isDrawerDragging: isDrawerDragging,
+                onLongPress: presentMenu(for:cardFrame:anchor:),
+                onPressMove: trackMenu(at:),
+                onPressEnd: endPress,
+                liftDeckId: liftDeckId,
+                onDragStart: { _ in beginArranging() },
+                onDragEnd: { isArranging = false },
+                onDrop: drop(from:target:),
+                onReorderInFolder: reorderInFolder(deckId:folderDeckId:index:),
+                adding: pendingAdds,
+                downloadState: { appState.downloadState(forDeckId: $0.id) },
+                onRetryAdding: appState.retryAdding,
+                onRetryDownload: { appState.retryDownload(deckId: $0.id) }
+            )
+        case .icon:
+            DeckIconGridView(
+                decks: decks,
+                selectedDeckId: deckOrder.selectedDeckId,
+                coverURL: { covers[$0.id] },
+                onOpen: open,
+                onSelect: select,
+                onAdd: {
+                    addEdge = .bottom
+                    isShowingLibrary = true
+                },
+                role: role(of:),
+                children: { deck in folder(of: deck).map(childDecks(of:)) ?? [] },
+                onToggleFolder: toggleFolder,
+                onLongPress: presentMenu(for:cardFrame:anchor:),
+                onPressMove: trackMenu(at:),
+                onPressEnd: endPress,
+                liftDeckId: liftDeckId,
+                onDragStart: { _ in beginArranging() },
+                onDragEnd: { isArranging = false },
+                onDrop: drop(from:target:),
+                onReorderInFolder: reorderInFolder(deckId:folderDeckId:index:),
+                adding: pendingAdds,
+                downloadState: { appState.downloadState(forDeckId: $0.id) },
+                onRetryAdding: appState.retryAdding,
+                onRetryDownload: { appState.retryDownload(deckId: $0.id) },
+                topControlsBottom: topControlsBottom
+            )
+        }
+    }
+
+    /// 読み直しでデッキが並びに出たら、同じデッキの追加の途中の枠は出さない。
+    private var pendingAdds: [PendingDeckAdd] {
+        appState.addingDecks.filter { pending in !decks.contains { $0.id == pending.localDeckId } }
+    }
+
+    /// 長押しのあと、運ばずに指を離した。
+    private func endPress() {
+        dwellTask?.cancel()
+        guard menuTarget != nil, !isMenuConfirmed else { return }
+        let release = DeckMenuRelease.lifted(highlighted: menuHighlight)
+        if case .choose = release { HapticFeedbackService.success() }
+        menuRelease = release
+    }
+
+    /// 長押しのまま動かし始めたら、メニューを薄く消して並べ替えに移る。
+    private func beginArranging() {
+        dwellTask?.cancel()
+        liftDeckId = nil
+        pendingMenuAction = nil
+        if menuTarget != nil { menuRelease = .dismiss }
+        isArranging = true
     }
 
     // MARK: - フォルダ
