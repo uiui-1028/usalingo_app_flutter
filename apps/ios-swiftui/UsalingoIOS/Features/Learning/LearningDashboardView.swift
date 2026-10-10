@@ -329,7 +329,6 @@ struct LearningDashboardView: View {
                 role: role(of:),
                 children: { deck in folder(of: deck).map(childDecks(of:)) ?? [] },
                 onToggleFolder: toggleFolder,
-                isDrawerDragging: isDrawerDragging,
                 onLongPress: presentMenu(for:cardFrame:anchor:),
                 onPressMove: trackMenu(at:),
                 onPressEnd: endPress,

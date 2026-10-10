@@ -101,7 +101,6 @@ struct DeckIconGridView: View {
     var role: (Deck) -> DeckCardRole = { _ in .deck }
     var children: (Deck) -> [Deck] = { _ in [] }
     var onToggleFolder: (Deck) -> Void = { _ in }
-    var isDrawerDragging = false
     let onLongPress: (Deck, CGRect, CGPoint) -> Void
     var onPressMove: (CGPoint) -> Bool = { _ in false }
     var onPressEnd: () -> Void = {}
@@ -136,6 +135,13 @@ struct DeckIconGridView: View {
     @State private var floatStart: CGPoint?
     @State private var isSettling = false
     @State private var autoScrollDirection = 0
+    /// 一覧をどれだけ上へスクロールしたか。0 が先頭。
+    @State private var scrollOffset: CGFloat = 0
+    /// なぞり始めたときの `scrollOffset`。なぞっている間だけ持つ。
+    @State private var scrollStart: CGFloat?
+    /// なぞり始めの向きで、縦（スクロール）かどうかを一度だけ決める。
+    @State private var isVerticalDrag: Bool?
+    @GestureState private var isScrollTouching = false
     @GestureState private var isPressing = false
     @GestureState(resetTransaction: Transaction(animation: .spring(response: 0.25, dampingFraction: 0.7)))
     private var holdingDeckId: Int?
@@ -259,62 +265,57 @@ struct DeckIconGridView: View {
     var body: some View {
         GeometryReader { proxy in
             let grid = layout(width: proxy.size.width)
-            let cells = placedCells
-            let lastPosition = cells.map(\.position).max() ?? 0
-            // 運んでいる間は1行足して、末尾へも落とせるようにする。
-            let rows = grid.rowCount(cells: lastPosition + 1) + (drag == nil ? 0 : 1)
+            let top = gridTop
 
-            ScrollViewReader { scroller in
-                ScrollView {
-                    ZStack(alignment: .topLeading) {
-                        // 自動で送るときの目印。1行に1つ置く。
-                        VStack(spacing: grid.spacing) {
-                            ForEach(0..<rows, id: \.self) { row in
-                                Color.clear.frame(height: grid.cellHeight).id(Self.rowAnchor(row))
-                            }
-                        }
-                        .frame(width: proxy.size.width)
-                        .accessibilityHidden(true)
-
-                        if let gap = placeholderPosition {
-                            let origin = grid.origin(of: gap)
-                            dropPlaceholder(grid)
-                                .offset(x: origin.x, y: origin.y)
-                        }
-                        ForEach(cells) { placed in
-                            let origin = grid.origin(of: placed.position)
-                            cellView(placed.cell)
-                                .frame(width: grid.cellWidth, height: grid.cellHeight)
-                                .offset(x: origin.x, y: origin.y)
-                        }
-                    }
-                    .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.coordinateSpace)) } action: {
-                        frames.grid = $0
-                    }
-                    .padding(.top, topPadding)
-                    .padding(.bottom, WireMetrics.spacingXL)
+            // ponytail: ScrollView は使わない。iOS 18 では、マスに付けた「長押しのあと運ぶ」操作が
+            // ScrollView のスクロールの指を取ってしまい、さらに重ねる先を大きく見せたマスの端が切れるため。
+            // カルーセルと同じく、自前の縦のなぞりで一覧を動かす。VoiceOver でのスクロールは後でまとめて作る。
+            ZStack(alignment: .topLeading) {
+                if let gap = placeholderPosition {
+                    let origin = grid.origin(of: gap)
+                    dropPlaceholder(grid)
+                        .offset(x: origin.x, y: top + origin.y)
                 }
-                .scrollIndicators(.hidden)
-                // 長押しで掴んでいる間と、引き出しを横になぞっている間は、一覧をスクロールしない。
-                .scrollDisabled(pressedDeckId != nil || isDrawerDragging)
-                .coordinateSpace(name: Self.coordinateSpace)
-                .overlay { floatingCard(grid) }
-                .overlay { if isFloating { floatSurface } }
-                // 並べ終えてから送る。
-                .onAppear { DispatchQueue.main.async { scrollToSelected(scroller) } }
-                .task(id: autoScrollDirection) { await autoScroll(scroller, grid: grid, rows: rows) }
+                ForEach(placedCells) { placed in
+                    let origin = grid.origin(of: placed.position)
+                    cellView(placed.cell)
+                        .frame(width: grid.cellWidth, height: grid.cellHeight)
+                        .offset(x: origin.x, y: top + origin.y)
+                }
             }
+            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
+            .contentShape(Rectangle())
+            .gesture(scrollGesture)
+            .coordinateSpace(name: Self.coordinateSpace)
+            .overlay { floatingCard(grid) }
+            .overlay { if isFloating { floatSurface } }
             .onGeometryChange(for: CGPoint.self) { $0.frame(in: .global).origin } action: {
                 frames.origin = $0
                 viewportTop = $0.y
             }
-            .onAppear { viewportSize = proxy.size }
+            .onAppear {
+                viewportSize = proxy.size
+                // 並べ終えてから送る。
+                DispatchQueue.main.async { scrollToSelected() }
+            }
             .onChange(of: proxy.size) { _, size in viewportSize = size }
         }
         .onChange(of: isPressing) { _, pressing in
             // システムに指を取り上げられたときは onEnded が来ないので、ここで片付ける。
             if !pressing, !isSettling, !isFloating { cancelPress() }
         }
+        .onChange(of: isScrollTouching) { _, touching in
+            // システムに指を取り上げられたときは onEnded が来ないので、端からはみ出したままにしない。
+            guard !touching, scrollStart != nil else { return }
+            isVerticalDrag = nil
+            scrollStart = nil
+            settleScroll(to: scrollOffset)
+        }
+        // フォルダを閉じたりデッキを消したりして並びが短くなったら、空いた所を見せたままにしない。
+        .onChange(of: maxScrollOffset) { _, maximum in
+            if scrollOffset > maximum, scrollStart == nil { settleScroll(to: maximum) }
+        }
+        .task(id: autoScrollDirection) { await autoScroll() }
         .onChange(of: liftDeckId) { _, id in lift(id) }
     }
 
@@ -324,14 +325,76 @@ struct DeckIconGridView: View {
         return max(0, covered) + WireMetrics.spacingS
     }
 
-    private static func rowAnchor(_ row: Int) -> String { "deckIconRow-\(row)" }
+    /// 並びの1段目の上端（見えている枠の座標）。スクロールした分だけ上へずれる。
+    private var gridTop: CGFloat { topPadding - scrollOffset }
 
-    /// 最後に選んだデッキが見えるところまでスクロールする。フォルダの中のデッキなら、そのフォルダ。
-    private func scrollToSelected(_ scroller: ScrollViewProxy) {
+    /// 並べる行の数。運んでいる間は1行足して、末尾へも落とせるようにする。
+    private var rowCount: Int {
+        let lastPosition = placedCells.map(\.position).max() ?? 0
+        return layout(width: viewportSize.width).rowCount(cells: lastPosition + 1) + (drag == nil ? 0 : 1)
+    }
+
+    /// いちばん下までスクロールしたときの量。最後の行の下に少し余白を残す。
+    private var maxScrollOffset: CGFloat {
+        let grid = layout(width: viewportSize.width)
+        let rows = CGFloat(rowCount)
+        let content = topPadding + rows * grid.rowStride - grid.spacing + WireMetrics.spacingXL
+        return max(0, content - viewportSize.height)
+    }
+
+    // MARK: - スクロール
+
+    /// 縦になぞって一覧を動かす。向きはなぞり始めに一度だけ決め、横と決まった指は外枠の引き出しに任せる。
+    /// 長押しが決まった指はメニューと並べ替えに使う。
+    private var scrollGesture: some Gesture {
+        DragGesture(minimumDistance: 12)
+            .updating($isScrollTouching) { _, state, _ in state = true }
+            .onChanged { value in
+                if isVerticalDrag == nil {
+                    isVerticalDrag = pressedDeckId == nil && drag == nil
+                        && abs(value.translation.height) >= abs(value.translation.width)
+                }
+                guard isVerticalDrag == true else { return }
+                // ponytail: 慣性で動いている途中に触ると、止まる先へ一度で移ってから指に付く。
+                // 途中の位置で止めるには、カルーセルのように自前で毎フレーム動かす必要がある。
+                let start = scrollStart ?? scrollOffset
+                scrollStart = start
+                scrollOffset = rubberBand(start - value.translation.height)
+            }
+            .onEnded { value in
+                defer {
+                    isVerticalDrag = nil
+                    scrollStart = nil
+                }
+                guard isVerticalDrag == true, let start = scrollStart else { return }
+                settleScroll(to: start - value.predictedEndTranslation.height)
+            }
+    }
+
+    /// 端より先へは、指の動きの一部だけ伸ばす。
+    private func rubberBand(_ offset: CGFloat) -> CGFloat {
+        if offset < 0 { return offset * 0.3 }
+        let maximum = maxScrollOffset
+        return offset > maximum ? maximum + (offset - maximum) * 0.3 : offset
+    }
+
+    /// 端の内側へ収めて、勢いを残しながら止める。
+    private func settleScroll(to offset: CGFloat) {
+        let target = min(max(offset, 0), maxScrollOffset)
+        withAnimation(reduceMotion ? .easeOut(duration: 0.2) : .spring(response: 0.5, dampingFraction: 1)) {
+            scrollOffset = target
+        }
+    }
+
+    /// 最後に選んだデッキの行が真ん中に来るようにスクロールする。フォルダの中のデッキなら、そのフォルダ。
+    private func scrollToSelected() {
         guard let selectedDeckId,
               let position = placedCells.first(where: { cellDeck($0.cell)?.id == selectedDeckId })?.position
         else { return }
-        scroller.scrollTo(Self.rowAnchor(position / DeckIconGridLayout.columns), anchor: .center)
+        let grid = layout(width: viewportSize.width)
+        let row = CGFloat(position / DeckIconGridLayout.columns)
+        let offset = topPadding + row * grid.rowStride + grid.cellHeight / 2 - viewportSize.height / 2
+        scrollOffset = min(max(offset, 0), maxScrollOffset)
     }
 
     private func cellDeck(_ cell: Cell) -> Deck? {
@@ -671,7 +734,7 @@ struct DeckIconGridView: View {
         current.location = location
         let previous = (current.gap, current.tileGap, current.target)
         let grid = layout(width: viewportSize.width)
-        let point = CGPoint(x: location.x - frames.grid.minX, y: location.y - frames.grid.minY)
+        let point = CGPoint(x: location.x, y: location.y - gridTop)
         let hit = grid.hit(point)
 
         if current.isInFolder, case .child(let folderRow) = current.source {
@@ -736,8 +799,7 @@ struct DeckIconGridView: View {
             position = onto.position
         }
         let origin = grid.origin(of: position)
-        return CGPoint(x: frames.grid.minX + origin.x + grid.cellWidth / 2,
-                       y: frames.grid.minY + origin.y + grid.cellHeight / 2)
+        return CGPoint(x: origin.x + grid.cellWidth / 2, y: gridTop + origin.y + grid.cellHeight / 2)
     }
 
     private func drop(_ finished: GridDrag) {
@@ -827,16 +889,13 @@ struct DeckIconGridView: View {
     }
 
     /// 端へ寄せている間、1行ずつ送る。送ったら、指の下の落とし先を選び直す。
-    private func autoScroll(_ scroller: ScrollViewProxy, grid: DeckIconGridLayout, rows: Int) async {
+    private func autoScroll() async {
         guard autoScrollDirection != 0 else { return }
         while !Task.isCancelled, drag != nil {
-            let top = Int((max(0, -frames.grid.minY) / grid.rowStride).rounded(.down))
-            let bottom = Int(((viewportSize.height - frames.grid.minY) / grid.rowStride).rounded(.down))
-            let row = autoScrollDirection < 0 ? top - 1 : bottom + 1
-            guard row >= 0, row < rows else { return }
-            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.3)) {
-                scroller.scrollTo(Self.rowAnchor(row), anchor: autoScrollDirection < 0 ? .top : .bottom)
-            }
+            let step = layout(width: viewportSize.width).rowStride * CGFloat(autoScrollDirection)
+            let target = min(max(scrollOffset + step, 0), maxScrollOffset)
+            guard target != scrollOffset else { return }
+            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.3)) { scrollOffset = target }
             try? await Task.sleep(for: .seconds(0.45))
             if let location = drag?.location { updateDrag(to: location) }
         }
@@ -873,8 +932,6 @@ private final class GridFrameBox {
     var cells: [Int: CGRect] = [:]
     /// 一覧の見えている枠の、画面上の左上。
     var origin: CGPoint = .zero
-    /// 並びの場所（見えている枠の座標）。スクロールすると上下に動く。
-    var grid: CGRect = .zero
     var isTapSuppressed = false
     /// 長押しのあと指がいる場所（見えている枠の座標）。
     var pressLocation: CGPoint = .zero
