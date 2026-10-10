@@ -340,11 +340,14 @@ struct DeckIconGridView: View {
         return layout(width: viewportSize.width).rowCount(cells: lastPosition + 1) + (drag == nil ? 0 : 1)
     }
 
-    /// いちばん下までスクロールしたときの量。最後の行の下に少し余白を残す。
+    /// 最後の行の下に残す余白。下の遊び方のバー（ホームインジケータを含めて約83pt）に重ならないよう、多めに取る。
+    private static let bottomInset: CGFloat = 120
+
+    /// いちばん下までスクロールしたときの量。最後の行が遊び方のバーより上で止まる。
     private var maxScrollOffset: CGFloat {
         let grid = layout(width: viewportSize.width)
         let rows = CGFloat(rowCount)
-        let content = topPadding + rows * grid.rowStride - grid.spacing + WireMetrics.spacingXL
+        let content = topPadding + rows * grid.rowStride - grid.spacing + Self.bottomInset
         return max(0, content - viewportSize.height)
     }
 
